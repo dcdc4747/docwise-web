@@ -1,0 +1,11 @@
+[project]
+name = "docwise-web-backend"
+version = "0.1.0"
+description = "docwise-web 后端（FastAPI + SQLAlchemy + SQLite）"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "sqlalchemy>=2.0",
+    "pydantic-settings>=2.6",
+]
