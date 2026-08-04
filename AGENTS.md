@@ -6,12 +6,32 @@
 
 文档翻译智能体——Agent 是大脑，程序是手脚。当前阶段 0：项目骨架（后端 FastAPI + SQLAlchemy + SQLite，前端 Vue3 + Naive UI 由前端负责人搭建）。
 
+## 分工与身份（开工先确认你是谁）
+
+**开工第一步：运行 `git config user.name`（必要时再看 `git config user.email`）确认当前使用者的 GitHub 身份，然后对照下面的分工表，确定当前用户负责的模块。**
+
+分工表（2026-08-04 定稿）：
+
+| GitHub 用户名 | 称呼 | 负责模块 |
+|---|---|---|
+| dcdc4747 | 邹州 | 项目负责人 / 后端 / 仓库管理 / README / 密钥安全 / 验收（阶段 0 兼任） |
+| eternal-pudding | 小时 | 前端负责人（Vue3 + Naive UI 首页） |
+| Niluf-06 | 小符 | 视觉三方快测（对比表、结论） |
+| King-Rasamist | 小徐 | 测试样本与素材准备（用户名待确认，协作者邀请未发出） |
+| cshi0827 | 小陈 | 阶段 0 暂不参与，后续再安排 |
+
+职责边界：
+
+- 只做当前用户负责模块内的工作；需要改动其他模块时，先向用户说明，建议由对应负责人处理，不要擅自改别人的模块。
+- 如果通过 git 身份无法确定当前用户是谁（或身份对不上分工表），停下来问用户："你的 GitHub 用户名是什么？负责哪块？"
+- AI 负责把任务推进到 PR 创建完成，不越权合并（合并只能由 dcdc4747 审批后执行）。
+
 ## Git 协作流程（必须遵守）
 
 1. 开工前先同步：`git checkout main` 然后 `git pull`。
 2. 每个任务建独立分支，命名：`feat/xxx`（功能）、`fix/xxx`（修复）、`docs/xxx`（文档）、`chore/xxx`（杂项）。**禁止直接在 main 上改代码**。
 3. 提交信息用 Conventional Commits：`feat(scope): 说明`，scope 如 frontend / backend / repo。
-4. 改动完成后 push 到自己的分支，然后开 Pull Request（`gh pr create` 或网页操作）。PR 描述必须写清：做了什么、怎么验证、相关截图。
+4. **AI 必须主动把任务推进到 PR 创建完成**：push 到自己的分支（`git push -u origin <分支名>`），然后创建 Pull Request（`gh pr create` 或指导用户网页操作）。PR 描述必须写清：做了什么、怎么验证、相关截图。**不要只做本地提交不推送——PR 是进入 main 的唯一入口。**
 5. **不要直接推 main**——main 分支有保护，必须由 dcdc4747（邹州）审批后才能合并。
 6. 如果 PR 被要求修改：在同一个分支继续改、commit、push，PR 会自动更新。
 7. 遇到合并冲突：先 `git pull origin main` 到自己的分支，解决冲突后 add + commit + push。
