@@ -1,0 +1,11 @@
+# 统一换行符，避免 Windows 与 macOS/Linux 之间产生无谓差异
+* text=auto eol=lf
+
+# 二进制文件不要做文本规范化
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.pdf binary
+*.xlsx binary
+*.docx binary
+*.db binary

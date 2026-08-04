@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend-health:
+    name: 后端健康检查
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: 安装依赖
+        run: uv sync
+
+      - name: 启动后端并检查健康接口
+        run: |
+          uv run uvicorn app.main:app --port 8000 &
+          PID=$!
+          for i in $(seq 1 20); do
+            if curl -sf http://127.0.0.1:8000/api/health > /dev/null; then
+              echo "health ok"
+              kill $PID 2>/dev/null || true
+              exit 0
+            fi
+            sleep 1
+          done
+          kill $PID 2>/dev/null || true
+          echo "health check failed"
+          exit 1
