@@ -46,6 +46,9 @@ bun install   # 首次需联网安装依赖
 bun dev       # 启动开发服务器
 ```
 
+> 注意：不要直接双击 `frontend/index.html` 打开（会白屏），必须通过 `bun dev`
+> 启动后访问 http://localhost:5173 。
+
 启动后验证：
 
 - 打开 http://127.0.0.1:5173 ，看到「文档翻译智能体」首页（产品介绍 + PDF 上传入口占位）。
