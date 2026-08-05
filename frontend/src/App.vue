@@ -111,8 +111,8 @@ function handlePlaceholderUpload() {
             <n-tag :type="statusMeta[backendStatus].type" :bordered="false">
               {{ statusMeta[backendStatus].text }}
             </n-tag>
-            <n-text v-if="backendStatus === 'ok'" depth="3" class="task-count">
-              任务列表共 {{ taskCount ?? '?' }} 条
+            <n-text v-if="backendStatus === 'ok' && taskCount !== null" depth="3" class="task-count">
+              任务列表共 {{ taskCount }} 条
             </n-text>
           </section>
         </main>
