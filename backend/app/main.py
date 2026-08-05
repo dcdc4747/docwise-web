@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+from typing import Annotated
 
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -36,7 +37,7 @@ def health():
 
 
 @app.get("/api/tasks")
-def list_tasks(db: Session = Depends(get_db)):
+def list_tasks(db: Annotated[Session, Depends(get_db)]):
     rows = db.scalars(
         select(Task).order_by(Task.id.desc()).limit(50)
     ).all()
