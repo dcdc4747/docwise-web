@@ -37,8 +37,8 @@ uv run uvicorn app.main:app --port 8000
 
 ## 前端启动（约 2 分钟）
 
-前置：安装 [bun](https://bun.sh/)（JS/TS 包与环境管理器）。Windows 可执行
-`powershell -c "irm bun.sh/install.ps1 | iex"`，或按官网说明安装。
+前置：安装 [bun](https://bun.sh/)（JS/TS 包与环境管理器，自带运行时，无需单独安装
+Node.js）。Windows 可执行 `powershell -c "irm bun.sh/install.ps1 | iex"`，或按官网说明安装。
 
 ```bash
 cd frontend
