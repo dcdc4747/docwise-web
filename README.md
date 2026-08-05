@@ -35,9 +35,25 @@ uv run uvicorn app.main:app --port 8000
 
 可选配置：复制 `backend/.env.example` 为 `backend/.env`，可修改数据库路径（.env 不提交仓库）。
 
-## 前端启动（待前端负责人补充）
+## 前端启动（约 2 分钟）
 
-占位：Vue3 + Vite + Naive UI。启动命令与步骤由前端负责人补充到本节。
+前置：安装 [bun](https://bun.sh/)（JS/TS 包与环境管理器，自带运行时，无需单独安装
+Node.js）。Windows 可执行 `powershell -c "irm bun.sh/install.ps1 | iex"`，或按官网说明安装。
+
+```bash
+cd frontend
+bun install   # 首次需联网安装依赖
+bun dev       # 启动开发服务器
+```
+
+> 注意：不要直接双击 `frontend/index.html` 打开（会白屏），必须通过 `bun dev`
+> 启动后访问 http://localhost:5173 。
+
+启动后验证：
+
+- 打开 http://127.0.0.1:5173 ，看到「文档翻译智能体」首页（产品介绍 + PDF 上传入口占位）。
+- 先启动后端时，首页底部显示「后端状态：已连接」及任务数量；未启动则显示未连接。
+- 前端 `/api` 由 Vite 代理到 http://127.0.0.1:8000（后端），无需额外 CORS 配置。
 
 ## 阶段 0 验收方式
 

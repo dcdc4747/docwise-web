@@ -1,0 +1,135 @@
+:root {
+  font-family:
+    system-ui,
+    'Segoe UI',
+    Roboto,
+    'PingFang SC',
+    'Microsoft YaHei',
+    sans-serif;
+  color: #213547;
+  background-color: #f5f7fa;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+}
+
+.page-layout {
+  min-height: 100vh;
+}
+
+.page-header-inner {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 14px 24px;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.brand {
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.brand-sub {
+  color: #667085;
+  font-size: 14px;
+}
+
+.page-main {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 16px 24px 48px;
+}
+
+.page-hero {
+  text-align: center;
+  padding: 56px 0 40px;
+}
+
+.page-hero h1 {
+  margin: 0 0 8px;
+  font-size: 44px;
+  letter-spacing: -0.5px;
+}
+
+.tagline {
+  font-size: 18px;
+  color: #4f6ef7;
+  font-weight: 600;
+  margin: 0 0 16px;
+}
+
+.description {
+  max-width: 640px;
+  margin: 0 auto 24px;
+  color: #475467;
+  font-size: 16px;
+  line-height: 1.7;
+}
+
+.tech-tags {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}
+
+.page-section {
+  margin-top: 24px;
+}
+
+.upload-card .n-upload-dragger {
+  padding: 40px 24px;
+  text-align: center;
+}
+
+.upload-hint {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.upload-sub {
+  margin-top: 8px;
+  color: #98a2b3;
+  font-size: 13px;
+}
+
+.feature-card {
+  height: 100%;
+}
+
+.status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 32px;
+  padding: 16px;
+  background: #fff;
+  border: 1px solid #e4e7ec;
+  border-radius: 8px;
+}
+
+.task-count {
+  margin-left: 4px;
+}
+
+.page-footer {
+  text-align: center;
+  color: #667085;
+  font-size: 13px;
+  padding: 16px;
+}
+
+@media (max-width: 768px) {
+  .page-hero h1 {
+    font-size: 32px;
+  }
+}
