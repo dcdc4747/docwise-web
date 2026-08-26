@@ -1,14 +1,14 @@
 from contextlib import asynccontextmanager
 from typing import Annotated
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .config import BASE_DIR
 from .db import Base, engine, get_db
-from .models import Task
+from .models import Task, TaskBlock
 
 
 @asynccontextmanager
@@ -51,3 +51,32 @@ def list_tasks(db: Annotated[Session, Depends(get_db)]):
         }
         for task in rows
     ]
+
+
+@app.get("/api/tasks/{task_id}")
+def get_task(task_id: int, db: Annotated[Session, Depends(get_db)]):
+    task = db.get(Task, task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="task not found")
+
+    blocks = db.scalars(
+        select(TaskBlock).where(TaskBlock.task_id == task.id).order_by(TaskBlock.id)
+    ).all()
+    return {
+        "id": task.id,
+        "filename": task.filename,
+        "status": task.status,
+        "progress": task.progress,
+        "error_message": task.error_message,
+        "created_at": task.created_at.isoformat() if task.created_at else None,
+        "blocks": [
+            {
+                "block_id": block.block_id,
+                "text": block.text,
+                "status": block.status,
+                "translated": block.translated,
+                "error": block.error,
+            }
+            for block in blocks
+        ],
+    }

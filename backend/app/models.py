@@ -39,3 +39,19 @@ class TaskHistory(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now()
     )
+
+
+class TaskBlock(Base):
+    """单个文本块的翻译状态。失败必须可见，禁止静默截断。"""
+
+    __tablename__ = "task_blocks"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id"), index=True)
+    block_id: Mapped[str] = mapped_column(String(64))
+    text: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(
+        String(16), default="pending", index=True
+    )  # success / overflow / failed
+    translated: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
