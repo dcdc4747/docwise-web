@@ -3,7 +3,10 @@ from pathlib import Path
 import pytest
 
 from app.engine import (
+    BlockState,
     BlockStatus,
+    TaskState,
+    Tier,
     TranslateRequest,
     TranslationEngine,
     TranslationResult,
@@ -26,19 +29,19 @@ def test_translate_request_defaults() -> None:
     req = TranslateRequest(source_path=Path("/tmp/a.pdf"))
     assert req.source_lang == "en"
     assert req.target_lang == "zh"
-    assert req.tier == "fast"
+    assert req.tier == Tier.FAST
 
 
 def test_block_status_visible() -> None:
     block = BlockStatus(
-        block_id="b1", text="hello", status="success", translated="你好"
+        block_id="b1", text="hello", status=BlockState.SUCCESS, translated="你好"
     )
-    assert block.status == "success"
+    assert block.status == BlockState.SUCCESS
     assert block.translated == "你好"
 
 
 def test_result_initial_state() -> None:
     res = TranslationResult(task_id="t1", translated_path=None)
-    assert res.status == "pending"
+    assert res.status == TaskState.PENDING
     assert res.progress == 0.0
     assert res.blocks == []
