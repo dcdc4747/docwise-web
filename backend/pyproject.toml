@@ -19,3 +19,10 @@ dev = [
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
+
+[tool.ruff]
+target-version = "py312"
+
+[tool.ruff.lint]
+# 显式钉死规则集，保证 CI 与本地 lint 口径一致
+select = ["E", "F", "I", "UP"]
