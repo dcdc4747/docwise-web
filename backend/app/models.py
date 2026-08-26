@@ -1,9 +1,10 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, Float, ForeignKey, String, Text, func
+from sqlalchemy import DateTime, Enum, Float, ForeignKey, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .db import Base
+from .engine.base import BlockState
 
 
 class Task(Base):
@@ -50,8 +51,13 @@ class TaskBlock(Base):
     task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id"), index=True)
     block_id: Mapped[str] = mapped_column(String(64))
     text: Mapped[str] = mapped_column(Text)
-    status: Mapped[str] = mapped_column(
-        String(16), default="pending", index=True
-    )  # success / overflow / failed
+    status: Mapped[BlockState] = mapped_column(
+        Enum(
+            BlockState,
+            values_callable=lambda enum_cls: [e.value for e in enum_cls],
+        ),
+        default=BlockState.SUCCESS,
+        index=True,
+    )
     translated: Mapped[str | None] = mapped_column(Text, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)

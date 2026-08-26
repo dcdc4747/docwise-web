@@ -2,7 +2,33 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from enum import StrEnum
 from pathlib import Path
+
+
+class Tier(StrEnum):
+    """档位。"""
+
+    FAST = "fast"
+    MEDIUM = "medium"
+    PRECISE = "precise"
+
+
+class TaskState(StrEnum):
+    """任务级状态。"""
+
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class BlockState(StrEnum):
+    """单个文本块的状态。失败必须可见，禁止静默截断。"""
+
+    SUCCESS = "success"
+    OVERFLOW = "overflow"
+    FAILED = "failed"
 
 
 @dataclass(frozen=True)
@@ -12,17 +38,17 @@ class TranslateRequest:
     source_path: Path
     source_lang: str = "en"
     target_lang: str = "zh"
-    tier: str = "fast"  # fast / medium / precise
+    tier: Tier = Tier.FAST
     terms_path: Path | None = None
 
 
 @dataclass
 class BlockStatus:
-    """单个文本块的处理状态。失败必须可见，禁止静默截断。"""
+    """单个文本块的处理状态。"""
 
     block_id: str
     text: str
-    status: str  # success / overflow / failed
+    status: BlockState = BlockState.SUCCESS
     translated: str | None = None
     error: str | None = None
 
@@ -34,7 +60,7 @@ class TranslationResult:
     task_id: str
     translated_path: Path | None
     blocks: list[BlockStatus] = field(default_factory=list)
-    status: str = "pending"  # pending / in_progress / completed / failed
+    status: TaskState = TaskState.PENDING
     progress: float = 0.0
     error: str | None = None
 

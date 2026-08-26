@@ -31,6 +31,34 @@ app.add_middleware(
 )
 
 
+def _status_value(status):
+    return getattr(status, "value", status)
+
+
+def _serialize_block(block: TaskBlock) -> dict:
+    return {
+        "block_id": block.block_id,
+        "text": block.text,
+        "status": _status_value(block.status),
+        "translated": block.translated,
+        "error": block.error,
+    }
+
+
+def _serialize_task(task: Task, blocks: list[TaskBlock] | None = None) -> dict:
+    data = {
+        "id": task.id,
+        "filename": task.filename,
+        "status": _status_value(task.status),
+        "progress": task.progress,
+        "created_at": task.created_at.isoformat() if task.created_at else None,
+    }
+    if blocks is not None:
+        data["error_message"] = task.error_message
+        data["blocks"] = [_serialize_block(block) for block in blocks]
+    return data
+
+
 @app.get("/api/health")
 def health():
     return {"status": "ok", "service": "docwise-web", "version": "0.1.0"}
@@ -41,16 +69,7 @@ def list_tasks(db: Annotated[Session, Depends(get_db)]):
     rows = db.scalars(
         select(Task).order_by(Task.id.desc()).limit(50)
     ).all()
-    return [
-        {
-            "id": task.id,
-            "filename": task.filename,
-            "status": task.status,
-            "progress": task.progress,
-            "created_at": task.created_at.isoformat() if task.created_at else None,
-        }
-        for task in rows
-    ]
+    return [_serialize_task(task) for task in rows]
 
 
 @app.get("/api/tasks/{task_id}")
@@ -62,21 +81,4 @@ def get_task(task_id: int, db: Annotated[Session, Depends(get_db)]):
     blocks = db.scalars(
         select(TaskBlock).where(TaskBlock.task_id == task.id).order_by(TaskBlock.id)
     ).all()
-    return {
-        "id": task.id,
-        "filename": task.filename,
-        "status": task.status,
-        "progress": task.progress,
-        "error_message": task.error_message,
-        "created_at": task.created_at.isoformat() if task.created_at else None,
-        "blocks": [
-            {
-                "block_id": block.block_id,
-                "text": block.text,
-                "status": block.status,
-                "translated": block.translated,
-                "error": block.error,
-            }
-            for block in blocks
-        ],
-    }
+    return _serialize_task(task, blocks)

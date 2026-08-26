@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 from app.db import SessionLocal
+from app.engine import BlockState
 from app.main import app
 from app.models import Task, TaskBlock
 
@@ -14,14 +15,14 @@ def test_task_detail_returns_blocks() -> None:
         session.flush()
         session.add(
             TaskBlock(
-                task_id=task.id, block_id="b1", text="hello", status="success",
-                translated="你好",
+                task_id=task.id, block_id="b1", text="hello",
+                status=BlockState.SUCCESS, translated="你好",
             )
         )
         session.add(
             TaskBlock(
-                task_id=task.id, block_id="b2", text="world", status="failed",
-                error="boom",
+                task_id=task.id, block_id="b2", text="world",
+                status=BlockState.FAILED, error="boom",
             )
         )
         session.commit()
