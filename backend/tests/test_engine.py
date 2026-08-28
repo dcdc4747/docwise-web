@@ -7,6 +7,7 @@ from app.engine import (
     BlockState,
     BlockStatus,
     MediumEngine,
+    OpenSourceEngine,
     TaskState,
     Tier,
     TranslateRequest,
@@ -104,3 +105,60 @@ def test_medium_engine_runs_runner_script(monkeypatch, tmp_path) -> None:
     assert result.translated_path.name == "mono.pdf"
     assert len(result.blocks) == 1
     assert result.blocks[0].status == BlockState.SUCCESS
+
+
+def _write_runner(tmp_path: Path, *, ok: bool = True) -> str:
+    """写一个假引擎包装脚本；ok=True 返回可完成的，否则返回会崩的。"""
+    runner = tmp_path / f"runner_{'ok' if ok else 'bad'}.py"
+    if ok:
+        body = (
+            "import argparse, json, pathlib\n"
+            "p = argparse.ArgumentParser()\n"
+            "for name in ('input', 'output', 'lang-in', 'lang-out',\n"
+            " 'service', 'thread'):\n"
+            "    p.add_argument('--' + name)\n"
+            "args = p.parse_args()\n"
+            "out = pathlib.Path(args.output)\n"
+            "(out / 'mono.pdf').write_bytes(b'pdf')\n"
+            "(out / 'dual.pdf').write_bytes(b'pdf')\n"
+            "(out / 'result.json').write_text(json.dumps({\n"
+            "    'status': 'completed',\n"
+            "    'mono': str(out / 'mono.pdf'),\n"
+            "    'dual': str(out / 'dual.pdf'),\n"
+            "    'blocks': [{'block_id': 'b1', 'text': 'hello'}],\n"
+            "}), encoding='utf-8')\n"
+        )
+    else:
+        body = "raise SystemExit(1)\n"
+    runner.write_text(body, encoding="utf-8")
+    return str(runner)
+
+
+def test_medium_engine_prefers_medium_env(monkeypatch, tmp_path) -> None:
+    # 中档专属变量优先：即便基础变量指向坏脚本，也用中档专属的
+    good = _write_runner(tmp_path, ok=True)
+    bad = _write_runner(tmp_path, ok=False)
+    monkeypatch.setenv("DOCWISE_ENGINE_PYTHON", sys.executable)
+    monkeypatch.setenv("DOCWISE_ENGINE_SCRIPT", bad)
+    monkeypatch.setenv("DOCWISE_ENGINE_SERVICE", "demo")
+    monkeypatch.setenv("DOCWISE_ENGINE_MEDIUM_SCRIPT", good)
+
+    result = MediumEngine().translate(TranslateRequest(source_path=tmp_path / "a.pdf"))
+
+    assert result.status == TaskState.COMPLETED
+
+
+def test_fast_engine_uses_base_env_only(monkeypatch, tmp_path) -> None:
+    # 快档只用基础变量，中档专属变量不应影响快档
+    good = _write_runner(tmp_path, ok=True)
+    bad = _write_runner(tmp_path, ok=False)
+    monkeypatch.setenv("DOCWISE_ENGINE_PYTHON", sys.executable)
+    monkeypatch.setenv("DOCWISE_ENGINE_SCRIPT", good)
+    monkeypatch.setenv("DOCWISE_ENGINE_SERVICE", "demo")
+    monkeypatch.setenv("DOCWISE_ENGINE_MEDIUM_SCRIPT", bad)
+
+    result = OpenSourceEngine().translate(
+        TranslateRequest(source_path=tmp_path / "a.pdf")
+    )
+
+    assert result.status == TaskState.COMPLETED

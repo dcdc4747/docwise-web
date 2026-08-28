@@ -28,11 +28,24 @@ class OpenSourceEngine(TranslationEngine):
     """
 
     name = "open-source"
+    # 档位专属环境变量前缀：中档用 DOCWISE_ENGINE_MEDIUM_*，快档用 DOCWISE_ENGINE_*
+    env_prefix = "DOCWISE_ENGINE"
+
+    def _env(self, key: str) -> str | None:
+        """读取档位专属环境变量；未设置时回退到基础变量（快档）。
+
+        例：中档读 DOCWISE_ENGINE_MEDIUM_SCRIPT，没配就回退 DOCWISE_ENGINE_SCRIPT，
+        这样没有专门配置中档时也能跑（默认与快档行为一致）。
+        """
+        value = os.environ.get(f"{self.env_prefix}_{key}")
+        if value is None and self.env_prefix != "DOCWISE_ENGINE":
+            value = os.environ.get(f"DOCWISE_ENGINE_{key}")
+        return value
 
     def translate(self, request: TranslateRequest) -> TranslationResult:
-        python = os.environ.get("DOCWISE_ENGINE_PYTHON")
-        script = os.environ.get("DOCWISE_ENGINE_SCRIPT")
-        service = os.environ.get("DOCWISE_ENGINE_SERVICE")
+        python = self._env("PYTHON")
+        script = self._env("SCRIPT")
+        service = self._env("SERVICE")
         if not python or not script or not service:
             return TranslationResult(
                 task_id=str(request.source_path),
