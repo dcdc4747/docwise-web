@@ -7,12 +7,14 @@ from .base import (
     TranslationEngine,
     TranslationResult,
 )
+from .medium import MediumEngine
 from .open_source import OpenSourceEngine
 from .registry import get_engine
 
 __all__ = [
     "BlockState",
     "BlockStatus",
+    "MediumEngine",
     "OpenSourceEngine",
     "TaskState",
     "Tier",

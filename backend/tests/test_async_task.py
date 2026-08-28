@@ -10,7 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.db import SessionLocal
-from app.engine import BlockState, BlockStatus, TaskState, TranslationResult
+from app.engine import BlockState, BlockStatus, TaskState, Tier, TranslationResult
 from app.main import app
 from app.models import Task
 
@@ -90,6 +90,36 @@ def test_task_runs_to_completion_and_stores_blocks(sample_pdf, monkeypatch) -> N
     assert len(detail["blocks"]) == 1
     assert detail["blocks"][0]["status"] == "success"
     assert detail["blocks"][0]["translated"] == "你好"
+
+
+def test_worker_routes_tier_to_engine(sample_pdf, monkeypatch) -> None:
+    requested_tiers: list[Tier] = []
+
+    class RecorderEngine:
+        name = "recorder"
+
+        def translate(self, request) -> TranslationResult:
+            return TranslationResult(
+                task_id="rec",
+                translated_path=Path("/tmp/out.pdf"),
+                status=TaskState.COMPLETED,
+                progress=1.0,
+            )
+
+    def fake_get_engine(tier=Tier.FAST):
+        requested_tiers.append(tier)
+        return RecorderEngine()
+
+    monkeypatch.setattr("app.worker.get_engine", fake_get_engine)
+    src = sample_pdf
+    with TestClient(app) as client:
+        task_id = client.post(
+            "/api/tasks",
+            json={"source_path": str(src), "tier": "medium"},
+        ).json()["id"]
+        status = _wait_terminal(client, task_id)
+    assert status == "completed"
+    assert requested_tiers and requested_tiers[-1] == Tier.MEDIUM
 
 
 def test_interrupted_task_recovered_on_startup(sample_pdf, monkeypatch) -> None:

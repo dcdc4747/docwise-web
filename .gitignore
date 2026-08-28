@@ -11,6 +11,10 @@ __pycache__/
 # 本地数据库
 **/data/*.db
 **/data/*.db-journal
+**/data/uploads/
+
+# 本地工具脚本
+.tools/
 
 # Node / 前端
 node_modules/
