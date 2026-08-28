@@ -5,6 +5,7 @@ description = "docwise-web 后端（FastAPI + SQLAlchemy + SQLite）"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115",
+    "python-multipart>=0.0.9",
     "uvicorn[standard]>=0.32",
     "sqlalchemy>=2.0",
     "pydantic-settings>=2.6",

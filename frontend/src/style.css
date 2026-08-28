@@ -102,6 +102,34 @@ body {
   font-size: 13px;
 }
 
+.upload-feedback {
+  margin-top: 16px;
+}
+
+.task-progress {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px dashed #e4e7ec;
+}
+
+.task-progress-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.task-progress-head .n-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-error {
+  margin-top: 12px;
+}
+
 .feature-card {
   height: 100%;
 }

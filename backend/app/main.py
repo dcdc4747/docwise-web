@@ -3,8 +3,9 @@ import json
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
+from uuid import uuid4
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -16,6 +17,8 @@ from .db import Base, engine, get_db
 from .engine import Tier
 from .models import Task, TaskBlock
 from .worker import TaskEventBus, TranslationWorker
+
+UPLOAD_DIR = BASE_DIR / "data" / "uploads"
 
 
 def _ensure_schema() -> None:
@@ -136,6 +139,7 @@ async def task_events(
 
     initial_status = _status_value(task.status)
     initial_progress = task.progress or 0.0
+    initial_error = task.error_message
     bus = request.app.state.event_bus
     queue = bus.subscribe(task_id)
 
@@ -146,6 +150,7 @@ async def task_events(
                     "type": initial_status,
                     "status": initial_status,
                     "progress": initial_progress,
+                    "error": initial_error,
                 }
             )
             if initial_status in ("completed", "failed"):
@@ -174,6 +179,41 @@ class TranslateRequestModel(BaseModel):
     source_lang: str = "en"
     target_lang: str = "zh"
     tier: str = "fast"
+
+
+@app.post("/api/tasks/upload", status_code=202)
+async def create_task_upload(
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    file: UploadFile = File(...),
+    tier: str = Form("fast"),
+    source_lang: str = Form("en"),
+    target_lang: str = Form("zh"),
+):
+    """前端上传 PDF：保存文件后创建异步翻译任务，返回任务卡。"""
+    filename = Path(file.filename or "upload.pdf").name
+    if file.content_type != "application/pdf" and not filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="仅支持 PDF 文件")
+
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    dest = UPLOAD_DIR / f"{uuid4().hex}_{filename}"
+    dest.write_bytes(await file.read())
+
+    task = Task(
+        filename=filename,
+        original_path=str(dest),
+        source_lang=source_lang,
+        target_lang=target_lang,
+        tier=Tier(tier).value,
+        status="pending",
+        progress=0.0,
+    )
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+
+    request.app.state.worker.enqueue(task.id)
+    return _serialize_task(task)
 
 
 @app.post("/api/tasks", status_code=202)
