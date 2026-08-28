@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, ref } from 'vue'
+import { onMounted, onUnmounted, ref } from 'vue'
 import {
   zhCN,
   dateZhCN,
@@ -13,17 +13,41 @@ import {
   NCard,
   NTag,
   NUpload,
+  NUploadDragger,
   NText,
+  NProgress,
+  NAlert,
 } from 'naive-ui'
 
 const backendStatus = ref('checking')
 const taskCount = ref(null)
+const uploading = ref(false)
+const uploadError = ref('')
+const currentTask = ref(null)
+const uploadRef = ref(null)
 
 const statusMeta = {
   checking: { type: 'default', text: '检测中…' },
   ok: { type: 'success', text: '已连接' },
   down: { type: 'error', text: '未连接（请先启动后端）' },
 }
+
+const statusTextMap = {
+  pending: '等待中',
+  in_progress: '翻译中',
+  completed: '已完成',
+  failed: '失败',
+}
+
+const statusTypeMap = {
+  pending: 'default',
+  in_progress: 'info',
+  completed: 'success',
+  failed: 'error',
+}
+
+let eventSource = null
+let pollTimer = null
 
 onMounted(async () => {
   try {
@@ -45,9 +69,106 @@ onMounted(async () => {
   }
 })
 
-function handlePlaceholderUpload() {
-  // 阶段 0 骨架：PDF 上传接口由后端负责人在后续阶段提供
+function progressPercent() {
+  if (!currentTask.value) return 0
+  return Math.round((currentTask.value.progress ?? 0) * 100)
 }
+
+async function handleUpload({ file: fileInfo, onFinish, onError }) {
+  uploading.value = true
+  uploadError.value = ''
+  currentTask.value = null
+  stopProgress()
+
+  const form = new FormData()
+  form.append('file', fileInfo.file)
+  form.append('tier', 'fast')
+
+  try {
+    const res = await fetch('/api/tasks/upload', { method: 'POST', body: form })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      throw new Error(body.detail || `上传失败（HTTP ${res.status}）`)
+    }
+    const task = await res.json()
+    currentTask.value = task
+    onFinish()
+    startProgress(task.id)
+  } catch (err) {
+    uploadError.value = err.message || '上传失败，请重试'
+    onError()
+  } finally {
+    uploading.value = false
+  }
+}
+
+function handleFilesChange({ fileList }) {
+  // 选择/拖拽文件后自动提交，进入翻译任务
+  if (fileList.length && fileList.some((f) => f.status === 'pending')) {
+    // Naive UI 在 on-change 回调时内部列表尚未更新，推迟到下一轮事件循环再提交
+    setTimeout(() => uploadRef.value?.submit(), 0)
+  }
+}
+
+function startProgress(taskId) {
+  stopProgress()
+  const es = new EventSource(`/api/tasks/${taskId}/events`)
+  eventSource = es
+  es.onmessage = (e) => {
+    let evt
+    try {
+      evt = JSON.parse(e.data)
+    } catch {
+      return
+    }
+    applyEvent(evt)
+    if (['completed', 'failed'].includes(evt.type)) stopProgress()
+  }
+  es.onerror = () => {
+    // SSE 断开时轮询兜底，避免进度卡死
+    stopProgress()
+    startPolling(taskId)
+  }
+}
+
+function startPolling(taskId) {
+  pollTimer = setInterval(async () => {
+    try {
+      const res = await fetch(`/api/tasks/${taskId}`)
+      if (!res.ok) return
+      const task = await res.json()
+      applyEvent({
+        type: task.status,
+        status: task.status,
+        progress: task.progress,
+        error: task.error_message,
+      })
+      if (['completed', 'failed'].includes(task.status)) stopProgress()
+    } catch {
+      // 后端暂不可达，等待下一轮
+    }
+  }, 2000)
+}
+
+function applyEvent(evt) {
+  if (!currentTask.value) return
+  currentTask.value.status = evt.status || currentTask.value.status
+  if (typeof evt.progress === 'number') currentTask.value.progress = evt.progress
+  if (evt.error) currentTask.value.error_message = evt.error
+}
+
+function stopProgress() {
+  if (eventSource) {
+    eventSource.close()
+    eventSource = null
+  }
+  if (pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
+  }
+}
+
+onUnmounted(stopProgress)
 </script>
 
 <template>
@@ -79,16 +200,56 @@ function handlePlaceholderUpload() {
           <section class="page-section">
             <n-card title="上传英文文献 PDF" class="upload-card">
               <n-upload
+                ref="uploadRef"
                 accept="application/pdf"
                 :max="1"
                 :default-upload="false"
-                :custom-request="handlePlaceholderUpload"
+                :custom-request="handleUpload"
+                :disabled="uploading"
+                :on-change="handleFilesChange"
               >
                 <n-upload-dragger>
                   <div class="upload-hint">点击或拖拽 PDF 到此处</div>
-                  <div class="upload-sub">阶段 0 骨架演示 · 翻译功能即将上线</div>
+                  <div class="upload-sub">上传后自动开始翻译，实时显示进度</div>
                 </n-upload-dragger>
               </n-upload>
+
+              <n-alert
+                v-if="uploadError"
+                type="error"
+                class="upload-feedback"
+                :show-icon="true"
+              >
+                {{ uploadError }}
+              </n-alert>
+
+              <div v-if="currentTask" class="task-progress">
+                <div class="task-progress-head">
+                  <n-text strong>{{ currentTask.filename }}</n-text>
+                  <n-tag
+                    :type="statusTypeMap[currentTask.status] || 'default'"
+                    :bordered="false"
+                  >
+                    {{ statusTextMap[currentTask.status] || currentTask.status }}
+                  </n-tag>
+                </div>
+                <n-progress
+                  type="line"
+                  :percentage="progressPercent()"
+                  :status="currentTask.status === 'failed' ? 'error' : currentTask.status === 'completed' ? 'success' : 'default'"
+                  :processing="currentTask.status === 'in_progress'"
+                  indicator-placement="inside"
+                  :height="18"
+                />
+                <n-alert
+                  v-if="currentTask.error_message"
+                  type="error"
+                  class="task-error"
+                  :show-icon="true"
+                >
+                  {{ currentTask.error_message }}
+                </n-alert>
+              </div>
             </n-card>
           </section>
 
