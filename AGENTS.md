@@ -4,7 +4,7 @@
 
 ## 项目一句话
 
-文档翻译智能体——Agent 是大脑，程序是手脚。当前阶段 0：项目骨架（后端 FastAPI + SQLAlchemy + SQLite，前端 Vue3 + Naive UI 由前端负责人搭建）。
+文档翻译智能体——Agent 是大脑，程序是手脚。用户上传英文材料，获得"像原文档的中文版"（纯中文/双语对照）。当前进度：**阶段 1（最小翻译链路）已完成并验收；阶段 2（Web 端闭环 MVP）进行中**——在翻译链路上做 Web 界面（上传/进度/预览/下载/历史）+ 档位选择。详见 README「开发路线」。
 
 ## 分工与身份（开工先确认你是谁）
 
@@ -50,24 +50,26 @@
 - Python 代码风格：`pathlib` 优先于 `os.path`；f-string 优先于 `.format()`/`%`；函数签名写类型注解；不要给没改过的代码加注释或文档字符串。
 - 数据库：统一走 SQLAlchemy ORM，SQLite 起步，将来换 PostgreSQL 只改配置。
 
-## 后端结构（阶段 0）
+## 后端结构（当前）
 
 ```text
 backend/
-├── app/main.py     # FastAPI 入口：/api/health 健康检查、/api/tasks 任务列表
-├── app/models.py   # SQLAlchemy 模型：tasks（任务卡）、task_history（历史记录）
-├── app/config.py   # 配置：DATABASE_URL 读 .env
-├── app/db.py       # 引擎与会话
-├── pyproject.toml  # uv 依赖
-└── .env.example    # 环境变量模板（复制为 .env 使用，不提交）
+├── app/main.py       # FastAPI：/api/health、/api/tasks、/api/tasks/{id}、POST /api/tasks（异步任务）
+├── app/models.py     # SQLAlchemy：tasks（任务卡）、task_history、task_blocks（每块状态）
+├── app/config.py     # 配置：DATABASE_URL 读 .env
+├── app/db.py         # 引擎与会话
+├── app/engine/       # 翻译引擎接口（TranslationEngine）+ OpenSourceEngine 适配器 + registry（按档位选引擎）
+└── pyproject.toml    # uv 依赖；.env.example 模板（复制为 .env，不提交）
 ```
 
 启动后端：`cd backend && uv sync && uv run uvicorn app.main:app --port 8000`
+> 翻译引擎（OpenSourceEngine）通过子进程调用，需配置环境变量 `DOCWISE_ENGINE_PYTHON` / `DOCWISE_ENGINE_SCRIPT` / `DOCWISE_ENGINE_SERVICE` 才会运行；未配置则返回错误。
 
 ## 测试与验收
 
-- 改完代码必须验证能跑：后端启动后 `/api/health` 返回 `{"status":"ok",...}`。
-- 阶段 0 验收标准：未参与搭建的人按 README 十分钟内跑起来看到首页。
+- 改完代码必须验证：后端 `pytest tests/ -q` 全过 + `ruff check app tests` 通过；`/api/health` 正常。
+- 前端 `bun dev` 能跑、页面正常；界面改动请在 PR 里贴截图。
+- 各阶段验收标准见 README「开发路线」与对应 issue。
 
 ## 沟通
 
