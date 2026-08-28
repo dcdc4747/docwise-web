@@ -112,7 +112,7 @@ def _run_translation(db: Session, body: TranslateRequestModel) -> Task:
     db.refresh(task)
 
     try:
-        engine = get_engine("pdf2zh")
+        engine = get_engine("open-source")
         result = engine.translate(
             TranslateRequest(
                 source_path=source_path,

@@ -14,10 +14,10 @@ from app.engine import (
 )
 
 
-def test_get_engine_default_is_pdf2zh() -> None:
+def test_get_engine_default_is_open_source() -> None:
     engine = get_engine()
     assert isinstance(engine, TranslationEngine)
-    assert engine.name == "pdf2zh"
+    assert engine.name == "open-source"
 
 
 def test_get_engine_unknown_raises() -> None:

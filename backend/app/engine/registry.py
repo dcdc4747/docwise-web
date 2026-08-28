@@ -1,18 +1,18 @@
 from __future__ import annotations
 
 from .base import TranslationEngine
-from .pdf2zh import Pdf2ZhEngine
+from .open_source import OpenSourceEngine
 
 _ENGINES: dict[str, type[TranslationEngine]] = {
-    "pdf2zh": Pdf2ZhEngine,
+    "open-source": OpenSourceEngine,
 }
 
 
-def get_engine(name: str = "pdf2zh") -> TranslationEngine:
+def get_engine(name: str = "open-source") -> TranslationEngine:
     """按名称取引擎实例。
 
-    档位（fast/medium/precise）由调度器决定；底层引擎当前统一走 pdf2zh，
-    后续按档位可换成 babeldoc。
+    档位（fast/medium/precise）由调度器决定；底层引擎当前统一走 open-source，
+    后续按档位可换。
     """
     try:
         engine_cls = _ENGINES[name]
