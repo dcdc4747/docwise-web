@@ -54,16 +54,18 @@
 
 ```text
 backend/
-├── app/main.py       # FastAPI：/api/health、/api/tasks、/api/tasks/{id}、POST /api/tasks（异步任务）
-├── app/models.py     # SQLAlchemy：tasks（任务卡）、task_history、task_blocks（每块状态）
+├── app/main.py       # FastAPI：/api/health、/api/tasks、/api/tasks/{id}、POST /api/tasks（异步）、GET /api/tasks/{id}/events（SSE 实时进度）
+├── app/models.py     # SQLAlchemy：tasks（任务卡，含 source_lang/target_lang/tier/translated_path）、task_history、task_blocks（每块状态）
 ├── app/config.py     # 配置：DATABASE_URL 读 .env
 ├── app/db.py         # 引擎与会话
+├── app/worker.py     # 单进程 worker：启动扫表恢复（in_progress→pending）+ 行锁认领 + 线程池跑引擎 + 事件总线（供 SSE）
 ├── app/engine/       # 翻译引擎接口（TranslationEngine）+ OpenSourceEngine 适配器 + registry（按档位选引擎）
 └── pyproject.toml    # uv 依赖；.env.example 模板（复制为 .env，不提交）
 ```
 
-启动后端：`cd backend && uv sync && uv run uvicorn app.main:app --port 8000`
-> 翻译引擎（OpenSourceEngine）通过子进程调用，需配置环境变量 `DOCWISE_ENGINE_PYTHON` / `DOCWISE_ENGINE_SCRIPT` / `DOCWISE_ENGINE_SERVICE` 才会运行；未配置则返回错误。
+- **任务流转**：POST /api/tasks 只建任务立即返回 202（status=pending），worker 后台处理（in_progress→completed/failed），SSE 推送进度（前端也可轮询 GET /api/tasks/{id} 兜底）。**更新了旧"同步卡几十秒"的路径。**
+- 启动后端：`cd backend && uv sync && uv run uvicorn app.main:app --port 8000`（单进程 worker，勿用 `--workers N` 并发，避免 SQLite 写锁）。
+- > 翻译引擎（OpenSourceEngine）通过子进程调用，需配置环境变量 `DOCWISE_ENGINE_PYTHON` / `DOCWISE_ENGINE_SCRIPT` / `DOCWISE_ENGINE_SERVICE` 才会运行；未配置则返回错误。
 
 ## 测试与验收
 
