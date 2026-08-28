@@ -145,7 +145,7 @@ class TranslationWorker:
 
     def _run_engine(self, request: TranslateRequest) -> TranslationResult:
         # 引擎调用为阻塞子进程，放线程池执行（见 _process 的 asyncio.to_thread）
-        return get_engine("open-source").translate(request)
+        return get_engine(request.tier).translate(request)
 
     async def _process(self, task_id: int) -> None:
         if not self._claim(task_id):

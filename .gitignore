@@ -13,12 +13,12 @@ __pycache__/
 **/data/*.db-journal
 **/data/uploads/
 
+# 本地工具脚本
+.tools/
+
 # Node / 前端
 node_modules/
 dist/
-
-# 本地工具脚本
-.tools/
 
 # 编辑器
 .idea/

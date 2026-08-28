@@ -1,21 +1,22 @@
 from __future__ import annotations
 
-from .base import TranslationEngine
+from .base import Tier, TranslationEngine
+from .medium import MediumEngine
 from .open_source import OpenSourceEngine
 
 _ENGINES: dict[str, type[TranslationEngine]] = {
-    "open-source": OpenSourceEngine,
+    Tier.FAST.value: OpenSourceEngine,
+    Tier.MEDIUM.value: MediumEngine,
+    # 精档后续阶段实现，暂用中档引擎兜底
+    Tier.PRECISE.value: MediumEngine,
 }
 
 
-def get_engine(name: str = "open-source") -> TranslationEngine:
-    """按名称取引擎实例。
-
-    档位（fast/medium/precise）由调度器决定；底层引擎当前统一走 open-source，
-    后续按档位可换。
-    """
+def get_engine(tier: Tier | str = Tier.FAST) -> TranslationEngine:
+    """按档位取引擎实例。"""
+    key = tier.value if isinstance(tier, Tier) else str(tier)
     try:
-        engine_cls = _ENGINES[name]
+        engine_cls = _ENGINES[key]
     except KeyError as exc:
-        raise ValueError(f"未知引擎: {name}") from exc
+        raise ValueError(f"未知档位: {key}") from exc
     return engine_cls()
