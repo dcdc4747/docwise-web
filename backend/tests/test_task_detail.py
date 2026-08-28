@@ -9,26 +9,28 @@ from app.models import Task, TaskBlock
 
 
 def test_task_detail_returns_blocks() -> None:
-    with SessionLocal() as session:
-        task = Task(filename="a.pdf", status="in_progress")
-        session.add(task)
-        session.flush()
-        session.add(
-            TaskBlock(
-                task_id=task.id, block_id="b1", text="hello",
-                status=BlockState.SUCCESS, translated="你好",
-            )
-        )
-        session.add(
-            TaskBlock(
-                task_id=task.id, block_id="b2", text="world",
-                status=BlockState.FAILED, error="boom",
-            )
-        )
-        session.commit()
-        task_id = task.id
-
+    # 需在 TestClient 启动 worker 之后、再以 in_progress 入库，
+    # 否则 worker 启动时的"崩溃恢复"会把 in_progress 拉回 pending。
     with TestClient(app) as client:
+        with SessionLocal() as session:
+            task = Task(filename="a.pdf", status="in_progress")
+            session.add(task)
+            session.flush()
+            session.add(
+                TaskBlock(
+                    task_id=task.id, block_id="b1", text="hello",
+                    status=BlockState.SUCCESS, translated="你好",
+                )
+            )
+            session.add(
+                TaskBlock(
+                    task_id=task.id, block_id="b2", text="world",
+                    status=BlockState.FAILED, error="boom",
+                )
+            )
+            session.commit()
+            task_id = task.id
+
         res = client.get(f"/api/tasks/{task_id}")
 
     assert res.status_code == 200
