@@ -1,0 +1,41 @@
+name: Auto Claim
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  issues: write
+
+jobs:
+  claim:
+    if: contains(github.event.comment.body, '已认领')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Swap 可认领 -> 已认领
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const issue = context.issue.number;
+            const gh = github.rest;
+
+            // 加上「已认领」标签
+            await gh.issues.addLabels({
+              owner, repo, issue_number: issue, labels: ['已认领'],
+            });
+
+            // 若还有「可认领」标签则移除
+            try {
+              await gh.issues.removeLabel({
+                owner, repo, issue_number: issue, name: '可认领',
+              });
+            } catch (e) {
+              // 该标签可能已被移除，忽略
+            }
+
+            // 回一句确认
+            await gh.issues.createComment({
+              owner, repo, issue_number: issue,
+              body: '已自动认领 ✅（「可认领」→「已认领」）',
+            });
