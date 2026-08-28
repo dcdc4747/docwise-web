@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
@@ -12,13 +13,23 @@ from pydantic import BaseModel
 from sqlalchemy import inspect, select, text
 from sqlalchemy.orm import Session
 
-from .config import BASE_DIR
+from .config import BASE_DIR, _to_env
 from .db import Base, engine, get_db
 from .engine import Tier
 from .models import Task, TaskBlock
 from .worker import TaskEventBus, TranslationWorker
 
 UPLOAD_DIR = BASE_DIR / "data" / "uploads"
+
+
+def _inject_engine_env() -> None:
+    """把 .env 里的引擎/DeepSeek 配置注入环境，供 worker 子进程读取。
+
+    不覆盖已显式设置的环境变量（$env: 优先级高于 .env）。
+    """
+    for key, value in _to_env().items():
+        if value and not os.environ.get(key):
+            os.environ[key] = value
 
 
 def _ensure_schema() -> None:
@@ -46,6 +57,7 @@ async def lifespan(app: FastAPI):
     (BASE_DIR / "data").mkdir(exist_ok=True)
     Base.metadata.create_all(bind=engine)
     _ensure_schema()
+    _inject_engine_env()
     # 每个应用生命周期新建独立 worker/事件总线，避免 asyncio.Queue 跨事件循环绑定。
     app.state.event_bus = TaskEventBus()
     app.state.worker = TranslationWorker(app.state.event_bus)
