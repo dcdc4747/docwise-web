@@ -35,6 +35,19 @@ const previewMode = ref('mono')
 const fileAvailability = ref({ mono: false, dual: false })
 const previewCheckDone = ref(false)
 const previewLoading = ref(true)
+const selectedTier = ref('fast')
+
+const tierOptions = [
+  { value: 'fast', label: '快', desc: '速度优先' },
+  { value: 'medium', label: '中', desc: '质量与速度平衡' },
+  { value: 'precise', label: '慢', desc: '质量优先' },
+]
+
+const tierTextMap = {
+  fast: '快',
+  medium: '中',
+  precise: '慢',
+}
 
 const statusMeta = {
   checking: { type: 'default', text: '检测中…' },
@@ -95,7 +108,7 @@ async function handleUpload({ file: fileInfo, onFinish, onError }) {
 
   const form = new FormData()
   form.append('file', fileInfo.file)
-  form.append('tier', 'fast')
+  form.append('tier', selectedTier.value)
 
   try {
     const res = await fetch('/api/tasks/upload', { method: 'POST', body: form })
@@ -246,6 +259,24 @@ onUnmounted(stopProgress)
 
           <section class="page-section">
             <n-card title="上传英文文献 PDF" class="upload-card">
+              <div class="tier-picker">
+                <div class="tier-picker-head">
+                  <n-text strong>翻译档位</n-text>
+                  <n-text depth="3" class="tier-picker-sub">
+                    不同档位走不同翻译引擎，请在上传前选择
+                  </n-text>
+                </div>
+                <n-radio-group v-model:value="selectedTier" :disabled="uploading">
+                  <n-radio-button
+                    v-for="tier in tierOptions"
+                    :key="tier.value"
+                    :value="tier.value"
+                  >
+                    {{ tier.label }} · {{ tier.desc }}
+                  </n-radio-button>
+                </n-radio-group>
+              </div>
+
               <n-upload
                 ref="uploadRef"
                 accept="application/pdf"
@@ -272,7 +303,17 @@ onUnmounted(stopProgress)
 
               <div v-if="currentTask" class="task-progress">
                 <div class="task-progress-head">
-                  <n-text strong>{{ currentTask.filename }}</n-text>
+                  <div class="task-progress-title">
+                    <n-text strong>{{ currentTask.filename }}</n-text>
+                    <n-tag
+                      v-if="currentTask.tier"
+                      size="small"
+                      :bordered="false"
+                      type="warning"
+                    >
+                      档位：{{ tierTextMap[currentTask.tier] || currentTask.tier }}
+                    </n-tag>
+                  </div>
                   <n-tag
                     :type="statusTypeMap[currentTask.status] || 'default'"
                     :bordered="false"
