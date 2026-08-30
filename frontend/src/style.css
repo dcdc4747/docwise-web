@@ -91,6 +91,21 @@ body {
   text-align: center;
 }
 
+.tier-picker {
+  margin-bottom: 16px;
+}
+
+.tier-picker-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.tier-picker-sub {
+  font-size: 13px;
+}
+
 .upload-hint {
   font-size: 16px;
   font-weight: 600;
@@ -120,7 +135,14 @@ body {
   margin-bottom: 12px;
 }
 
-.task-progress-head .n-text {
+.task-progress-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.task-progress-title .n-text {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
