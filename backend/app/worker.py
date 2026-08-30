@@ -222,6 +222,9 @@ class TranslationWorker:
             task.translated_path = (
                 str(result.translated_path) if result.translated_path else None
             )
+            task.dual_translated_path = (
+                str(result.dual_path) if result.dual_path else None
+            )
             _record_history(session, task_id, terminal, result.error)
             session.commit()
             session.refresh(task)

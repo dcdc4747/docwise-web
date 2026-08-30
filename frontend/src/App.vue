@@ -17,6 +17,12 @@ import {
   NText,
   NProgress,
   NAlert,
+  NButton,
+  NEmpty,
+  NRadioButton,
+  NRadioGroup,
+  NSpace,
+  NSpin,
 } from 'naive-ui'
 
 const backendStatus = ref('checking')
@@ -25,6 +31,10 @@ const uploading = ref(false)
 const uploadError = ref('')
 const currentTask = ref(null)
 const uploadRef = ref(null)
+const previewMode = ref('mono')
+const previewAvailable = ref(false)
+const previewCheckDone = ref(false)
+const previewLoading = ref(true)
 
 const statusMeta = {
   checking: { type: 'default', text: '检测中…' },
@@ -78,6 +88,9 @@ async function handleUpload({ file: fileInfo, onFinish, onError }) {
   uploading.value = true
   uploadError.value = ''
   currentTask.value = null
+  previewAvailable.value = false
+  previewCheckDone.value = false
+  previewLoading.value = true
   stopProgress()
 
   const form = new FormData()
@@ -155,6 +168,32 @@ function applyEvent(evt) {
   currentTask.value.status = evt.status || currentTask.value.status
   if (typeof evt.progress === 'number') currentTask.value.progress = evt.progress
   if (evt.error) currentTask.value.error_message = evt.error
+  if (currentTask.value.status === 'completed' && !previewCheckDone.value) {
+    checkPreview(currentTask.value.id)
+  }
+}
+
+async function checkPreview(taskId) {
+  previewCheckDone.value = true
+  previewLoading.value = true
+  try {
+    const res = await fetch(`/api/tasks/${taskId}/files/mono`, { method: 'HEAD' })
+    previewAvailable.value = res.ok
+  } catch {
+    previewAvailable.value = false
+  } finally {
+    previewLoading.value = false
+  }
+}
+
+function previewUrl() {
+  if (!currentTask.value) return ''
+  return `/api/tasks/${currentTask.value.id}/files/${previewMode.value}`
+}
+
+function downloadUrl(kind) {
+  if (!currentTask.value) return ''
+  return `/api/tasks/${currentTask.value.id}/files/${kind}?download=1`
 }
 
 function stopProgress() {
@@ -249,6 +288,51 @@ onUnmounted(stopProgress)
                 >
                   {{ currentTask.error_message }}
                 </n-alert>
+
+                <div
+                  v-if="currentTask.status === 'completed'"
+                  class="result-panel"
+                >
+                  <div class="result-toolbar">
+                    <n-radio-group v-model:value="previewMode" size="small">
+                      <n-radio-button value="mono">纯中文</n-radio-button>
+                      <n-radio-button value="dual">中英对照</n-radio-button>
+                    </n-radio-group>
+                    <n-space size="small">
+                      <n-button
+                        size="small"
+                        tag="a"
+                        :href="downloadUrl('mono')"
+                        download
+                      >
+                        下载纯中文 PDF
+                      </n-button>
+                      <n-button
+                        size="small"
+                        tag="a"
+                        :href="downloadUrl('dual')"
+                        download
+                      >
+                        下载双语 PDF
+                      </n-button>
+                    </n-space>
+                  </div>
+
+                  <n-empty
+                    v-if="previewCheckDone && !previewAvailable"
+                    description="暂无译文结果可预览"
+                    class="result-empty"
+                  />
+                  <n-spin v-else :show="previewLoading" size="small">
+                    <iframe
+                      v-if="previewAvailable"
+                      :key="previewMode"
+                      class="pdf-preview"
+                      :src="previewUrl()"
+                      title="译文预览"
+                    />
+                  </n-spin>
+                </div>
               </div>
             </n-card>
           </section>

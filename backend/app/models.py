@@ -19,6 +19,9 @@ class Task(Base):
     target_lang: Mapped[str] = mapped_column(String(16), default="zh")
     tier: Mapped[str] = mapped_column(String(16), default="fast")
     translated_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    dual_translated_path: Mapped[str | None] = mapped_column(
+        String(1024), nullable=True
+    )
     status: Mapped[str] = mapped_column(
         String(32), default="pending", index=True
     )  # pending / in_progress / completed / failed

@@ -130,6 +130,35 @@ body {
   margin-top: 12px;
 }
 
+.result-panel {
+  margin-top: 20px;
+}
+
+.result-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.result-empty {
+  padding: 24px 0;
+}
+
+.pdf-preview-wrap {
+  min-height: 120px;
+}
+
+.pdf-preview {
+  width: 100%;
+  height: 520px;
+  border: 1px solid #e4e7ec;
+  border-radius: 8px;
+  background: #fff;
+}
+
 .feature-card {
   height: 100%;
 }

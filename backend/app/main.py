@@ -8,7 +8,7 @@ from uuid import uuid4
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import inspect, select, text
 from sqlalchemy.orm import Session
@@ -45,6 +45,7 @@ def _ensure_schema() -> None:
         "target_lang": "VARCHAR(16) DEFAULT 'zh'",
         "tier": "VARCHAR(16) DEFAULT 'fast'",
         "translated_path": "VARCHAR(1024)",
+        "dual_translated_path": "VARCHAR(1024)",
     }
     with engine.begin() as conn:
         for column, ddl in additions.items():
@@ -105,6 +106,7 @@ def _serialize_task(task: Task, blocks: list[TaskBlock] | None = None) -> dict:
     if blocks is not None:
         data["error_message"] = task.error_message
         data["translated_path"] = task.translated_path
+        data["dual_translated_path"] = task.dual_translated_path
         data["blocks"] = [_serialize_block(block) for block in blocks]
     return data
 
@@ -136,6 +138,35 @@ def get_task(task_id: int, db: Annotated[Session, Depends(get_db)]):
         select(TaskBlock).where(TaskBlock.task_id == task.id).order_by(TaskBlock.id)
     ).all()
     return _serialize_task(task, blocks)
+
+
+@app.api_route("/api/tasks/{task_id}/files/{kind}", methods=["GET", "HEAD"])
+def get_task_file(
+    task_id: int,
+    kind: str,
+    db: Annotated[Session, Depends(get_db)],
+    download: bool = False,
+):
+    """返回任务结果文件（mono 纯中文 / dual 双语 PDF），供预览与下载。"""
+    task = db.get(Task, task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="task not found")
+    if kind not in ("mono", "dual"):
+        raise HTTPException(status_code=400, detail="未知文件类型")
+
+    raw = task.translated_path if kind == "mono" else task.dual_translated_path
+    path = Path(raw) if raw else None
+    if path is None or not path.exists():
+        raise HTTPException(status_code=404, detail="结果文件不存在")
+
+    if download:
+        stem = Path(task.filename).stem or "result"
+        return FileResponse(
+            path,
+            media_type="application/pdf",
+            filename=f"{stem}_{kind}.pdf",
+        )
+    return FileResponse(path, media_type="application/pdf")
 
 
 @app.get("/api/tasks/{task_id}/events")
