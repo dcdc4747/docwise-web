@@ -59,6 +59,7 @@ class TranslationResult:
 
     task_id: str
     translated_path: Path | None
+    dual_path: Path | None = None
     blocks: list[BlockStatus] = field(default_factory=list)
     status: TaskState = TaskState.PENDING
     progress: float = 0.0

@@ -94,12 +94,14 @@ class OpenSourceEngine(TranslationEngine):
         ]
 
         translated = Path(payload["mono"]) if payload.get("mono") else None
-        if translated is None and payload.get("dual"):
-            translated = Path(payload["dual"])
+        dual = Path(payload["dual"]) if payload.get("dual") else None
+        if translated is None and dual is not None:
+            translated = dual
 
         return TranslationResult(
             task_id=str(request.source_path),
             translated_path=translated,
+            dual_path=dual,
             blocks=blocks,
             status=TaskState.COMPLETED if completed else TaskState.FAILED,
             progress=1.0 if completed else 0.0,
