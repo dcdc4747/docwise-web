@@ -32,7 +32,7 @@ const uploadError = ref('')
 const currentTask = ref(null)
 const uploadRef = ref(null)
 const previewMode = ref('mono')
-const previewAvailable = ref(false)
+const fileAvailability = ref({ mono: false, dual: false })
 const previewCheckDone = ref(false)
 const previewLoading = ref(true)
 
@@ -88,9 +88,9 @@ async function handleUpload({ file: fileInfo, onFinish, onError }) {
   uploading.value = true
   uploadError.value = ''
   currentTask.value = null
-  previewAvailable.value = false
   previewCheckDone.value = false
   previewLoading.value = true
+  fileAvailability.value = { mono: false, dual: false }
   stopProgress()
 
   const form = new FormData()
@@ -177,10 +177,18 @@ async function checkPreview(taskId) {
   previewCheckDone.value = true
   previewLoading.value = true
   try {
-    const res = await fetch(`/api/tasks/${taskId}/files/mono`, { method: 'HEAD' })
-    previewAvailable.value = res.ok
-  } catch {
-    previewAvailable.value = false
+    const [mono, dual] = await Promise.all([
+      fetch(`/api/tasks/${taskId}/files/mono`, { method: 'HEAD' })
+        .then((r) => r.ok)
+        .catch(() => false),
+      fetch(`/api/tasks/${taskId}/files/dual`, { method: 'HEAD' })
+        .then((r) => r.ok)
+        .catch(() => false),
+    ])
+    fileAvailability.value = { mono, dual }
+    // 若当前档位不可用，自动切到可用的那个，避免预览空白
+    if (!mono && dual) previewMode.value = 'dual'
+    else if (!dual && mono) previewMode.value = 'mono'
   } finally {
     previewLoading.value = false
   }
@@ -295,8 +303,18 @@ onUnmounted(stopProgress)
                 >
                   <div class="result-toolbar">
                     <n-radio-group v-model:value="previewMode" size="small">
-                      <n-radio-button value="mono">纯中文</n-radio-button>
-                      <n-radio-button value="dual">中英对照</n-radio-button>
+                      <n-radio-button
+                        value="mono"
+                        :disabled="previewCheckDone && !fileAvailability.mono"
+                      >
+                        纯中文
+                      </n-radio-button>
+                      <n-radio-button
+                        value="dual"
+                        :disabled="previewCheckDone && !fileAvailability.dual"
+                      >
+                        中英对照
+                      </n-radio-button>
                     </n-radio-group>
                     <n-space size="small">
                       <n-button
@@ -304,6 +322,7 @@ onUnmounted(stopProgress)
                         tag="a"
                         :href="downloadUrl('mono')"
                         download
+                        :disabled="previewCheckDone && !fileAvailability.mono"
                       >
                         下载纯中文 PDF
                       </n-button>
@@ -312,6 +331,7 @@ onUnmounted(stopProgress)
                         tag="a"
                         :href="downloadUrl('dual')"
                         download
+                        :disabled="previewCheckDone && !fileAvailability.dual"
                       >
                         下载双语 PDF
                       </n-button>
@@ -319,13 +339,17 @@ onUnmounted(stopProgress)
                   </div>
 
                   <n-empty
-                    v-if="previewCheckDone && !previewAvailable"
-                    description="暂无译文结果可预览"
+                    v-if="previewCheckDone && !fileAvailability[previewMode]"
+                    :description="
+                      previewMode === 'dual'
+                        ? '该任务暂无双语稿可预览'
+                        : '该任务暂无中文稿可预览'
+                    "
                     class="result-empty"
                   />
                   <n-spin v-else :show="previewLoading" size="small">
                     <iframe
-                      v-if="previewAvailable"
+                      v-if="fileAvailability[previewMode]"
                       :key="previewMode"
                       class="pdf-preview"
                       :src="previewUrl()"
