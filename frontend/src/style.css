@@ -178,6 +178,146 @@ body {
   margin-left: 4px;
 }
 
+/* C3 历史记录 */
+.history-empty,
+.detail-empty {
+  padding: 32px 0;
+}
+
+.task-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.task-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 2px;
+  border-bottom: 1px solid #eef0f4;
+}
+
+.task-row:last-child {
+  border-bottom: none;
+}
+
+.task-row-info {
+  min-width: 0;
+}
+
+.task-row-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.task-row-name .n-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-row-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 4px;
+  color: #98a2b3;
+  font-size: 13px;
+}
+
+.drawer-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.drawer-title .n-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detail-error {
+  margin-bottom: 16px;
+}
+
+.detail-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-bottom: 16px;
+  color: #667085;
+  font-size: 13px;
+}
+
+.block-section-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.block-count {
+  font-size: 13px;
+}
+
+.block-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.block-card {
+  padding: 14px;
+  border: 1px solid #e4e7ec;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.block-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.block-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.block-side {
+  min-width: 0;
+}
+
+.block-label {
+  margin-bottom: 6px;
+  color: #98a2b3;
+  font-size: 12px;
+}
+
+.block-text {
+  max-height: 240px;
+  overflow: auto;
+  padding: 10px;
+  border-radius: 6px;
+  background: #f9fafb;
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.block-error {
+  margin-top: 10px;
+}
+
 .page-footer {
   text-align: center;
   color: #667085;
@@ -188,5 +328,13 @@ body {
 @media (max-width: 768px) {
   .page-hero h1 {
     font-size: 32px;
+  }
+
+  .block-pair {
+    grid-template-columns: 1fr;
+  }
+
+  .task-row {
+    align-items: flex-start;
   }
 }
