@@ -89,6 +89,7 @@ class OpenSourceEngine(TranslationEngine):
                 block_id=item["block_id"],
                 text=item["text"],
                 status=BlockState.SUCCESS if completed else BlockState.FAILED,
+                translated=item.get("translated"),
             )
             for item in payload.get("blocks", [])
         ]
