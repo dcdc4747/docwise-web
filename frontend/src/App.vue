@@ -82,12 +82,6 @@ const statusTypeMap = {
   failed: 'error',
 }
 
-const tierTextMap = {
-  fast: '快档',
-  medium: '中档',
-  precise: '精档',
-}
-
 const blockStatusMeta = {
   success: { type: 'success', text: '成功' },
   overflow: { type: 'warning', text: '溢出' },
