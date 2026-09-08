@@ -9,13 +9,13 @@ dependencies = [
     "uvicorn[standard]>=0.32",
     "sqlalchemy>=2.0",
     "pydantic-settings>=2.6",
+    "httpx>=0.28",
 ]
 
 [dependency-groups]
 dev = [
     "ruff>=0.8",
     "pytest>=8.3",
-    "httpx>=0.28",
 ]
 
 [tool.pytest.ini_options]
