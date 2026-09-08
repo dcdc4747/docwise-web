@@ -16,7 +16,8 @@ from sqlalchemy.orm import Session
 from .config import BASE_DIR, _to_env
 from .db import Base, engine, get_db
 from .engine import Tier
-from .models import Task, TaskBlock
+from .llm import extract_understanding
+from .models import Task, TaskBlock, TaskUnderstanding
 from .worker import TaskEventBus, TranslationWorker
 
 UPLOAD_DIR = BASE_DIR / "data" / "uploads"
@@ -109,6 +110,17 @@ def _serialize_task(task: Task, blocks: list[TaskBlock] | None = None) -> dict:
         data["dual_translated_path"] = task.dual_translated_path
         data["blocks"] = [_serialize_block(block) for block in blocks]
     return data
+
+
+def _serialize_understanding(u: TaskUnderstanding | None) -> dict:
+    if u is None:
+        return {"status": "pending", "guide": None, "terms": [], "error": None}
+    return {
+        "status": u.status,
+        "guide": json.loads(u.guide_json) if u.guide_json else None,
+        "terms": json.loads(u.terms_json) if u.terms_json else [],
+        "error": u.error,
+    }
 
 
 def _sse_event(payload: dict) -> str:
@@ -257,6 +269,76 @@ async def create_task_upload(
 
     request.app.state.worker.enqueue(task.id)
     return _serialize_task(task)
+
+
+@app.get("/api/tasks/{task_id}/understanding")
+def get_understanding(task_id: int, db: Annotated[Session, Depends(get_db)]):
+    """返回导读/术语表状态（惰性按需生成；未生成返回 pending）。"""
+    task = db.get(Task, task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="task not found")
+    u = db.scalars(
+        select(TaskUnderstanding).where(TaskUnderstanding.task_id == task_id)
+    ).first()
+    return _serialize_understanding(u)
+
+
+@app.post("/api/tasks/{task_id}/understanding", status_code=200)
+def compute_understanding(task_id: int, db: Annotated[Session, Depends(get_db)]):
+    """惰性生成导读/术语表：先取；未生成/失败则调用 LLM 抽取并缓存。幂等。"""
+    task = db.get(Task, task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="task not found")
+
+    u = db.scalars(
+        select(TaskUnderstanding).where(TaskUnderstanding.task_id == task_id)
+    ).first()
+    if u is not None and u.status == "ready":
+        return _serialize_understanding(u)
+
+    blocks = db.scalars(
+        select(TaskBlock).where(TaskBlock.task_id == task_id).order_by(TaskBlock.id)
+    ).all()
+    items = [
+        (b.block_id, b.translated or b.text)
+        for b in blocks
+        if (b.translated or b.text)
+    ]
+    if not items:
+        raise HTTPException(status_code=400, detail="该任务没有可提炼的文本")
+
+    if u is None:
+        u = TaskUnderstanding(task_id=task_id)
+        db.add(u)
+    u.status = "pending"
+    u.error = None
+    db.commit()
+
+    try:
+        result = extract_understanding(items)
+        u.guide_json = json.dumps(
+            {
+                k: result.get(k)
+                for k in (
+                    "research_question",
+                    "method",
+                    "conclusion",
+                    "innovation",
+                    "contribution",
+                )
+            },
+            ensure_ascii=False,
+        )
+        u.terms_json = json.dumps(result.get("terms", []), ensure_ascii=False)
+        u.status = "ready"
+        u.error = None
+    except Exception as exc:  # noqa: BLE001 - 失败降级为"暂无导读"，不影响主任务
+        u.guide_json = None
+        u.terms_json = None
+        u.status = "failed"
+        u.error = str(exc)
+    db.commit()
+    return _serialize_understanding(u)
 
 
 @app.post("/api/tasks", status_code=202)

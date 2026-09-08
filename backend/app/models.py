@@ -68,3 +68,23 @@ class TaskBlock(Base):
     )
     translated: Mapped[str | None] = mapped_column(Text, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class TaskUnderstanding(Base):
+    """论文导读/术语表的惰性计算结果（按需生成、缓存；失败可降级为"暂无"）。"""
+
+    __tablename__ = "task_understanding"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    task_id: Mapped[int] = mapped_column(
+        ForeignKey("tasks.id"), index=True, unique=True
+    )
+    guide_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    terms_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(
+        String(16), default="pending"
+    )  # pending / ready / failed
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
