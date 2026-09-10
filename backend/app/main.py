@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from sqlalchemy import inspect, select, text
 from sqlalchemy.orm import Session
 
-from .config import BASE_DIR, _to_env
+from .config import BASE_DIR, _to_env, settings
 from .db import Base, engine, get_db
 from .engine import Tier
 from .llm import extract_understanding
@@ -70,12 +70,24 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="docwise-web", version="0.1.0", lifespan=lifespan)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
+
+def _cors_origins() -> list[str]:
+    """跨域白名单：默认本地开发端口（Vite 5173 / preview 4173），
+    可用 DOCWISE_CORS_ORIGINS（逗号分隔）追加手机真机访问等来源。"""
+    origins = [
         "http://localhost:5173",
         "http://127.0.0.1:5173",
-    ],
+        "http://localhost:4173",
+        "http://127.0.0.1:4173",
+    ]
+    extra = settings.docwise_cors_origins or ""
+    origins += [item.strip() for item in extra.split(",") if item.strip()]
+    return origins
+
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_cors_origins(),
     allow_methods=["*"],
     allow_headers=["*"],
 )

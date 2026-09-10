@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     docwise_engine_medium_python: str | None = None
     docwise_engine_medium_script: str | None = None
     docwise_engine_medium_service: str | None = None
+    # 前端跨域白名单追加项（逗号分隔，如手机真机访问 http://192.168.1.5:5173）；
+    # 默认已允许本地开发端口（5173/4173）。
+    docwise_cors_origins: str | None = None
     deepseek_api_key: str | None = None
     deepseek_model: str | None = None
     deepseek_base_url: str | None = None

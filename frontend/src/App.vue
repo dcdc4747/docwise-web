@@ -1,5 +1,6 @@
 <script setup>
 import { onMounted, onUnmounted, ref } from 'vue'
+import { apiUrl } from './api'
 import {
   zhCN,
   dateZhCN,
@@ -114,7 +115,7 @@ let pollTimer = null
 
 onMounted(async () => {
   try {
-    const res = await fetch('/api/health')
+    const res = await fetch(apiUrl('/api/health'))
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     await res.json()
     backendStatus.value = 'ok'
@@ -141,7 +142,7 @@ async function loadTasks() {
   historyLoading.value = true
   historyError.value = ''
   try {
-    const res = await fetch('/api/tasks')
+    const res = await fetch(apiUrl('/api/tasks'))
     if (!res.ok) throw new Error(`历史任务加载失败（HTTP ${res.status}）`)
     tasks.value = await res.json()
     taskCount.value = tasks.value.length
@@ -157,7 +158,7 @@ async function fetchTaskDetail(taskId) {
   detailError.value = ''
   detailTask.value = null
   try {
-    const res = await fetch(`/api/tasks/${taskId}`)
+    const res = await fetch(apiUrl(`/api/tasks/${taskId}`))
     if (!res.ok) throw new Error(`任务详情加载失败（HTTP ${res.status}）`)
     detailTask.value = await res.json()
   } catch (err) {
@@ -188,7 +189,7 @@ async function handleUpload({ file: fileInfo, onFinish, onError }) {
   form.append('tier', selectedTier.value)
 
   try {
-    const res = await fetch('/api/tasks/upload', { method: 'POST', body: form })
+    const res = await fetch(apiUrl('/api/tasks/upload'), { method: 'POST', body: form })
     if (!res.ok) {
       const body = await res.json().catch(() => ({}))
       throw new Error(body.detail || `上传失败（HTTP ${res.status}）`)
@@ -216,7 +217,7 @@ function handleFilesChange({ fileList }) {
 
 function startProgress(taskId) {
   stopProgress()
-  const es = new EventSource(`/api/tasks/${taskId}/events`)
+  const es = new EventSource(apiUrl(`/api/tasks/${taskId}/events`))
   eventSource = es
   es.onmessage = (e) => {
     let evt
@@ -238,7 +239,7 @@ function startProgress(taskId) {
 function startPolling(taskId) {
   pollTimer = setInterval(async () => {
     try {
-      const res = await fetch(`/api/tasks/${taskId}`)
+      const res = await fetch(apiUrl(`/api/tasks/${taskId}`))
       if (!res.ok) return
       const task = await res.json()
       applyEvent({
@@ -272,10 +273,10 @@ async function checkPreview(taskId) {
   previewLoading.value = true
   try {
     const [mono, dual] = await Promise.all([
-      fetch(`/api/tasks/${taskId}/files/mono`, { method: 'HEAD' })
+      fetch(apiUrl(`/api/tasks/${taskId}/files/mono`), { method: 'HEAD' })
         .then((r) => r.ok)
         .catch(() => false),
-      fetch(`/api/tasks/${taskId}/files/dual`, { method: 'HEAD' })
+      fetch(apiUrl(`/api/tasks/${taskId}/files/dual`), { method: 'HEAD' })
         .then((r) => r.ok)
         .catch(() => false),
     ])
@@ -290,12 +291,12 @@ async function checkPreview(taskId) {
 
 function previewUrl() {
   if (!currentTask.value) return ''
-  return `/api/tasks/${currentTask.value.id}/files/${previewMode.value}`
+  return apiUrl(`/api/tasks/${currentTask.value.id}/files/${previewMode.value}`)
 }
 
 function downloadUrl(kind) {
   if (!currentTask.value) return ''
-  return `/api/tasks/${currentTask.value.id}/files/${kind}?download=1`
+  return apiUrl(`/api/tasks/${currentTask.value.id}/files/${kind}?download=1`)
 }
 
 function stopProgress() {
@@ -311,7 +312,7 @@ function stopProgress() {
 
 async function loadBlocks(taskId) {
   try {
-    const res = await fetch(`/api/tasks/${taskId}`)
+    const res = await fetch(apiUrl(`/api/tasks/${taskId}`))
     if (!res.ok) return
     const data = await res.json()
     const map = {}
@@ -323,12 +324,12 @@ async function loadBlocks(taskId) {
 async function loadUnderstanding(taskId) {
   understandingLoading.value = true
   try {
-    let res = await fetch(`/api/tasks/${taskId}/understanding`)
+    let res = await fetch(apiUrl(`/api/tasks/${taskId}/understanding`))
     if (!res.ok) throw new Error(`加载失败（HTTP ${res.status}）`)
     let data = await res.json()
     if (data.status === 'pending' || data.status === 'failed') {
       // 惰性：未生成就触发计算
-      const post = await fetch(`/api/tasks/${taskId}/understanding`, { method: 'POST' })
+      const post = await fetch(apiUrl(`/api/tasks/${taskId}/understanding`), { method: 'POST' })
       if (post.ok) data = await post.json()
     }
     understandingStatus.value = data.status || 'pending'
