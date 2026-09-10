@@ -32,8 +32,8 @@ class FakeEngine:
 
     name = "open-source"
 
-    def translate(self, request) -> TranslationResult:
-        _ = request
+    def translate(self, request, cancel=None) -> TranslationResult:
+        _ = request, cancel
         return TranslationResult(
             task_id="fake",
             translated_path=Path("/tmp/out.pdf"),
@@ -93,7 +93,7 @@ def test_worker_routes_tier_to_engine(sample_pdf, monkeypatch) -> None:
     class RecorderEngine:
         name = "recorder"
 
-        def translate(self, request) -> TranslationResult:
+        def translate(self, request, cancel=None) -> TranslationResult:
             return TranslationResult(
                 task_id="rec",
                 translated_path=Path("/tmp/out.pdf"),

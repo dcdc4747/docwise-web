@@ -574,6 +574,21 @@ body {
   flex: none;
 }
 
+/* ---- 任务生命周期动作（E 批）：取消 / 重试 / 删除 ---- */
+.workbench-actions {
+  margin-left: auto;
+}
+
+.task-action-error {
+  margin-bottom: 12px;
+}
+
+.delete-confirm-hint {
+  font-size: 12px;
+  color: #d03050;
+  align-self: center;
+}
+
 /* ---- 账号：顶栏用户区 ---- */
 .page-header-inner {
   align-items: center;

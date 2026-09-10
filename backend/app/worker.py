@@ -7,8 +7,16 @@ from pathlib import Path
 
 from sqlalchemy import delete, select, update
 
+from . import storage
 from .db import SessionLocal
-from .engine import TaskState, Tier, TranslateRequest, TranslationResult, get_engine
+from .engine import (
+    CancelToken,
+    TaskState,
+    Tier,
+    TranslateRequest,
+    TranslationResult,
+    get_engine,
+)
 from .models import Task, TaskBlock, TaskHistory
 
 logger = logging.getLogger(__name__)
@@ -16,6 +24,10 @@ logger = logging.getLogger(__name__)
 # 空闲时也周期性刷新心跳；顺带扫表兜底，避免漏掉新建任务
 HEARTBEAT_INTERVAL_SECONDS = 10.0
 SWEEP_INTERVAL_SECONDS = 30.0
+
+
+def _status_value(status) -> str:
+    return getattr(status, "value", status)
 
 
 class TaskEventBus:
@@ -67,6 +79,8 @@ class TranslationWorker:
         self._last_heartbeat = time.monotonic()
         self._last_sweep = 0.0
         self.current_task_id: int | None = None
+        # 正在处理的任务 → 取消信号（接口线程 cancel()，引擎线程轮询）
+        self._cancel_tokens: dict[int, CancelToken] = {}
 
     # ---- 供健康检查读取的运行态 ----
     @property
@@ -87,6 +101,24 @@ class TranslationWorker:
     def enqueue(self, task_id: int) -> None:
         self._queue.put_nowait(task_id)
         logger.info("任务入队：task_id=%s（队列长度 %s）", task_id, self.queue_size)
+
+    def request_cancel(self, task_id: int) -> bool:
+        """请求取消正在跑的任务；返回"是否需要等 worker 收尾"。
+
+        只碰内存（Token 的 Event.set 是原子的），可从接口线程安全调用；
+        真正落库为 cancelled 由 worker 在引擎停下来之后做，避免和
+        completed/failed 的落库打架。
+        """
+        token = self._cancel_tokens.get(task_id)
+        if token is None:
+            return False
+        token.cancel()
+        logger.info("已发出取消信号：task_id=%s", task_id)
+        return True
+
+    @property
+    def running_task_ids(self) -> list[int]:
+        return list(self._cancel_tokens)
 
     async def start(self) -> None:
         self._running = True
@@ -221,18 +253,31 @@ class TranslationWorker:
                 source_lang=task.source_lang,
                 target_lang=task.target_lang,
                 tier=Tier(task.tier),
+                # 结果按任务落一个目录：删除任务时整体清理，不留散落文件
+                output_dir=storage.outputs_dir(task_id),
             )
 
-    def _run_engine(self, request: TranslateRequest) -> TranslationResult:
+    def _run_engine(
+        self, request: TranslateRequest, cancel: CancelToken
+    ) -> TranslationResult:
         # 引擎调用为阻塞子进程，放线程池执行（见 _process 的 asyncio.to_thread）
-        return get_engine(request.tier).translate(request)
+        return get_engine(request.tier).translate(request, cancel)
 
     async def _process(self, task_id: int) -> None:
         if not self._claim(task_id):
             logger.debug("任务已被认领或不存在，跳过：task_id=%s", task_id)
             return
         logger.info("开始处理任务：task_id=%s", task_id)
+        # 认领后立刻登记取消信号：此刻起到引擎结束，用户点"取消"都能叫停
+        token = CancelToken()
+        self._cancel_tokens[task_id] = token
 
+        try:
+            await self._process_claimed(task_id, token)
+        finally:
+            self._cancel_tokens.pop(task_id, None)
+
+    async def _process_claimed(self, task_id: int, cancel: CancelToken) -> None:
         request = self._load_request(task_id)
         if request is None:
             self._persist_failure(task_id, "任务缺少 source_path，无法翻译")
@@ -249,9 +294,17 @@ class TranslationWorker:
         )
         started = time.monotonic()
         try:
-            result = await asyncio.to_thread(self._run_engine, request)
+            result = await asyncio.to_thread(self._run_engine, request, cancel)
         except Exception as exc:  # noqa: BLE001 - 引擎异常也如实落库并回传
             logger.exception("引擎执行失败：task_id=%s", task_id)
+            if cancel.cancelled:
+                self._persist_cancelled(task_id)
+                await self.bus.publish(
+                    task_id,
+                    {"type": "cancelled", "status": "cancelled", "progress": 0.0,
+                     "error": "已取消"},
+                )
+                return
             self._persist_failure(task_id, str(exc))
             await self.bus.publish(
                 task_id,
@@ -264,12 +317,13 @@ class TranslationWorker:
             )
             return
 
-        self._persist_result(task_id, result)
-        terminal = (
-            result.status.value
-            if isinstance(result.status, TaskState)
-            else result.status
-        )
+        terminal = _status_value(result.status)
+        if terminal == TaskState.CANCELLED.value:
+            self._persist_cancelled(task_id)
+        else:
+            self._persist_result(task_id, result)
+        # 任务可能在翻译途中被删掉：此时落库为空转，顺手把子进程留下的目录清掉
+        self._cleanup_if_deleted(task_id, request)
         logger.info(
             "任务处理结束：task_id=%s status=%s 用时=%.1fs 块数=%s",
             task_id,
@@ -287,6 +341,18 @@ class TranslationWorker:
             },
         )
 
+    @staticmethod
+    def _cleanup_if_deleted(task_id: int, request: TranslateRequest) -> None:
+        try:
+            with SessionLocal() as session:
+                if session.get(Task, task_id) is not None:
+                    return
+            if request.output_dir is not None:
+                storage.remove_dir(request.output_dir)
+            logger.info("任务已被删除，清理其输出目录：task_id=%s", task_id)
+        except Exception:  # noqa: BLE001 - 清理失败不影响主流程
+            logger.exception("清理已删除任务的输出目录失败：task_id=%s", task_id)
+
     def _persist_result(self, task_id: int, result: TranslationResult) -> None:
         with SessionLocal() as session:
             task = session.get(Task, task_id)
@@ -303,11 +369,7 @@ class TranslationWorker:
                         error=block.error,
                     )
                 )
-            terminal = (
-                result.status.value
-                if isinstance(result.status, TaskState)
-                else result.status
-            )
+            terminal = _status_value(result.status)
             task.status = terminal
             task.progress = result.progress
             task.error_message = result.error
@@ -330,4 +392,16 @@ class TranslationWorker:
             task.progress = 0.0
             task.error_message = error
             _record_history(session, task_id, TaskState.FAILED.value, error)
+            session.commit()
+
+    def _persist_cancelled(self, task_id: int) -> None:
+        """落库为"已取消"——取消不算失败，也不覆盖别的终态。"""
+        with SessionLocal() as session:
+            task = session.get(Task, task_id)
+            if task is None:
+                return
+            task.status = TaskState.CANCELLED.value
+            task.progress = 0.0
+            task.error_message = "已取消"
+            _record_history(session, task_id, TaskState.CANCELLED.value, "用户取消")
             session.commit()

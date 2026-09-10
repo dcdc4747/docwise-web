@@ -27,7 +27,7 @@ from helpers import (  # noqa: E402  (必须在 DATABASE_URL 设好之后导入)
     TEST_USERNAME,
 )
 
-from app import main as app_main  # noqa: E402
+from app import storage  # noqa: E402
 from app.db import (  # noqa: E402  (需在 DATABASE_URL 之后导入)
     Base,
     SessionLocal,
@@ -43,11 +43,15 @@ from app.models import User  # noqa: E402
 
 AUTH_TEST_MODULES = ("test_auth", "test_authz", "test_admin")
 
-# 上传目录改到临时目录：避免往仓库 data/ 里写（部分环境该目录只读），
-# 也让测试之间不互相干扰。
-_UPLOADS = Path(tempfile.gettempdir()) / f"docwise_uploads_{uuid.uuid4().hex}"
-app_main.UPLOAD_DIR = _UPLOADS
-_UPLOADS.mkdir(parents=True, exist_ok=True)
+# 上传原件与结果产物都改到临时目录：避免往仓库 data/ 里写（部分环境该目录只读，
+# 例如沙盒），也让测试之间不互相干扰。storage 全按模块属性取值，改这里就生效。
+_DATA_ROOT = Path(tempfile.gettempdir()) / f"docwise_data_{uuid.uuid4().hex}"
+storage.DATA_DIR = _DATA_ROOT
+storage.UPLOADS_DIR = _DATA_ROOT / "uploads"
+storage.OUTPUTS_DIR = _DATA_ROOT / "outputs"
+storage.BACKUPS_DIR = _DATA_ROOT / "backups"
+for _dir in (storage.UPLOADS_DIR, storage.OUTPUTS_DIR, storage.BACKUPS_DIR):
+    _dir.mkdir(parents=True, exist_ok=True)
 
 
 def _is_auth_module(request) -> bool:
