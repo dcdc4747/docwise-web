@@ -247,7 +247,53 @@ async function onLogout() {
 
 function progressPercent() {
   if (!currentTask.value) return 0
+  // 优先用引擎刚报的页进度：库里那份是后台每 1.5 秒搬一次的，最多会旧 1.5 秒，
+  // 而详情接口里的 engine_progress 是当场从日志里解析的（更准）
+  if (isRunningTask(currentTask.value) && engineProgress.value) {
+    return Math.round((engineProgress.value.percent ?? 0) * 100)
+  }
   return Math.round((currentTask.value.progress ?? 0) * 100)
+}
+
+// ---- 诚实进度（F 批）----
+// 进度、阶段、预计剩余全部来自后端（后端又是从引擎自己的进度条里读的）；
+// 读不到就不显示，绝不编一个百分比糊弄人。
+const engineProgress = ref(null)
+let elapsedBase = { seconds: 0, at: Date.now() }
+const elapsedTick = ref(Date.now())
+let elapsedTimer = null
+
+function startElapsedTimer() {
+  if (elapsedTimer) return
+  elapsedTimer = setInterval(() => {
+    elapsedTick.value = Date.now()
+  }, 1000)
+}
+
+function stopElapsedTimer() {
+  if (elapsedTimer) {
+    clearInterval(elapsedTimer)
+    elapsedTimer = null
+  }
+}
+
+/** 记录后端给的"已耗时"，然后本地走秒（避免手机与电脑时钟不一致时数字乱跳）。 */
+function rememberElapsed(task) {
+  if (!task || typeof task.elapsed_seconds !== 'number') return
+  elapsedBase = { seconds: task.elapsed_seconds, at: Date.now() }
+  elapsedTick.value = Date.now()
+}
+
+function isRunningTask(task) {
+  return !!task && task.status === 'in_progress'
+}
+
+function formatDuration(seconds) {
+  const total = Math.max(0, Math.round(seconds))
+  const minutes = Math.floor(total / 60)
+  const rest = total % 60
+  if (minutes <= 0) return `${rest} 秒`
+  return `${minutes} 分 ${rest} 秒`
 }
 
 function formatTime(iso) {
@@ -256,6 +302,51 @@ function formatTime(iso) {
   if (Number.isNaN(d.getTime())) return ''
   const pad = (n) => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+// —— 下面几个是模板里直接调用的"诚实进度"文案（读到的都是真实数据）——
+
+function isRunning() {
+  return isRunningTask(currentTask.value)
+}
+
+function hasEngineProgress() {
+  return !!engineProgress.value
+}
+
+function stageText() {
+  const task = currentTask.value
+  if (!task) return ''
+  if (task.status === 'pending') {
+    const ahead = task.queue_position
+    return ahead ? `排队中 · 前面还有 ${ahead} 篇` : '排队中'
+  }
+  if (task.status === 'in_progress') {
+    const engine = engineProgress.value
+    if (!engine) return '正在翻译'
+    const rate = engine.rate ? ` · ${engine.rate.toFixed(2)} 页/秒` : ''
+    return `正在翻译 · 第 ${engine.done}/${engine.total} 页${rate}`
+  }
+  if (task.status === 'completed') return '翻译完成'
+  if (task.status === 'cancelled') return '已取消'
+  return '翻译失败'
+}
+
+function elapsedText() {
+  const task = currentTask.value
+  if (!task || !task.started_at) return ''
+  const running = isRunningTask(task)
+  const drift = running ? Math.max(0, (elapsedTick.value - elapsedBase.at) / 1000) : 0
+  const seconds = elapsedBase.seconds + drift
+  return `${running ? '已用' : '总耗时'} ${formatDuration(seconds)}`
+}
+
+function etaText() {
+  const task = currentTask.value
+  if (!task || !isRunningTask(task)) return ''
+  // 引擎自报 0 秒时不必写出来（tqdm 会四舍五入到 0，那不是"马上好"，只是精度不够）
+  if (typeof task.eta_seconds !== 'number' || task.eta_seconds <= 0) return ''
+  return `引擎预计还需 ${formatDuration(task.eta_seconds)}`
 }
 
 async function loadTasks() {
@@ -389,6 +480,11 @@ async function refreshWorkbench(taskId) {
   const data = await fetchTaskDetail(taskId)
   if (!data) return
   currentTask.value = { ...(currentTask.value || {}), ...data }
+  // 诚实进度：把后端给的阶段/耗时/引擎进度接过来（没有就是 null，界面显示"没报进度"）
+  engineProgress.value = data.engine_progress || null
+  rememberElapsed(data)
+  if (isRunningTask(data)) startElapsedTimer()
+  else stopElapsedTimer()
   blocksById.value = Object.fromEntries(
     (data.blocks || []).map((b) => [b.block_id, b]),
   )
@@ -411,6 +507,8 @@ async function openWorkbench(task) {
   previewCheckDone.value = false
   previewLoading.value = true
   fileAvailability.value = { mono: false, dual: false }
+  engineProgress.value = null
+  rememberElapsed(task)
   resetUnderstanding()
   askQuestion.value = ''
   askResult.value = null
@@ -453,6 +551,9 @@ async function handleUpload({ file: fileInfo, onFinish, onError }) {
     const task = await res.json()
     currentTask.value = task
     workbenchTab.value = 'bilingual'
+    engineProgress.value = null
+    rememberElapsed(task)
+    startElapsedTimer()
     onFinish()
     startProgress(task.id)
     scrollToWorkbench()
@@ -514,10 +615,14 @@ function startPolling(taskId) {
       const res = await authFetch(`/api/tasks/${taskId}`)
       if (!res.ok) return
       const task = await res.json()
+      // 轮询兜底也要把"阶段/耗时/引擎进度"接过来（否则断线后进度就不动了）
+      engineProgress.value = task.engine_progress || null
+      rememberElapsed(task)
       applyEvent({
         type: task.status,
         status: task.status,
         progress: task.progress,
+        eta_seconds: task.eta_seconds,
         error: task.error_message,
       })
       if (TERMINAL_STATES.includes(task.status)) stopProgress()
@@ -532,7 +637,26 @@ function applyEvent(evt) {
   currentTask.value.status = evt.status || currentTask.value.status
   if (typeof evt.progress === 'number') currentTask.value.progress = evt.progress
   if (evt.error) currentTask.value.error_message = evt.error
+  // 诚实进度：SSE 会把引擎自报的页进度与预计剩余一起推过来
+  if (typeof evt.eta_seconds === 'number' || evt.eta_seconds === null) {
+    currentTask.value.eta_seconds = evt.eta_seconds
+  }
+  if (typeof evt.engine_done === 'number' && typeof evt.engine_total === 'number') {
+    engineProgress.value = {
+      done: evt.engine_done,
+      total: evt.engine_total,
+      percent: evt.progress ?? 0,
+      eta_seconds: evt.eta_seconds ?? null,
+      rate: evt.engine_rate ?? null,
+    }
+    startElapsedTimer()
+  }
   if (TERMINAL_STATES.includes(evt.type)) {
+    // 终态：没有阶段、没有预计剩余，进度条收在终值上
+    engineProgress.value = null
+    stopElapsedTimer()
+    currentTask.value.stage = null
+    currentTask.value.eta_seconds = null
     loadTasks()
     // 完成后一次性取全（块 + 文件就绪 + 导读状态），不再单独探测
     if (evt.type === 'completed') refreshWorkbench(currentTask.value.id)
@@ -581,6 +705,27 @@ function stopProgress() {
     clearInterval(pollTimer)
     pollTimer = null
   }
+  stopElapsedTimer()
+}
+
+/** 历史列表里那一小行状态说明（同样是真实数据：排队位置 / 已用 / 引擎自报剩余）。 */
+function rowProgressText(task) {
+  if (task.status === 'in_progress') {
+    const percent = Math.round((task.progress ?? 0) * 100)
+    const parts = [`翻译中 ${percent}%`]
+    if (typeof task.elapsed_seconds === 'number') {
+      parts.push(`已用 ${formatDuration(task.elapsed_seconds)}`)
+    }
+    if (typeof task.eta_seconds === 'number' && task.eta_seconds > 0) {
+      parts.push(`引擎预计还需 ${formatDuration(task.eta_seconds)}`)
+    }
+    return parts.join(' · ')
+  }
+  if (task.status === 'pending') return '排队中'
+  if (typeof task.elapsed_seconds === 'number' && task.elapsed_seconds > 0) {
+    return `总耗时 ${formatDuration(task.elapsed_seconds)}`
+  }
+  return ''
 }
 
 async function loadBlocks(taskId) {
@@ -834,14 +979,34 @@ onUnmounted(stopProgress)
               </n-alert>
 
               <div class="task-progress">
+                <!-- 诚实进度（F 批）：能拿到引擎自报的页进度就画确定进度条，
+                     拿不到就画转圈 + 说清楚"引擎还没报进度"，不编百分比 -->
                 <n-progress
+                  v-if="isRunning && hasEngineProgress"
                   type="line"
                   :percentage="progressPercent()"
-                  :status="currentTask.status === 'failed' ? 'error' : currentTask.status === 'cancelled' ? 'warning' : currentTask.status === 'completed' ? 'success' : 'default'"
-                  :processing="currentTask.status === 'in_progress'"
+                  status="info"
+                  :processing="true"
                   indicator-placement="inside"
                   :height="18"
                 />
+                <div v-else-if="isRunning" class="progress-unknown">
+                  <n-spin :size="16" />
+                  <span>引擎还没报进度（可能正在抽取结构 / 加载版面模型）</span>
+                </div>
+                <n-progress
+                  v-else
+                  type="line"
+                  :percentage="progressPercent()"
+                  :status="currentTask.status === 'failed' ? 'error' : currentTask.status === 'cancelled' ? 'warning' : 'success'"
+                  indicator-placement="inside"
+                  :height="18"
+                />
+                <div class="progress-facts">
+                  <span class="progress-stage">{{ stageText }}</span>
+                  <span v-if="elapsedText">{{ elapsedText }}</span>
+                  <span v-if="etaText" class="progress-eta">{{ etaText }}</span>
+                </div>
                 <n-alert
                   v-if="currentTask.error_message"
                   :type="currentTask.status === 'cancelled' ? 'warning' : 'error'"
@@ -1161,8 +1326,8 @@ onUnmounted(stopProgress)
                       </div>
                       <div class="task-row-meta">
                         <span>{{ formatTime(task.created_at) }}</span>
-                        <span v-if="task.status === 'in_progress'">
-                          进度 {{ Math.round((task.progress ?? 0) * 100) }}%
+                        <span v-if="rowProgressText(task)">
+                          {{ rowProgressText(task) }}
                         </span>
                       </div>
                     </div>

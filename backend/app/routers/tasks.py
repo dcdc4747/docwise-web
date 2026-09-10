@@ -15,16 +15,17 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from datetime import datetime
 from pathlib import Path
 from typing import Annotated
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
-from .. import storage
+from .. import progress, storage
 from ..deps import (
     get_current_user,
     get_db,
@@ -74,6 +75,52 @@ def _task_files(task: Task) -> dict[str, bool]:
     }
 
 
+def _elapsed_seconds(task: Task) -> float | None:
+    """已耗时：从真正开跑算起；跑完就停在 finished_at（F 批"诚实进度"）。"""
+    if task.started_at is None:
+        return None
+    end = task.finished_at or datetime.now()
+    return max(0.0, (end - task.started_at).total_seconds())
+
+
+def _queue_position(db: Session, task: Task) -> int | None:
+    """排队中：前面还有几篇（正在跑的那篇也算在前面）。非排队返回 None。"""
+    if _status_value(task.status) != TaskState.PENDING.value:
+        return None
+    ahead = db.scalar(
+        select(func.count())
+        .select_from(Task)
+        .where(Task.status == TaskState.PENDING.value, Task.id < task.id)
+    )
+    running = db.scalar(
+        select(func.count())
+        .select_from(Task)
+        .where(Task.status == TaskState.IN_PROGRESS.value)
+    )
+    return int(ahead or 0) + int(running or 0)
+
+
+def _engine_progress(task: Task) -> dict | None:
+    """引擎自报的进度（直接读 engine.log 尾部解析）。
+
+    只有"正在跑"的任务才有意义；解析不出返回 None——前端据此显示
+    "引擎还没报进度"，而不是编一个百分比。
+    """
+    if _status_value(task.status) != TaskState.IN_PROGRESS.value:
+        return None
+    log_path = storage.OUTPUTS_DIR / str(task.id) / "engine.log"
+    parsed = progress.progress_from_log(log_path)
+    if parsed is None:
+        return None
+    return {
+        "done": parsed.done,
+        "total": parsed.total,
+        "percent": parsed.percent,
+        "eta_seconds": parsed.eta_seconds,
+        "rate": parsed.rate,
+    }
+
+
 def _serialize_task(task: Task, blocks: list[TaskBlock] | None = None) -> dict:
     data = {
         "id": task.id,
@@ -82,6 +129,12 @@ def _serialize_task(task: Task, blocks: list[TaskBlock] | None = None) -> dict:
         "progress": task.progress,
         "tier": task.tier,
         "created_at": task.created_at.isoformat() if task.created_at else None,
+        # 诚实进度：阶段 + 已耗时 + 引擎自报剩余（都不编造，没有就是 null）
+        "stage": task.stage,
+        "eta_seconds": task.eta_seconds,
+        "elapsed_seconds": _elapsed_seconds(task),
+        "started_at": task.started_at.isoformat() if task.started_at else None,
+        "finished_at": task.finished_at.isoformat() if task.finished_at else None,
     }
     if blocks is not None:
         data["error_message"] = task.error_message
@@ -154,6 +207,9 @@ def get_task(
     data["understanding_status"] = (
         understanding.status if understanding is not None else "pending"
     )
+    # 诚实进度：排队位置 + 引擎自报的分页进度（都可能是 null，前端得认）
+    data["queue_position"] = _queue_position(db, task)
+    data["engine_progress"] = _engine_progress(task)
     return data
 
 
@@ -213,6 +269,11 @@ def retry_task(
     task.error_message = None
     task.translated_path = None
     task.dual_translated_path = None
+    # 诚实进度：重排队等于回到"还没开跑"，计时与进度一起清干净
+    task.stage = None
+    task.eta_seconds = None
+    task.started_at = None
+    task.finished_at = None
     _record_history(db, task_id, "retry", "用户重试")
     db.commit()
     db.refresh(task)
@@ -252,6 +313,9 @@ async def cancel_task(
             status=TaskState.CANCELLED.value,
             progress=0.0,
             error_message="已取消",
+            stage=None,
+            eta_seconds=None,
+            finished_at=datetime.now(),
         )
     )
     if result.rowcount == 0:
