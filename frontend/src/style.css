@@ -590,6 +590,14 @@ body {
   color: #333;
 }
 
+.progress-elapsed {
+  font-variant-numeric: tabular-nums;
+}
+
+.progress-engine {
+  color: #999;
+}
+
 .progress-eta {
   color: #4f6ef7;
 }

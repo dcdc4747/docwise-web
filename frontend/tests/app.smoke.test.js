@@ -113,13 +113,15 @@ describe('App.vue 页面渲染', () => {
     await flushPromises()
 
     const text = wrapper.text()
-    expect(text).toContain('正在翻译 · 第 2/5 页 · 1.72 页/秒')
+    expect(text).toContain('正在翻译')
     expect(text).toContain('已用 12 秒')
-    expect(text).toContain('引擎预计还需 25 秒')
+    expect(text).toContain('引擎自报：第 2/5 页 · 1.72 页/秒')
     // 这正是当初印着一整段 `function Be(){...}` 的地方
     for (const leak of SOURCE_LEAKS) {
       expect(text).not.toContain(leak)
     }
+    // 进度条必须还在（这个坑真踩过：没数字就不画 → 用户看到"进度条没了"）
+    expect(wrapper.find('.n-progress').exists()).toBe(true)
   })
 
   it('引擎还没报进度时：说"还在准备"，不显示假的百分比', async () => {
@@ -143,8 +145,12 @@ describe('App.vue 页面渲染', () => {
     await flushPromises()
 
     const text = wrapper.text()
-    expect(text).toContain('正在翻译 · 引擎还在准备')
+    expect(text).toContain('正在翻译 · 引擎还没报进度')
     expect(text).not.toContain('第 2/5 页')
+    // 没拿到数字时进度条也要在（只是不写百分比，改成流动条纹）
+    const bar = wrapper.find('.n-progress')
+    expect(bar.exists()).toBe(true)
+    expect(bar.text()).not.toContain('%')
     for (const leak of SOURCE_LEAKS) {
       expect(text).not.toContain(leak)
     }

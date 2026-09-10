@@ -15,6 +15,7 @@ import LoginView from './components/LoginView.vue'
 import AdminView from './components/AdminView.vue'
 import {
   elapsedTextFor,
+  engineText as engineTextFor,
   etaTextFor,
   formatDuration,
   stageTextFor,
@@ -314,6 +315,9 @@ const hasEngineProgress = computed(() => !!engineProgress.value)
 const stageText = computed(() =>
   stageTextFor(currentTask.value, engineProgress.value),
 )
+
+// 引擎自报的页进度单独一行文字（标着"引擎自报"，它不是我们的承诺）
+const engineText = computed(() => engineTextFor(engineProgress.value))
 
 const elapsedText = computed(() => {
   const task = currentTask.value
@@ -691,13 +695,12 @@ function stopProgress() {
 /** 历史列表里那一小行状态说明（同样是真实数据：排队位置 / 已用 / 引擎自报剩余）。 */
 function rowProgressText(task) {
   if (task.status === 'in_progress') {
-    const percent = Math.round((task.progress ?? 0) * 100)
-    const parts = [`翻译中 ${percent}%`]
-    if (typeof task.elapsed_seconds === 'number') {
+    const parts = [`翻译中 ${Math.round((task.progress ?? 0) * 100)}%`]
+    if (typeof task.elapsed_seconds === 'number' && task.elapsed_seconds >= 1) {
       parts.push(`已用 ${formatDuration(task.elapsed_seconds)}`)
     }
     if (typeof task.eta_seconds === 'number' && task.eta_seconds > 0) {
-      parts.push(`引擎预计还需 ${formatDuration(task.eta_seconds)}`)
+      parts.push(`引擎自报还需 ${formatDuration(task.eta_seconds)}`)
     }
     return parts.join(' · ')
   }
@@ -959,8 +962,13 @@ onUnmounted(stopProgress)
               </n-alert>
 
               <div class="task-progress">
-                <!-- 诚实进度（F 批）：能拿到引擎自报的页进度就画确定进度条，
-                     拿不到就只转圈 + 一行"引擎还在准备"，不编百分比、也不写内部实现细节 -->
+                <!-- 诚实进度（F 批）：进度条**永远在**——引擎报了页数就画确定进度条，
+                     没报就画一根流动的条纹条（不写百分比）。理由是实测发现这台引擎十几秒
+                     不更新一次进度条，若"没数字就不画"，用户看到的会是"进度条消失"。 -->
+                <!-- 引擎报了页数 → 确定进度条（百分比标在条里）；
+                     没报 → 一根流动的条纹条，**不写百分比**（naive-ui 的
+                     show-indicator 只在 indicator-placement="outside" 下生效，
+                     所以这一支干脆不放指示器）。 -->
                 <n-progress
                   v-if="isRunning && hasEngineProgress"
                   type="line"
@@ -971,7 +979,15 @@ onUnmounted(stopProgress)
                   :height="18"
                 />
                 <n-progress
-                  v-else-if="!isRunning"
+                  v-else-if="isRunning"
+                  type="line"
+                  :percentage="0"
+                  :processing="true"
+                  :show-indicator="false"
+                  :height="18"
+                />
+                <n-progress
+                  v-else
                   type="line"
                   :percentage="progressPercent()"
                   :status="currentTask.status === 'failed' ? 'error' : currentTask.status === 'cancelled' ? 'warning' : 'success'"
@@ -979,9 +995,9 @@ onUnmounted(stopProgress)
                   :height="18"
                 />
                 <div class="progress-facts">
-                  <n-spin v-if="isRunning && !hasEngineProgress" :size="14" />
                   <span class="progress-stage">{{ stageText }}</span>
-                  <span v-if="elapsedText">{{ elapsedText }}</span>
+                  <span v-if="elapsedText" class="progress-elapsed">{{ elapsedText }}</span>
+                  <span v-if="engineText" class="progress-engine">{{ engineText }}</span>
                   <span v-if="etaText" class="progress-eta">{{ etaText }}</span>
                 </div>
                 <n-alert

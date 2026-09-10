@@ -17,22 +17,27 @@ export function queueText(task) {
   return ahead ? `排队中 · 前面还有 ${ahead} 篇` : '排队中'
 }
 
-/** 引擎自报的分页进度（没有就返回 null，绝不编）。 */
+/**
+ * 引擎自报的分页进度。**一律带"引擎自报"四个字**：
+ * 实测过这篇引擎的汇报节奏——它可能十几秒不更新一次（一次 10 页的论文，
+ * 中途只有开头和结尾各刷一条），所以这个数字是"引擎说的"，不是我们的承诺；
+ * 真正可靠、一直在动的是"已用时间"。没有进度时返回 null（不编）。
+ */
 export function engineText(engine) {
   if (!engine || typeof engine.done !== 'number' || !engine.total) return null
   const rate = engine.rate ? ` · ${engine.rate.toFixed(2)} 页/秒` : ''
-  return `正在翻译 · 第 ${engine.done}/${engine.total} 页${rate}`
+  return `引擎自报：第 ${engine.done}/${engine.total} 页${rate}`
 }
 
-/** 阶段一行字：任务状态 +（有的话）引擎自报的页进度。 */
+/** 阶段一行字：任务状态（跑着的时候只说到"正在翻译"，页数交给 engineText）。 */
 export function stageTextFor(task, engine) {
   if (!task) return ''
   switch (task.status) {
     case 'pending':
       return queueText(task)
     case 'in_progress':
-      // 引擎还没打进度条时只说"还在准备"，不把内部实现细节端给用户
-      return engineText(engine) || '正在翻译 · 引擎还在准备'
+      // 引擎还没打进度条时，只说"还在准备"，不把内部实现细节端给用户
+      return engineText(engine) ? '正在翻译' : '正在翻译 · 引擎还没报进度'
     case 'completed':
       return '翻译完成'
     case 'cancelled':
@@ -73,5 +78,5 @@ export function elapsedTextFor(task, seconds) {
 export function etaTextFor(task, etaSeconds) {
   if (!task || task.status !== 'in_progress') return ''
   if (typeof etaSeconds !== 'number' || etaSeconds <= 0) return ''
-  return `引擎预计还需 ${formatDuration(etaSeconds)}`
+  return `引擎自报还需 ${formatDuration(etaSeconds)}`
 }

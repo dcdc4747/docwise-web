@@ -25,17 +25,19 @@ describe('阶段文字', () => {
     expect(queueText({ status: 'pending', queue_position: 0 })).toBe('排队中')
   })
 
-  it('翻译中但引擎还没报进度：说"还在准备"，不编百分比', () => {
-    expect(stageTextFor(running, null)).toBe('正在翻译 · 引擎还在准备')
+  it('翻译中但引擎还没报进度：说"还没报进度"，不编百分比', () => {
+    expect(stageTextFor(running, null)).toBe('正在翻译 · 引擎还没报进度')
   })
 
-  it('翻译中且有引擎自报进度：页进度 + 速率', () => {
+  it('引擎报的页数一律标"引擎自报"（它可能十几秒不更新一次，不是我们的承诺）', () => {
     expect(
-      stageTextFor(running, { done: 2, total: 5, percent: 0.4, rate: 1.72 }),
-    ).toBe('正在翻译 · 第 2/5 页 · 1.72 页/秒')
-    expect(stageTextFor(running, { done: 2, total: 5, rate: null })).toBe(
-      '正在翻译 · 第 2/5 页',
-    )
+      engineText({ done: 2, total: 5, percent: 0.4, rate: 1.72 }),
+    ).toBe('引擎自报：第 2/5 页 · 1.72 页/秒')
+    expect(engineText({ done: 2, total: 5, rate: null })).toBe('引擎自报：第 2/5 页')
+  })
+
+  it('有引擎进度时阶段行只说"正在翻译"（页数单独一行，不混着说）', () => {
+    expect(stageTextFor(running, { done: 2, total: 5, rate: 1.72 })).toBe('正在翻译')
   })
 
   it('各终态各说各的（已取消 ≠ 失败）', () => {
@@ -77,8 +79,8 @@ describe('耗时文案', () => {
 })
 
 describe('预计剩余', () => {
-  it('只有跑着、且是正数才显示', () => {
-    expect(etaTextFor(running, 25)).toBe('引擎预计还需 25 秒')
+  it('只有跑着、且是正数才显示（且标着引擎自报）', () => {
+    expect(etaTextFor(running, 25)).toBe('引擎自报还需 25 秒')
     expect(etaTextFor(running, 0)).toBe('') // tqdm 四舍五入到 0，不是"马上好"
     expect(etaTextFor(running, null)).toBe('')
     expect(etaTextFor({ status: 'completed' }, 25)).toBe('')
