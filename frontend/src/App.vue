@@ -50,6 +50,8 @@ const understandingStatus = ref('pending')
 const understandingGuide = ref(null)
 const understandingTerms = ref([])
 const understandingError = ref('')
+// 本任务是否已自动尝试生成过（避免失败后每次切页签都重复调 LLM 烧钱）
+const understandingTried = ref(false)
 const blocksById = ref({})
 const traceVisible = ref(false)
 const tracePoint = ref(null)
@@ -191,13 +193,15 @@ async function loadTasks() {
 async function fetchTaskDetail(taskId) {
   detailLoading.value = true
   detailError.value = ''
-  detailTask.value = null
   try {
     const res = await fetch(apiUrl(`/api/tasks/${taskId}`))
     if (!res.ok) throw new Error(`任务详情加载失败（HTTP ${res.status}）`)
-    detailTask.value = await res.json()
+    const data = await res.json()
+    detailTask.value = data
+    return data
   } catch (err) {
     detailError.value = err.message || '任务详情加载失败'
+    return null
   } finally {
     detailLoading.value = false
   }
@@ -207,7 +211,76 @@ function openTaskDetail(task) {
   detailTaskId.value = task.id
   detailTitle.value = task.filename
   drawerVisible.value = true
+  detailTask.value = null
   fetchTaskDetail(task.id)
+}
+
+// ---- 统一的"打开任务到阅读工作台"：上传完成后与历史回看走同一条路径 ----
+const workbenchRef = ref(null)
+
+function resetUnderstanding() {
+  understandingLoading.value = false
+  understandingStatus.value = 'pending'
+  understandingGuide.value = null
+  understandingTerms.value = []
+  understandingError.value = ''
+  understandingTried.value = false
+}
+
+function applyUnderstanding(data) {
+  understandingStatus.value = data.status || 'pending'
+  understandingGuide.value = data.guide || null
+  understandingTerms.value = data.terms || []
+  understandingError.value = data.error || ''
+}
+
+function pickPreviewMode() {
+  const { mono, dual } = fileAvailability.value
+  if (!mono && dual) previewMode.value = 'dual'
+  else if (!dual && mono) previewMode.value = 'mono'
+}
+
+/** 取任务全量信息（块 + 文件就绪 + 导读状态），刷新工作台。 */
+async function refreshWorkbench(taskId) {
+  const data = await fetchTaskDetail(taskId)
+  if (!data) return
+  currentTask.value = { ...(currentTask.value || {}), ...data }
+  blocksById.value = Object.fromEntries(
+    (data.blocks || []).map((b) => [b.block_id, b]),
+  )
+  fileAvailability.value = data.files_ready || { mono: false, dual: false }
+  pickPreviewMode()
+  previewCheckDone.value = true
+  previewLoading.value = false
+  // 已经算过导读/术语就直接取缓存，没算过则等用户打开页签再算（惰性）
+  if (data.understanding_status === 'ready') {
+    loadUnderstanding(taskId)
+  }
+}
+
+/** 打开任意任务到阅读工作台（历史回看 / 上传后 / 轮询恢复都走这里）。 */
+async function openWorkbench(task) {
+  stopProgress()
+  currentTask.value = task
+  workbenchTab.value = 'bilingual'
+  previewCheckDone.value = false
+  previewLoading.value = true
+  fileAvailability.value = { mono: false, dual: false }
+  resetUnderstanding()
+  askQuestion.value = ''
+  askResult.value = null
+  askError.value = ''
+  scrollToWorkbench()
+
+  const data = await refreshWorkbench(task.id)
+  if (['pending', 'in_progress'].includes(task.status)) startProgress(task.id)
+  return data
+}
+
+function scrollToWorkbench() {
+  requestAnimationFrame(() => {
+    workbenchRef.value?.$el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  })
 }
 
 async function handleUpload({ file: fileInfo, onFinish, onError }) {
@@ -215,8 +288,12 @@ async function handleUpload({ file: fileInfo, onFinish, onError }) {
   uploadError.value = ''
   currentTask.value = null
   previewCheckDone.value = false
-  previewLoading.value = true
+  previewLoading.value = false
   fileAvailability.value = { mono: false, dual: false }
+  resetUnderstanding()
+  askQuestion.value = ''
+  askResult.value = null
+  askError.value = ''
   stopProgress()
 
   const form = new FormData()
@@ -231,8 +308,10 @@ async function handleUpload({ file: fileInfo, onFinish, onError }) {
     }
     const task = await res.json()
     currentTask.value = task
+    workbenchTab.value = 'bilingual'
     onFinish()
     startProgress(task.id)
+    scrollToWorkbench()
   } catch (err) {
     uploadError.value = err.message || '上传失败，请重试'
     onError()
@@ -295,32 +374,10 @@ function applyEvent(evt) {
   currentTask.value.status = evt.status || currentTask.value.status
   if (typeof evt.progress === 'number') currentTask.value.progress = evt.progress
   if (evt.error) currentTask.value.error_message = evt.error
-  if (['completed', 'failed'].includes(evt.type)) loadTasks()
-  if (currentTask.value.status === 'completed' && !previewCheckDone.value) {
-    checkPreview(currentTask.value.id)
-    loadBlocks(currentTask.value.id)
-    loadUnderstanding(currentTask.value.id)
-  }
-}
-
-async function checkPreview(taskId) {
-  previewCheckDone.value = true
-  previewLoading.value = true
-  try {
-    const [mono, dual] = await Promise.all([
-      fetch(apiUrl(`/api/tasks/${taskId}/files/mono`), { method: 'HEAD' })
-        .then((r) => r.ok)
-        .catch(() => false),
-      fetch(apiUrl(`/api/tasks/${taskId}/files/dual`), { method: 'HEAD' })
-        .then((r) => r.ok)
-        .catch(() => false),
-    ])
-    fileAvailability.value = { mono, dual }
-    // 若当前档位不可用，自动切到可用的那个，避免预览空白
-    if (!mono && dual) previewMode.value = 'dual'
-    else if (!dual && mono) previewMode.value = 'mono'
-  } finally {
-    previewLoading.value = false
+  if (['completed', 'failed'].includes(evt.type)) {
+    loadTasks()
+    // 完成后一次性取全（块 + 文件就绪 + 导读状态），不再单独探测
+    if (evt.type === 'completed') refreshWorkbench(currentTask.value.id)
   }
 }
 
@@ -356,21 +413,22 @@ async function loadBlocks(taskId) {
   } catch { /* ignore */ }
 }
 
-async function loadUnderstanding(taskId) {
+async function loadUnderstanding(taskId, { generate = false } = {}) {
+  if (!taskId) return
   understandingLoading.value = true
   try {
     let res = await fetch(apiUrl(`/api/tasks/${taskId}/understanding`))
     if (!res.ok) throw new Error(`加载失败（HTTP ${res.status}）`)
     let data = await res.json()
-    if (data.status === 'pending' || data.status === 'failed') {
-      // 惰性：未生成就触发计算
-      const post = await fetch(apiUrl(`/api/tasks/${taskId}/understanding`), { method: 'POST' })
+    if (generate && data.status !== 'ready') {
+      // 惰性：用户打开"导读/术语表"页签时才触发计算（每个任务只自动试一次）
+      understandingTried.value = true
+      const post = await fetch(apiUrl(`/api/tasks/${taskId}/understanding`), {
+        method: 'POST',
+      })
       if (post.ok) data = await post.json()
     }
-    understandingStatus.value = data.status || 'pending'
-    understandingGuide.value = data.guide || null
-    understandingTerms.value = data.terms || []
-    understandingError.value = data.error || ''
+    applyUnderstanding(data)
   } catch (err) {
     understandingStatus.value = 'failed'
     understandingError.value = err.message || '理解层加载失败'
@@ -379,13 +437,19 @@ async function loadUnderstanding(taskId) {
   }
 }
 
+function retryUnderstanding() {
+  if (!currentTask.value) return
+  understandingTried.value = false
+  loadUnderstanding(currentTask.value.id, { generate: true })
+}
+
 function switchWorkbenchTab(tab) {
   workbenchTab.value = tab
-  if (tab === 'guide' && currentTask.value) {
-    if (understandingStatus.value !== 'ready' && !understandingLoading.value) {
-      loadUnderstanding(currentTask.value.id)
-    }
-  }
+  if (tab !== 'guide' && tab !== 'terms') return
+  if (!currentTask.value) return
+  if (understandingLoading.value || understandingStatus.value === 'ready') return
+  if (understandingTried.value) return // 失败过就不再自动重试，交给"重试"按钮
+  loadUnderstanding(currentTask.value.id, { generate: true })
 }
 
 function openTrace(point) {
@@ -407,24 +471,24 @@ onUnmounted(stopProgress)
     <n-layout class="page-layout">
       <n-layout-header bordered class="page-header">
         <div class="page-header-inner">
-          <span class="brand">docwise-web</span>
-          <span class="brand-sub">文档翻译智能体</span>
+          <span class="brand">docwise</span>
+          <span class="brand-sub">学术文献理解智能体</span>
         </div>
       </n-layout-header>
 
       <n-layout-content content-style="padding: 0">
         <main class="page-main">
           <section class="page-hero">
-            <h1>文档翻译智能体</h1>
-            <p class="tagline">Agent 是大脑，程序是手脚</p>
+            <h1>把英文文献读懂</h1>
+            <p class="tagline">翻译只是起点，理解才是价值</p>
             <p class="description">
-              上传英文文献 PDF，获得「像原文档的中文版」：
-              翻译、结构保留排版、质检一条龙。
+              上传英文文献 PDF，得到双语对照稿、结构化导读与统一术语表；
+              还能就论文提问，每条答案都标明来自哪一段原文。
             </p>
             <div class="tech-tags">
-              <n-tag round>Vue 3</n-tag>
-              <n-tag round type="info">Vite</n-tag>
-              <n-tag round type="success">Naive UI</n-tag>
+              <n-tag round type="info">结构化导读</n-tag>
+              <n-tag round type="info">统一术语表</n-tag>
+              <n-tag round type="success">带出处问答</n-tag>
             </div>
           </section>
 
@@ -434,7 +498,7 @@ onUnmounted(stopProgress)
                 <div class="tier-picker-head">
                   <n-text strong>翻译档位</n-text>
                   <n-text depth="3" class="tier-picker-sub">
-                    不同档位走不同翻译引擎，请在上传前选择
+                    档位影响速度与质量，请在上传前选择
                   </n-text>
                 </div>
                 <n-radio-group v-model:value="selectedTier" :disabled="uploading">
@@ -459,7 +523,9 @@ onUnmounted(stopProgress)
               >
                 <n-upload-dragger>
                   <div class="upload-hint">点击或拖拽 PDF 到此处</div>
-                  <div class="upload-sub">上传后自动开始翻译，实时显示进度</div>
+                  <div class="upload-sub">
+                    上传后自动开始翻译；完成后可读双语稿、导读与术语表
+                  </div>
                 </n-upload-dragger>
               </n-upload>
 
@@ -471,20 +537,23 @@ onUnmounted(stopProgress)
               >
                 {{ uploadError }}
               </n-alert>
+            </n-card>
+          </section>
 
-              <div v-if="currentTask" class="task-progress">
-                <div class="task-progress-head">
-                  <div class="task-progress-title">
-                    <n-text strong>{{ currentTask.filename }}</n-text>
-                    <n-tag
-                      v-if="currentTask.tier"
-                      size="small"
-                      :bordered="false"
-                      type="warning"
-                    >
-                      档位：{{ tierTextMap[currentTask.tier] || currentTask.tier }}
-                    </n-tag>
-                  </div>
+          <!-- 阅读工作台：上传完成后与历史"继续读"共用同一处 -->
+          <section v-if="currentTask" class="page-section">
+            <n-card ref="workbenchRef" class="workbench-card">
+              <template #header>
+                <div class="workbench-head">
+                  <span class="workbench-name">{{ currentTask.filename }}</span>
+                  <n-tag
+                    v-if="currentTask.tier"
+                    size="small"
+                    :bordered="false"
+                    type="warning"
+                  >
+                    档位：{{ tierTextMap[currentTask.tier] || currentTask.tier }}
+                  </n-tag>
                   <n-tag
                     :type="statusTypeMap[currentTask.status] || 'default'"
                     :bordered="false"
@@ -492,6 +561,9 @@ onUnmounted(stopProgress)
                     {{ statusTextMap[currentTask.status] || currentTask.status }}
                   </n-tag>
                 </div>
+              </template>
+
+              <div class="task-progress">
                 <n-progress
                   type="line"
                   :percentage="progressPercent()"
@@ -585,10 +657,15 @@ onUnmounted(stopProgress)
                           class="workbench-msg"
                         >
                           {{ understandingError || '导读生成失败' }}
+                          <template #action>
+                            <n-button size="small" @click="retryUnderstanding">
+                              重试
+                            </n-button>
+                          </template>
                         </n-alert>
                         <n-empty
                           v-else-if="understandingStatus !== 'ready' || !understandingGuide"
-                          description="导读生成中…（首次打开会触发 AI 理解，稍候）"
+                          description="正在生成导读（读取全文 → 提炼要点 → 对齐术语），请稍候…"
                         />
                         <div v-else class="guide-card">
                           <div
@@ -612,17 +689,36 @@ onUnmounted(stopProgress)
                     </n-tab-pane>
 
                     <n-tab-pane name="terms" tab="术语表">
-                      <n-empty
-                        v-if="!understandingTerms.length"
-                        description="暂无术语表（先到“导读”页触发生成）"
-                      />
-                      <div v-else class="terms-list">
-                        <div v-for="(t, idx) in understandingTerms" :key="idx" class="term-item">
-                          <b class="t-term">{{ t.term }}</b>
-                          <span class="t-cn">{{ t.cn }}</span>
-                          <span class="t-def">{{ t.definition }}</span>
+                      <n-spin :show="understandingLoading" size="small">
+                        <n-alert
+                          v-if="understandingStatus === 'failed'"
+                          type="error"
+                          :show-icon="true"
+                          class="workbench-msg"
+                        >
+                          {{ understandingError || '术语表生成失败' }}
+                          <template #action>
+                            <n-button size="small" @click="retryUnderstanding">
+                              重试
+                            </n-button>
+                          </template>
+                        </n-alert>
+                        <n-empty
+                          v-else-if="!understandingTerms.length"
+                          description="正在生成术语表（与导读一同产出），请稍候…"
+                        />
+                        <div v-else class="terms-list">
+                          <div
+                            v-for="(t, idx) in understandingTerms"
+                            :key="idx"
+                            class="term-item"
+                          >
+                            <b class="t-term">{{ t.term }}</b>
+                            <span class="t-cn">{{ t.cn }}</span>
+                            <span class="t-def">{{ t.definition }}</span>
+                          </div>
                         </div>
-                      </div>
+                      </n-spin>
                     </n-tab-pane>
 
                     <n-tab-pane name="ask" tab="问答">
@@ -734,14 +830,22 @@ onUnmounted(stopProgress)
           </section>
 
           <section class="page-section">
-            <n-card title="历史记录" class="history-card">
+            <n-card class="history-card">
+              <template #header>
+                <div class="history-head">
+                  <span class="history-title">最近在读</span>
+                  <n-text depth="3" class="history-sub">
+                    点开任意一篇，接着读双语稿 / 导读 / 术语表，也可以继续提问
+                  </n-text>
+                </div>
+              </template>
               <template #header-extra>
                 <n-button size="small" quaternary @click="loadTasks">刷新</n-button>
               </template>
               <n-spin :show="historyLoading">
                 <n-empty
                   v-if="!historyLoading && !historyError && tasks.length === 0"
-                  description="暂无历史任务，上传 PDF 后会自动出现在这里"
+                  description="还没有论文，上传 PDF 后会出现在这里"
                   class="history-empty"
                 />
                 <n-alert v-else-if="historyError" type="error" :show-icon="true">
@@ -770,9 +874,19 @@ onUnmounted(stopProgress)
                         </span>
                       </div>
                     </div>
-                    <n-button size="small" type="primary" ghost @click="openTaskDetail(task)">
-                      回看
-                    </n-button>
+                    <n-space size="small" class="task-row-actions">
+                      <n-button
+                        size="small"
+                        type="primary"
+                        ghost
+                        @click="openWorkbench(task)"
+                      >
+                        {{ task.status === 'completed' ? '继续读' : '查看进度' }}
+                      </n-button>
+                      <n-button size="small" quaternary @click="openTaskDetail(task)">
+                        详情
+                      </n-button>
+                    </n-space>
                   </div>
                 </div>
               </n-spin>
@@ -782,9 +896,9 @@ onUnmounted(stopProgress)
           <section class="page-section">
             <n-grid :cols="3" :x-gap="16" responsive="screen" item-responsive>
               <n-gi span="3 s:1 m:1" v-for="feature in [
-                { title: '翻译', desc: '英文文献自动翻译为中文，忠实原文表达。' },
-                { title: '结构保留排版', desc: '图表、标题、公式布局尽量贴近原文档。' },
-                { title: '质检一条龙', desc: '翻译完成后提供质量检查与修订建议。' },
+                { title: '双语对照稿', desc: '保留原论文的结构与排版，可在线预览、可下载。' },
+                { title: '结构化导读', desc: '研究问题 / 方法 / 结论 / 创新点，每条都能点回原文。' },
+                { title: '带出处问答', desc: '就论文提问，答案标明来自哪一段，找不回就直说。' },
               ]" :key="feature.title">
                 <n-card :title="feature.title" class="feature-card">
                   <n-text depth="3">{{ feature.desc }}</n-text>
@@ -806,7 +920,7 @@ onUnmounted(stopProgress)
       </n-layout-content>
 
       <n-layout-footer bordered class="page-footer">
-        © 2026 docwise-web · 阶段 0 骨架 · Vue3 + Vite + Naive UI
+        docwise · 让读不懂英文文献的人，把它读懂
       </n-layout-footer>
     </n-layout>
 
@@ -817,8 +931,7 @@ onUnmounted(stopProgress)
             <n-text strong>{{ detailTitle }}</n-text>
             <n-tag
               v-if="detailTask"
-              :type="statusTypeMap[detailTask.status] || 'default'"
-              :bordered="false"
+              :type="statusTypeMap[detailTask.status] || 'default'"              :bordered="false"
             >
               {{ statusTextMap[detailTask.status] || detailTask.status }}
             </n-tag>
@@ -854,9 +967,9 @@ onUnmounted(stopProgress)
             </n-alert>
 
             <div class="block-section-title">
-              <n-text strong>分块结果</n-text>
+              <n-text strong>分块处理状态</n-text>
               <n-text depth="3" class="block-count">
-                共 {{ detailTask.blocks?.length ?? 0 }} 块
+                共 {{ detailTask.blocks?.length ?? 0 }} 块（排查用；阅读请点"继续读"）
               </n-text>
             </div>
 

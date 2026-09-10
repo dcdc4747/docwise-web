@@ -47,8 +47,8 @@
 
 ```text
 backend/
-├── app/main.py       # FastAPI：/api/health、/api/tasks、/api/tasks/{id}、POST /api/tasks（异步）、GET /api/tasks/{id}/events（SSE 实时进度）、导读/术语 GET|POST /api/tasks/{id}/understanding
-├── app/routers/      # M4 起新路由拆到这里：ask.py = POST /api/tasks/{id}/ask 论文问答（全量入上下文 + FTS5 超阈值兜底，带 block_id 出处）
+├── app/main.py       # FastAPI：/api/health、/api/tasks、/api/tasks/{id}（blocks + files_ready + understanding_status）、POST /api/tasks（异步）、GET /api/tasks/{id}/events（SSE 实时进度）、导读/术语 GET|POST /api/tasks/{id}/understanding
+├── app/routers/      # M4 起新路由拆到这里：ask.py = POST /api/tasks/{id}/ask 论文问答（全量入上下文 + FTS5 超阈值兜底；**检索限定本任务**、出处 id 校验存在性）
 ├── app/deps.py       # 集中依赖注入：get_db（db.py 再导出）/ get_settings
 ├── app/llm.py        # DeepSeek 客户端：extract_understanding（导读/术语）+ answer_question（问答）
 ├── app/models.py     # SQLAlchemy：tasks（任务卡，含 source_lang/target_lang/tier/translated_path）、task_history、task_blocks（每块状态）、task_understanding
