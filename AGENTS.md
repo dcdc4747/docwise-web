@@ -79,6 +79,11 @@ backend/
 - 任务生命周期测试见 `test_task_lifecycle.py`（删除/重试/取消/归属/文件清理）；`test_engine_cancel.py` **真起子进程**验证"取消能把引擎杀掉"，所以**别 mock 掉 Popen**。测试里不要用 `tmp_path`／`mkdtemp` 建目录（受限环境不可写），用 `storage` 那几个模块级目录（conftest 已指向临时目录）。
 - 诚实进度的测试见 `test_progress.py`：解析样本取自**真实 engine.log**；其中一个用例让假引擎往 `engine.log` 写 tqdm 进度，并断言"进度在引擎还在跑的时候就落库了"（不是等结束才一次性写）。
 - 前端 `bun dev` 能跑、页面正常；界面改动请在 PR 里贴截图。
+- **前端渲染检查（必须有）**：`cd frontend && bun run test`（vitest + happy-dom，13 个用例）。加这个是因为真出过事故——模板里把函数当值插值（少写一对括号），Vue 会 `String(fn)` 把**整个函数源码印在页面上**，而 `vite build` 一声不吭，最后是用户截图发现的。所以：
+  - `tests/app.smoke.test.js` 会真的挂载 `App.vue`、走一遍"打开一篇正在翻译的论文"，断言页面文本**不含任何源码痕迹**（`function `、`=>`、`{{` 等），并断言进度区显示的是人话；
+  - `tests/progressText.test.js` 单测进度文案逻辑（`src/progressText.js`）；
+  - **模板里要渲染的值一律用 `computed` 或 `ref`**（别用普通函数），这样"少写括号"也不会出事；
+  - 新增界面功能请顺手补一个用例，别让这类问题再靠用户的眼睛来发现。
 - 各阶段验收标准见 README「开发路线」与对应 issue。
 
 ## 沟通

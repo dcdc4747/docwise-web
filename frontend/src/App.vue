@@ -14,6 +14,12 @@ import {
 import LoginView from './components/LoginView.vue'
 import AdminView from './components/AdminView.vue'
 import {
+  elapsedTextFor,
+  etaTextFor,
+  formatDuration,
+  stageTextFor,
+} from './progressText'
+import {
   zhCN,
   dateZhCN,
   NConfigProvider,
@@ -288,14 +294,6 @@ function isRunningTask(task) {
   return !!task && task.status === 'in_progress'
 }
 
-function formatDuration(seconds) {
-  const total = Math.max(0, Math.round(seconds))
-  const minutes = Math.floor(total / 60)
-  const rest = total % 60
-  if (minutes <= 0) return `${rest} 秒`
-  return `${minutes} 分 ${rest} 秒`
-}
-
 function formatTime(iso) {
   if (!iso) return ''
   const d = new Date(iso)
@@ -307,29 +305,15 @@ function formatTime(iso) {
 // —— 下面几个是模板里直接用的"诚实进度"文案（读到的都是真实数据）——
 // 一律用 computed 而不是普通函数：模板里写 {{ stageText }} 也能正常取值，
 // 不会再出现"少写一对括号 → Vue 把函数 toString 印在页面上"的低级事故。
+// 具体文案逻辑在 src/progressText.js（那边有单测）。
 
 const isRunning = computed(() => isRunningTask(currentTask.value))
 
 const hasEngineProgress = computed(() => !!engineProgress.value)
 
-const stageText = computed(() => {
-  const task = currentTask.value
-  if (!task) return ''
-  if (task.status === 'pending') {
-    const ahead = task.queue_position
-    return ahead ? `排队中 · 前面还有 ${ahead} 篇` : '排队中'
-  }
-  if (task.status === 'in_progress') {
-    const engine = engineProgress.value
-    // 引擎还没打进度条时，只说"还在准备"，不把内部实现细节（抽结构/加载模型）端给用户
-    if (!engine) return '正在翻译 · 引擎还在准备'
-    const rate = engine.rate ? ` · ${engine.rate.toFixed(2)} 页/秒` : ''
-    return `正在翻译 · 第 ${engine.done}/${engine.total} 页${rate}`
-  }
-  if (task.status === 'completed') return '翻译完成'
-  if (task.status === 'cancelled') return '已取消'
-  return '翻译失败'
-})
+const stageText = computed(() =>
+  stageTextFor(currentTask.value, engineProgress.value),
+)
 
 const elapsedText = computed(() => {
   const task = currentTask.value
@@ -338,19 +322,12 @@ const elapsedText = computed(() => {
   const drift = running
     ? Math.max(0, (elapsedTick.value - elapsedBase.at) / 1000)
     : 0
-  const seconds = elapsedBase.seconds + drift
-  // 刚点下去显示"已用 0 秒"很傻，满一秒再说
-  if (running && seconds < 1) return ''
-  return `${running ? '已用' : '总耗时'} ${formatDuration(seconds)}`
+  return elapsedTextFor(task, elapsedBase.seconds + drift)
 })
 
-const etaText = computed(() => {
-  const task = currentTask.value
-  if (!task || !isRunningTask(task)) return ''
-  // 引擎自报 0 秒时不必写出来（tqdm 会四舍五入到 0，那不是"马上好"，只是精度不够）
-  if (typeof task.eta_seconds !== 'number' || task.eta_seconds <= 0) return ''
-  return `引擎预计还需 ${formatDuration(task.eta_seconds)}`
-})
+const etaText = computed(() =>
+  etaTextFor(currentTask.value, currentTask.value?.eta_seconds),
+)
 
 async function loadTasks() {
   historyLoading.value = true
