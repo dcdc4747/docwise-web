@@ -360,3 +360,117 @@ body {
     align-items: flex-start;
   }
 }
+
+/* ===== 阅读工作台（理解层 · 基础版，美观优化后续组员负责）===== */
+.workbench-msg {
+  margin-bottom: 8px;
+}
+
+.guide-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.guide-point {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  border: 1px solid #e6eaf0;
+  border-radius: 8px;
+  background: #f8fafc;
+  cursor: pointer;
+}
+
+.guide-point:hover {
+  border-color: #4f6ef7;
+}
+
+.guide-point b {
+  color: #4f6ef7;
+  min-width: 64px;
+}
+
+.guide-point .g-t {
+  color: #334155;
+  flex: 1;
+  min-width: 200px;
+}
+
+.guide-point .g-src {
+  color: #98a2b3;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.terms-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.term-item {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  border-bottom: 1px solid #eef0f4;
+}
+
+.term-item .t-term {
+  color: #4f6ef7;
+}
+
+.term-item .t-cn {
+  color: #213547;
+  font-weight: 600;
+}
+
+.term-item .t-def {
+  color: #667085;
+  font-size: 13px;
+  flex: 1;
+}
+
+.trace-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.trace-src {
+  font-size: 12px;
+}
+
+.trace-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.trace-lh {
+  font-size: 12px;
+  color: #98a2b3;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.trace-text {
+  font-size: 14px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding: 10px;
+  border: 1px solid #e6eaf0;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+@media (max-width: 768px) {
+  .trace-pair {
+    grid-template-columns: 1fr;
+  }
+}

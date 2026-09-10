@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>docwise · 阅读工作台设计方向原型（让读不懂的人读懂）</title>
+<style>
+  :root{
+    --font: system-ui, "Segoe UI", "PingFang SC", "Microsoft YaHei", Roboto, sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    font-family:var(--font);
+    transition:background .25s,color .25s;
+    min-height:100vh;
+    padding:24px;
+  }
+
+  /* ===== 主题 A：学术现代蓝（干净专业） ===== */
+  body.theme-a{
+    background:#f5f7fa; color:#1f2733; --bg:#f5f7fa; --card:#fff; --line:#e6eaf0;
+    --primary:#4f6ef7; --primary-soft:#eef1ff; --accent:#22a06b; --muted:#667085;
+    --mark:#fff3bf; --dark:false;
+  }
+  /* ===== 主题 B：深色高级（阅读沉浸） ===== */
+  body.theme-b{
+    background:#0e1117; color:#e3e7ee; --bg:#0e1117; --card:#161b24; --line:#232a36;
+    --primary:#7aa2ff; --primary-soft:#1f2740; --accent:#46d9a6; --muted:#8b97ab;
+    --mark:#3a2f12;
+  }
+  /* ===== 主题 C：活力记忆点（更"作品"） ===== */
+  body.theme-c{
+    background:#fbf7f2; color:#2b2126; --bg:#fbf7f2; --card:#fff; --line:#f0e4d8;
+    --primary:#ff5a7a; --primary-soft:#ffecef; --accent:#7c3aed; --muted:#8a7a72;
+    --mark:#ffd9e0;
+  }
+
+  .topbar{
+    max-width:1040px;margin:0 auto 18px;display:flex;align-items:center;justify-content:space-between;
+    padding:12px 16px;border-radius:12px;background:var(--card);border:1px solid var(--line);
+  }
+  .brand{font-weight:800;font-size:17px;color:var(--primary)}
+  .brand small{color:var(--muted);font-weight:500;margin-left:8px}
+  .back{color:var(--muted);font-size:13px;cursor:pointer}
+
+  .workbench{max-width:1040px;margin:0 auto}
+
+  .tabs{display:flex;gap:6px;padding:6px;background:var(--card);border:1px solid var(--line);border-radius:12px;margin-bottom:18px}
+  .tab{flex:1;text-align:center;padding:9px;border-radius:9px;cursor:pointer;color:var(--muted);font-weight:600;font-size:14px}
+  .tab.active{background:var(--primary);color:#fff}
+  body.theme-b .tab.active{color:#0e1117}
+
+  .hero{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:20px;margin-bottom:18px}
+  .hero h3{font-size:14px;color:var(--muted);font-weight:700;margin-bottom:4px;letter-spacing:.3px}
+  .hero .hint{font-size:12px;color:var(--muted);margin-bottom:14px}
+
+  /* 双语对照 */
+  .bilingual{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .col{background:var(--primary-soft);border:1px solid var(--line);border-radius:12px;padding:14px;font-size:14px;line-height:1.8}
+  .col .lh{font-size:11px;color:var(--muted);font-weight:700;margin-bottom:8px;letter-spacing:.5px}
+  mark{background:var(--mark);color:inherit;padding:0 2px;border-radius:3px}
+
+  /* 手机导读卡 */
+  .guide-row{display:flex;gap:16px;align-items:stretch;flex-wrap:wrap}
+  .phone{width:230px;background:var(--card);border:1px solid var(--line);border-radius:24px;padding:16px;box-shadow:0 12px 30px rgba(0,0,0,.08)}
+  .phone .p-head{font-size:12px;color:var(--muted);margin-bottom:10px}
+  .guide-card{display:flex;flex-direction:column;gap:8px}
+  .guide-point{background:var(--primary-soft);border:1px solid var(--line);border-radius:10px;padding:10px 12px;cursor:pointer;font-size:13px}
+  .guide-point b{color:var(--primary)}
+  .guide-point .g-t{color:var(--muted);font-size:11px;display:block;margin-top:2px}
+  .phone .p-foot{font-size:11px;color:var(--muted);margin-top:10px;text-align:center}
+
+  .explain{flex:1;min-width:260px;font-size:13px;color:var(--muted);line-height:1.7}
+  .explain .big{color:var(--primary);font-weight:800;font-size:15px}
+
+  /* 档位权衡 */
+  .tier-bars{display:flex;gap:12px;margin-top:8px}
+  .tier{flex:1;border:1px solid var(--line);border-radius:12px;padding:14px;text-align:center}
+  .tier .t-name{font-weight:800}
+  .tier .bar{height:10px;border-radius:6px;background:var(--line);margin:10px 0}
+  .tier .bar i{display:block;height:100%;border-radius:6px;background:var(--primary)}
+  body.theme-c .tier .bar i{background:linear-gradient(90deg,var(--primary),var(--accent))}
+  .tier .t-meta{font-size:11px;color:var(--muted)}
+
+  /* 点溯源抽屉 */
+  .drawer{position:fixed;left:0;right:0;bottom:0;transform:translateY(110%);transition:transform .3s;background:var(--card);border-top:1px solid var(--line);box-shadow:0 -10px 30px rgba(0,0,0,.15);max-height:60vh;overflow:auto}
+  .drawer.open{transform:translateY(0)}
+  .drawer-in{max-width:1040px;margin:0 auto;padding:18px 20px 24px}
+  .drawer .d-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+  .drawer .d-title{font-weight:800;color:var(--primary)}
+  .drawer .d-close{cursor:pointer;color:var(--muted);font-size:18px;line-height:1}
+  .drawer .d-pair{display:grid;grid-template-columns:1fr 1fr;gap:14px;font-size:13px;line-height:1.7}
+  .drawer .d-src{font-size:11px;color:var(--muted);margin-top:10px}
+
+  /* 悬浮切换条 */
+  .switcher{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:14px;background:#1f2733;color:#fff;border-radius:99px;padding:8px 14px;box-shadow:0 8px 24px rgba(0,0,0,.3);z-index:50}
+  .switcher button{background:none;border:none;color:#fff;font-size:18px;cursor:pointer;padding:2px 8px}
+  .switcher .lbl{font-size:13px;font-weight:600;white-space:nowrap}
+
+  @media(max-width:640px){
+    .bilingual{grid-template-columns:1fr}
+    .drawer .d-pair{grid-template-columns:1fr}
+  }
+</style>
+</head>
+<body class="theme-a">
+
+  <div class="topbar">
+    <span class="brand">docwise <small>让读不懂的人，把它读懂</small></span>
+    <span class="back">← 返回列表</span>
+  </div>
+
+  <div class="workbench">
+    <div class="tabs">
+      <div class="tab active">双语稿</div><div class="tab">导读</div>
+      <div class="tab">术语表</div><div class="tab">问答</div>
+    </div>
+
+    <!-- ① 双语对照阅读视图 -->
+    <div class="hero">
+      <h3>① 双语对照阅读视图（视觉心脏 · 大屏）</h3>
+      <div class="hint">保留双栏/图表/公式布局，术语高亮可 点 → 看统一译名</div>
+      <div class="bilingual">
+        <div class="col">
+          <div class="lh">原文 EN</div>
+          Automatic detection of <mark>pulmonary nodules</mark> in <mark>low-dose CT</mark> remains challenging due to the high <mark>false-positive rate</mark>. We propose a dual-branch 3D CNN...
+        </div>
+        <div class="col">
+          <div class="lh">译文 ZH</div>
+          在<mark>低剂量 CT</mark>中自动检测<mark>肺结节</mark>仍因<mark>假阳性率</mark>高而困难。我们提出一个双分支 3D 卷积网络……
+        </div>
+      </div>
+    </div>
+
+    <!-- ② 手机导读卡 -->
+    <div class="hero">
+      <h3>② 手机 · 导读卡（门面 · 第一屏）</h3>
+      <div class="hint">点一个结论 → 底部抽屉浮出 原文+译文+高亮+出处（可溯源）</div>
+      <div class="guide-row">
+        <div class="phone">
+          <div class="p-head">论文 · 肺结节 CT 检测</div>
+          <div class="guide-card">
+            <div class="guide-point" data-t="研究问题" data-src="b0" onclick="openDrawer('研究问题','b0')">
+              <b>研究问题</b><span class="g-t">如何在低剂量 CT 里自动、准确检测肺结节？</span>
+            </div>
+            <div class="guide-point" data-t="方法" data-src="b1" onclick="openDrawer('方法','b1')">
+              <b>方法</b><span class="g-t">双分支 3D CNN + 注意力抑制假阳性</span>
+            </div>
+            <div class="guide-point" data-t="结论" data-src="b2" onclick="openDrawer('结论','b2')">
+              <b>结论</b><span class="g-t">LUNA16 上达到 95.2% 敏感度 / 4.6 假阳性</span>
+            </div>
+            <div class="guide-point" data-t="创新点" data-src="b3" onclick="openDrawer('创新点','b3')">
+              <b>创新点</b><span class="g-t">注意力降假阳性；端到端；可解释</span>
+            </div>
+          </div>
+          <div class="p-foot">点结论 → 溯源</div>
+        </div>
+        <div class="explain">
+          <div class="big">手机 = 读 + 懂（3 分钟抓住一篇论文）</div>
+          扫一眼导读卡 → 判断值不值得读；点一个结论 → 直接看到原文那句话。大屏做深读/对照/批注/导出，手机做预读/速判/入口。<br><br>
+          <b>可溯源是差异点：</b>每个结论都不是"AI 编的总结"，而是能点回原文段落的证据。
+        </div>
+      </div>
+    </div>
+
+    <!-- ③ 档位权衡 -->
+    <div class="hero">
+      <h3>③ 档位 = 成本 × 质量 × 时间（独家记忆点）</h3>
+      <div class="hint">我们把"翻译多快/多准/多贵"做成用户能看懂的选择</div>
+      <div class="tier-bars">
+        <div class="tier"><div class="t-name">快</div><div class="bar"><i style="width:35%"></i></div><div class="t-meta">省 · 预览不质检</div></div>
+        <div class="tier"><div class="t-name">中</div><div class="bar"><i style="width:65%"></i></div><div class="t-meta">质量·速度平衡</div></div>
+        <div class="tier"><div class="t-name">慢/精</div><div class="bar"><i style="width:95%"></i></div><div class="t-meta">准 · 术语一致</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 点溯源抽屉 -->
+  <div class="drawer" id="drawer">
+    <div class="drawer-in">
+      <div class="d-head"><span class="d-title" id="d-title">结论</span><span class="d-close" onclick="closeDrawer()">✕</span></div>
+      <div class="d-pair">
+        <div class="col"><div class="lh">原文</div><span id="d-en">The attention branch downweights vessel-like activations, improving precision.</span></div>
+        <div class="col"><div class="lh">译文 · 高亮</div><span id="d-zh">注意力分支会<mark>降低类似血管的激活</mark>，从而提升准确率。</span></div>
+      </div>
+      <div class="d-src" id="d-src">出处：原文块 b2 · § 方法</div>
+    </div>
+  </div>
+
+  <!-- 悬浮切换条 -->
+  <div class="switcher">
+    <button onclick="cycle(-1)">‹</button>
+    <span class="lbl" id="lbl">A · 学术蓝</span>
+    <button onclick="cycle(1)">›</button>
+  </div>
+
+<script>
+  const V = [
+    {key:'a', cls:'theme-a', label:'A · 学术蓝'},
+    {key:'b', cls:'theme-b', label:'B · 深色高级'},
+    {key:'c', cls:'theme-c', label:'C · 活力记忆点'},
+  ];
+  let cur = new URLSearchParams(location.search).get('variant') || 'a';
+  const idx = () => Math.max(0, V.findIndex(v => v.key === cur));
+  function apply(){
+    const v = V[idx()];
+    document.body.className = v.cls;
+    document.getElementById('lbl').textContent = v.label;
+    const u = new URL(location.href); u.searchParams.set('variant', v.key); history.replaceState(null,'',u);
+  }
+  function cycle(d){ cur = V[(idx()+d+V.length)%V.length].key; apply(); }
+  function openDrawer(t, src){
+    document.getElementById('d-title').textContent = t + ' · 溯源';
+    document.getElementById('d-src').textContent = '出处：原文块 ' + src + ' · § 方法';
+    document.getElementById('drawer').classList.add('open');
+  }
+  function closeDrawer(){ document.getElementById('drawer').classList.remove('open'); }
+  document.addEventListener('keydown', e => {
+    if (e.target.matches('input,textarea,[contenteditable]')) return;
+    if (e.key === 'ArrowLeft') cycle(-1);
+    if (e.key === 'ArrowRight') cycle(1);
+    if (e.key === 'Escape') closeDrawer();
+  });
+  apply();
+</script>
+</body>
+</html>

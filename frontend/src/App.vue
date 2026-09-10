@@ -25,6 +25,8 @@ import {
   NRadioGroup,
   NSpace,
   NSpin,
+  NTabs,
+  NTabPane,
 } from 'naive-ui'
 
 const backendStatus = ref('checking')
@@ -38,6 +40,25 @@ const fileAvailability = ref({ mono: false, dual: false })
 const previewCheckDone = ref(false)
 const previewLoading = ref(true)
 const selectedTier = ref('fast')
+
+// ---- 阅读工作台（理解层：导读 / 术语表 / 点溯源）----
+const workbenchTab = ref('bilingual')
+const understandingLoading = ref(false)
+const understandingStatus = ref('pending')
+const understandingGuide = ref(null)
+const understandingTerms = ref([])
+const understandingError = ref('')
+const blocksById = ref({})
+const traceVisible = ref(false)
+const tracePoint = ref(null)
+const guideFields = ['research_question', 'method', 'conclusion', 'innovation', 'contribution']
+const guideFieldLabel = {
+  research_question: '研究问题',
+  method: '方法',
+  conclusion: '结论',
+  innovation: '创新点',
+  contribution: '核心贡献',
+}
 
 const tierOptions = [
   { value: 'fast', label: '快', desc: '速度优先' },
@@ -241,6 +262,8 @@ function applyEvent(evt) {
   if (['completed', 'failed'].includes(evt.type)) loadTasks()
   if (currentTask.value.status === 'completed' && !previewCheckDone.value) {
     checkPreview(currentTask.value.id)
+    loadBlocks(currentTask.value.id)
+    loadUnderstanding(currentTask.value.id)
   }
 }
 
@@ -284,6 +307,60 @@ function stopProgress() {
     clearInterval(pollTimer)
     pollTimer = null
   }
+}
+
+async function loadBlocks(taskId) {
+  try {
+    const res = await fetch(`/api/tasks/${taskId}`)
+    if (!res.ok) return
+    const data = await res.json()
+    const map = {}
+    ;(data.blocks || []).forEach((b) => { map[b.block_id] = b })
+    blocksById.value = map
+  } catch { /* ignore */ }
+}
+
+async function loadUnderstanding(taskId) {
+  understandingLoading.value = true
+  try {
+    let res = await fetch(`/api/tasks/${taskId}/understanding`)
+    if (!res.ok) throw new Error(`加载失败（HTTP ${res.status}）`)
+    let data = await res.json()
+    if (data.status === 'pending' || data.status === 'failed') {
+      // 惰性：未生成就触发计算
+      const post = await fetch(`/api/tasks/${taskId}/understanding`, { method: 'POST' })
+      if (post.ok) data = await post.json()
+    }
+    understandingStatus.value = data.status || 'pending'
+    understandingGuide.value = data.guide || null
+    understandingTerms.value = data.terms || []
+    understandingError.value = data.error || ''
+  } catch (err) {
+    understandingStatus.value = 'failed'
+    understandingError.value = err.message || '理解层加载失败'
+  } finally {
+    understandingLoading.value = false
+  }
+}
+
+function switchWorkbenchTab(tab) {
+  workbenchTab.value = tab
+  if (tab === 'guide' && currentTask.value) {
+    if (understandingStatus.value !== 'ready' && !understandingLoading.value) {
+      loadUnderstanding(currentTask.value.id)
+    }
+  }
+}
+
+function openTrace(point) {
+  tracePoint.value = point
+  traceVisible.value = true
+}
+
+function sourceBlockText() {
+  const ids = (tracePoint.value && tracePoint.value.source) || []
+  const id = ids[0]
+  return id ? (blocksById.value[id] || null) : null
 }
 
 onUnmounted(stopProgress)
@@ -400,62 +477,147 @@ onUnmounted(stopProgress)
                   v-if="currentTask.status === 'completed'"
                   class="result-panel"
                 >
-                  <div class="result-toolbar">
-                    <n-radio-group v-model:value="previewMode" size="small">
-                      <n-radio-button
-                        value="mono"
-                        :disabled="previewCheckDone && !fileAvailability.mono"
-                      >
-                        纯中文
-                      </n-radio-button>
-                      <n-radio-button
-                        value="dual"
-                        :disabled="previewCheckDone && !fileAvailability.dual"
-                      >
-                        中英对照
-                      </n-radio-button>
-                    </n-radio-group>
-                    <n-space size="small">
-                      <n-button
-                        size="small"
-                        tag="a"
-                        :href="downloadUrl('mono')"
-                        download
-                        :disabled="previewCheckDone && !fileAvailability.mono"
-                      >
-                        下载纯中文 PDF
-                      </n-button>
-                      <n-button
-                        size="small"
-                        tag="a"
-                        :href="downloadUrl('dual')"
-                        download
-                        :disabled="previewCheckDone && !fileAvailability.dual"
-                      >
-                        下载双语 PDF
-                      </n-button>
-                    </n-space>
-                  </div>
+                  <n-tabs
+                    v-model:value="workbenchTab"
+                    type="line"
+                    size="small"
+                    @update:value="switchWorkbenchTab"
+                  >
+                    <n-tab-pane name="bilingual" tab="双语稿">
+                      <div class="result-toolbar">
+                        <n-radio-group v-model:value="previewMode" size="small">
+                          <n-radio-button
+                            value="mono"
+                            :disabled="previewCheckDone && !fileAvailability.mono"
+                          >
+                            纯中文
+                          </n-radio-button>
+                          <n-radio-button
+                            value="dual"
+                            :disabled="previewCheckDone && !fileAvailability.dual"
+                          >
+                            中英对照
+                          </n-radio-button>
+                        </n-radio-group>
+                        <n-space size="small">
+                          <n-button
+                            size="small"
+                            tag="a"
+                            :href="downloadUrl('mono')"
+                            download
+                            :disabled="previewCheckDone && !fileAvailability.mono"
+                          >
+                            下载纯中文 PDF
+                          </n-button>
+                          <n-button
+                            size="small"
+                            tag="a"
+                            :href="downloadUrl('dual')"
+                            download
+                            :disabled="previewCheckDone && !fileAvailability.dual"
+                          >
+                            下载双语 PDF
+                          </n-button>
+                        </n-space>
+                      </div>
+                      <n-empty
+                        v-if="previewCheckDone && !fileAvailability[previewMode]"
+                        :description="
+                          previewMode === 'dual'
+                            ? '该任务暂无双语稿可预览'
+                            : '该任务暂无中文稿可预览'
+                        "
+                        class="result-empty"
+                      />
+                      <n-spin v-else :show="previewLoading" size="small">
+                        <iframe
+                          v-if="fileAvailability[previewMode]"
+                          :key="previewMode"
+                          class="pdf-preview"
+                          :src="previewUrl()"
+                          title="译文预览"
+                        />
+                      </n-spin>
+                    </n-tab-pane>
 
-                  <n-empty
-                    v-if="previewCheckDone && !fileAvailability[previewMode]"
-                    :description="
-                      previewMode === 'dual'
-                        ? '该任务暂无双语稿可预览'
-                        : '该任务暂无中文稿可预览'
-                    "
-                    class="result-empty"
-                  />
-                  <n-spin v-else :show="previewLoading" size="small">
-                    <iframe
-                      v-if="fileAvailability[previewMode]"
-                      :key="previewMode"
-                      class="pdf-preview"
-                      :src="previewUrl()"
-                      title="译文预览"
-                    />
-                  </n-spin>
+                    <n-tab-pane name="guide" tab="导读">
+                      <n-spin :show="understandingLoading" size="small">
+                        <n-alert
+                          v-if="understandingStatus === 'failed'"
+                          type="error"
+                          :show-icon="true"
+                          class="workbench-msg"
+                        >
+                          {{ understandingError || '导读生成失败' }}
+                        </n-alert>
+                        <n-empty
+                          v-else-if="understandingStatus !== 'ready' || !understandingGuide"
+                          description="导读生成中…（首次打开会触发 AI 理解，稍候）"
+                        />
+                        <div v-else class="guide-card">
+                          <div
+                            v-for="key in guideFields"
+                            :key="key"
+                            class="guide-point"
+                            @click="
+                              openTrace({
+                                label: guideFieldLabel[key],
+                                text: (understandingGuide[key] || {}).text,
+                                source: (understandingGuide[key] || {}).source_block_ids,
+                              })
+                            "
+                          >
+                            <b>{{ guideFieldLabel[key] }}</b>
+                            <span class="g-t">{{ (understandingGuide[key] || {}).text }}</span>
+                            <span class="g-src">溯源 ▸</span>
+                          </div>
+                        </div>
+                      </n-spin>
+                    </n-tab-pane>
+
+                    <n-tab-pane name="terms" tab="术语表">
+                      <n-empty
+                        v-if="!understandingTerms.length"
+                        description="暂无术语表（先到“导读”页触发生成）"
+                      />
+                      <div v-else class="terms-list">
+                        <div v-for="(t, idx) in understandingTerms" :key="idx" class="term-item">
+                          <b class="t-term">{{ t.term }}</b>
+                          <span class="t-cn">{{ t.cn }}</span>
+                          <span class="t-def">{{ t.definition }}</span>
+                        </div>
+                      </div>
+                    </n-tab-pane>
+                  </n-tabs>
                 </div>
+
+                <!-- 点溯源底部抽屉 -->
+                <n-drawer v-model:show="traceVisible" placement="bottom" :height="'46%'">
+                  <n-drawer-content closable>
+                    <template #header>
+                      <div class="trace-head">
+                        <n-text strong>{{ (tracePoint && tracePoint.label) || '溯源' }}</n-text>
+                        <n-text depth="3" class="trace-src">
+                          来源块：{{ ((tracePoint && tracePoint.source) || []).join(', ') || '未知' }}
+                        </n-text>
+                      </div>
+                    </template>
+                    <div class="trace-pair">
+                      <div class="trace-side">
+                        <div class="trace-lh">原文</div>
+                        <div class="trace-text">
+                          {{ (sourceBlockText() && sourceBlockText().text) || ((tracePoint && tracePoint.text) || '—') }}
+                        </div>
+                      </div>
+                      <div class="trace-side">
+                        <div class="trace-lh">译文</div>
+                        <div class="trace-text">
+                          {{ (sourceBlockText() && sourceBlockText().translated) || '—' }}
+                        </div>
+                      </div>
+                    </div>
+                  </n-drawer-content>
+                </n-drawer>
               </div>
             </n-card>
           </section>
