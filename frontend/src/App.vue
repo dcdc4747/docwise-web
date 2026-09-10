@@ -462,6 +462,12 @@ async function handleUpload({ file: fileInfo, onFinish, onError }) {
   } finally {
     uploading.value = false
     loadTasks()
+    // 关键：naive-ui 的 onFinish() 只把文件标成 finished，**不会从内部文件列表里移除**
+    // （Upload.mjs: onFinish -> doChange({status:'finished'})）。配上 :max="1"，
+    // 列表长度已到 1 → maxReached 为真 → 触发器点击直接 return、拖入的文件被
+    // slice(0,0) 丢掉，表现就是"翻译完再想传一篇，点也没反应、拖也没反应"。
+    // 这里手动清空列表，恢复可上传（工作台上已经有文件名了，列表不需要留着）。
+    uploadRef.value?.clear()
   }
 }
 
