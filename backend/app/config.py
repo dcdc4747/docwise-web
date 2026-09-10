@@ -18,8 +18,15 @@ class Settings(BaseSettings):
     docwise_engine_medium_script: str | None = None
     docwise_engine_medium_service: str | None = None
     # 前端跨域白名单追加项（逗号分隔，如手机真机访问 http://192.168.1.5:5173）；
-    # 默认已允许本地开发端口（5173/4173）。
+    # 默认已允许本地开发端口（5173/4173）。**同源部署（后端托管前端产物）用不上
+    # CORS**，这里只在"前端与后端不同源"时才需要。
     docwise_cors_origins: str | None = None
+    # 同源部署：由后端托管前端构建产物，一个地址同时提供页面与接口。
+    # 是否托管；关掉就只提供 API（本地 vite dev 时无所谓）。
+    docwise_serve_frontend: bool = True
+    # 前端产物目录；留空 = 自动找 <仓库根>/frontend/dist。
+    # 相对路径按仓库根解析（不是当前工作目录）。
+    docwise_frontend_dist: str | None = None
     # 论文问答"全量入上下文"的字符数阈值：译文总字符数超过它时，
     # 降级为 FTS5 词法检索兜底（控制在上下文窗口与单问成本内）。
     docwise_ask_full_context_max_chars: int = 300_000

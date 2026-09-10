@@ -53,6 +53,7 @@ backend/
 ├── app/deps.py       # 依赖注入 + 守卫：get_current_user / get_user_for_files(票据) / get_user_for_events(票据) / load_owned_task / require_admin
 ├── app/storage.py    # 磁盘治理：uploads / outputs/{task_id} / backups 三个目录的唯一约定 + 删文件与孤儿目录回收
 ├── app/progress.py   # 诚实进度：解析引擎日志里的 tqdm 进度条（页进度/速率/预计剩余），解析不出返回 None（绝不编进度）
+├── app/webapp.py     # 同源部署：把 frontend/dist 挂到 "/"（SPA 回退 + 入口文件不缓存 + 局域网地址提示），缺产物自动跳过
 ├── app/llm.py        # DeepSeek 客户端：extract_understanding（导读/术语）+ answer_question（问答）
 ├── app/models.py     # SQLAlchemy：tasks（含 user_id 归属）、task_history、task_blocks、task_understanding、users、auth_sessions、auth_tickets
 ├── app/config.py     # 配置：DATABASE_URL；CORS 白名单；问答阈值；账号开关（session_days / legacy_owner / demo_autologin / 登录失败上限）
@@ -69,6 +70,7 @@ backend/
 - **任务生命周期（E 批）**：`POST /api/tasks/{id}/cancel`（跑着的终止引擎子进程、排队中的直接置终态）、`POST /api/tasks/{id}/retry`（仅 failed/cancelled）、`DELETE /api/tasks/{id}`（连子表与磁盘产物一起删）。**结果文件统一落 `data/outputs/{task_id}/`**，删除任务/重试会自动清理；启动时回收孤儿目录。**SQLite 外键没开级联，删任务必须手工删子表**（`routers/tasks.py` 的 `_purge_task_children`）。
 - **诚实进度（F 批）**：进度不是编的，是**解析引擎自己打在 `data/outputs/{id}/engine.log` 里的 tqdm 进度条**（`2/10 [00:01<00:05, 1.44it/s]`，单位是页）：`app/progress.py` 负责解析（tqdm 用 `\r` 重绘，必须按 `[\r\n]+` 切；**解析不出就返回 None，界面显示"引擎还没报进度"，绝不编百分比**），worker 每 1.5s 搬进 `tasks.progress/eta_seconds/stage` 并推 SSE（**只增不减**），任务详情另有当场解析的 `engine_progress`、`elapsed_seconds`（由 `started_at`/`finished_at` 算）与 `queue_position`（排队时"前面还有几篇"）。
 - 启动后端：`cd backend && uv sync && uv run uvicorn app.main:app --port 8000`（单进程 worker，勿用 `--workers N` 并发，避免 SQLite 写锁）。
+- **同源部署（推荐演示与手机真机用）**：先 `cd frontend && bun install && bun run build`，再 `cd backend && uv run uvicorn app.main:app --host 0.0.0.0 --port 8000` —— **一个地址同时给页面与接口**，手机访问 `http://<电脑局域网IP>:8000/`（启动日志会直接列出本机内网地址），不用拼 `?apiBase=`、也不用配 CORS。实现见 `app/webapp.py`：**挂载调用必须写在 `main.py` 最后**（Starlette 按注册顺序匹配，写在前面会把 `/api/...` 吃成静态文件）；`/api`、`/files` 下的未知路径**不参与** SPA 回退（保持 JSON 404），只有 `Accept: text/html` 的浏览器导航才回退 `index.html`；`index.html` / `sw.js` / `manifest.webmanifest` 发 `Cache-Control: no-cache`（防装了 PWA 的手机吃旧壳）；产物不存在只跳过挂载 + 打一条日志（开发态不构建也能起服务），`DOCWISE_SERVE_FRONTEND=0` 关闭、`DOCWISE_FRONTEND_DIST=<路径>` 改位置（相对路径按仓库根解析）。**改完前端要重新构建**，后端只负责端出去、不会替你编译。
 - > 翻译引擎（OpenSourceEngine）通过子进程调用，需配置环境变量 `DOCWISE_ENGINE_PYTHON` / `DOCWISE_ENGINE_SCRIPT` / `DOCWISE_ENGINE_SERVICE` 才会运行；未配置则返回错误。**中档引擎（MediumEngine）用独立的前缀 `DOCWISE_ENGINE_MEDIUM_PYTHON` / `DOCWISE_ENGINE_MEDIUM_SCRIPT` / `DOCWISE_ENGINE_MEDIUM_SERVICE`，未配则回退到基础变量。** 这些（及 `DEEPSEEK_*`）写入 `backend/.env` 后，后端启动时自动注入环境（`_inject_engine_env`），无需手动 `$env:`。
 - **代码架构图**：完整的分层 / 模块依赖 / 数据流 / 接入点 / 注意事项见 `docs/代码架构图.md`。**改动代码（尤其模块 / 接口 / 数据结构 / 路由 / 引擎层）后，请同步更新该图**，方便后续 AI 快速理解底层。
 
@@ -78,6 +80,7 @@ backend/
 - 测试约定：功能测试默认"已登录"（conftest 覆盖鉴权依赖，账号 id 见 `tests/helpers.py`）；**直接建任务要带 `user_id=TEST_USER_ID`**；鉴权本身由 `test_auth` / `test_authz` / `test_admin` 用真实令牌覆盖（未登录 401、跨用户 404、后台 403）。
 - 任务生命周期测试见 `test_task_lifecycle.py`（删除/重试/取消/归属/文件清理）；`test_engine_cancel.py` **真起子进程**验证"取消能把引擎杀掉"，所以**别 mock 掉 Popen**。测试里不要用 `tmp_path`／`mkdtemp` 建目录（受限环境不可写），用 `storage` 那几个模块级目录（conftest 已指向临时目录）。
 - 诚实进度的测试见 `test_progress.py`：解析样本取自**真实 engine.log**；其中一个用例让假引擎往 `engine.log` 写 tqdm 进度，并断言"进度在引擎还在跑的时候就落库了"（不是等结束才一次性写）。
+- 同源部署的测试见 `test_same_origin.py`：断言 `/api`、`/files` 下的未知路径仍是 **JSON 404**（没被 SPA 回退成 HTML）、只有 `Accept: text/html` 才回退壳、入口文件带 `no-cache`、**产物缺失时不挂载也不报错**，以及一条结构性断言"挂载点之后不许再有 `/api`、`/files` 路由"（防有人把路由写回 `main.py` 末尾挂载之后）。
 - 前端 `bun dev` 能跑、页面正常；界面改动请在 PR 里贴截图。
 - **前端渲染检查（必须有）**：`cd frontend && bun run test`（vitest + happy-dom，13 个用例）。加这个是因为真出过事故——模板里把函数当值插值（少写一对括号），Vue 会 `String(fn)` 把**整个函数源码印在页面上**，而 `vite build` 一声不吭，最后是用户截图发现的。所以：
   - `tests/app.smoke.test.js` 会真的挂载 `App.vue`、走一遍"打开一篇正在翻译的论文"，断言页面文本**不含任何源码痕迹**（`function `、`=>`、`{{` 等），并断言进度区显示的是人话；
