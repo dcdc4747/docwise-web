@@ -2,6 +2,18 @@
 import { onMounted, onUnmounted, ref } from 'vue'
 import { apiUrl } from './api'
 import {
+  authFetch,
+  clearToken,
+  fetchMe,
+  getToken,
+  logout as apiLogout,
+  setToken,
+  setUnauthorizedHandler,
+  urlWithTicket,
+} from './auth'
+import LoginView from './components/LoginView.vue'
+import AdminView from './components/AdminView.vue'
+import {
   zhCN,
   dateZhCN,
   NConfigProvider,
@@ -39,10 +51,19 @@ const uploadError = ref('')
 const currentTask = ref(null)
 const uploadRef = ref(null)
 const previewMode = ref('mono')
+const previewSrc = ref('')
 const fileAvailability = ref({ mono: false, dual: false })
 const previewCheckDone = ref(false)
 const previewLoading = ref(true)
 const selectedTier = ref('fast')
+const workbenchError = ref('')
+
+// ---- 账号（B 批）：登录态、管理后台入口、演示一键登录开关 ----
+const authUser = ref(null)
+const authChecking = ref(true)
+const authNotice = ref('')
+const demoAutologin = ref(false)
+const showAdmin = ref(false)
 
 // ---- 阅读工作台（理解层：导读 / 术语表 / 点溯源）----
 const workbenchTab = ref('bilingual')
@@ -73,7 +94,7 @@ async function submitAsk() {
     if (!Object.keys(blocksById.value).length) {
       await loadBlocks(currentTask.value.id)
     }
-    const res = await fetch(apiUrl(`/api/tasks/${currentTask.value.id}/ask`), {
+    const res = await authFetch(`/api/tasks/${currentTask.value.id}/ask`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ question: q }),
@@ -153,6 +174,13 @@ let eventSource = null
 let pollTimer = null
 
 onMounted(async () => {
+  setUnauthorizedHandler(handleUnauthorized)
+  await checkBackend()
+  await restoreSession()
+})
+
+/** 后端状态（公开接口，无需登录）。 */
+async function checkBackend() {
   try {
     const res = await fetch(apiUrl('/api/health'))
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
@@ -160,11 +188,55 @@ onMounted(async () => {
     const health = await res.json()
     healthInfo.value = health
     backendStatus.value = health.status === 'ok' ? 'ok' : 'degraded'
-    await loadTasks()
+    demoAutologin.value = Boolean(health.auth && health.auth.demo_autologin)
   } catch {
     backendStatus.value = 'down'
   }
-})
+}
+
+/** 用已存令牌恢复登录态（没有令牌或令牌失效就显示登录页）。 */
+async function restoreSession() {
+  authChecking.value = true
+  try {
+    if (getToken()) {
+      authUser.value = await fetchMe()
+      await loadTasks()
+    }
+  } catch {
+    authUser.value = null // 令牌失效时 auth.js 已清掉本地令牌
+  } finally {
+    authChecking.value = false
+  }
+}
+
+function handleUnauthorized() {
+  authUser.value = null
+  showAdmin.value = false
+  stopProgress()
+  authNotice.value = '登录已过期，请重新登录'
+}
+
+async function onLoginSuccess({ token, user, remember }) {
+  setToken(token, remember)
+  authUser.value = user
+  authNotice.value = ''
+  showAdmin.value = false
+  await loadTasks()
+}
+
+async function onLogout() {
+  try {
+    await apiLogout()
+  } catch {
+    clearToken()
+  }
+  authUser.value = null
+  currentTask.value = null
+  tasks.value = []
+  taskCount.value = null
+  showAdmin.value = false
+  stopProgress()
+}
 
 function progressPercent() {
   if (!currentTask.value) return 0
@@ -183,7 +255,7 @@ async function loadTasks() {
   historyLoading.value = true
   historyError.value = ''
   try {
-    const res = await fetch(apiUrl('/api/tasks'))
+    const res = await authFetch('/api/tasks')
     if (!res.ok) throw new Error(`历史任务加载失败（HTTP ${res.status}）`)
     tasks.value = await res.json()
     taskCount.value = tasks.value.length
@@ -198,7 +270,7 @@ async function fetchTaskDetail(taskId) {
   detailLoading.value = true
   detailError.value = ''
   try {
-    const res = await fetch(apiUrl(`/api/tasks/${taskId}`))
+    const res = await authFetch(`/api/tasks/${taskId}`)
     if (!res.ok) throw new Error(`任务详情加载失败（HTTP ${res.status}）`)
     const data = await res.json()
     detailTask.value = data
@@ -256,6 +328,7 @@ async function refreshWorkbench(taskId) {
   pickPreviewMode()
   previewCheckDone.value = true
   previewLoading.value = false
+  await refreshPreviewUrl()
   // 已经算过导读/术语就直接取缓存，没算过则等用户打开页签再算（惰性）
   if (data.understanding_status === 'ready') {
     loadUnderstanding(taskId)
@@ -280,7 +353,6 @@ async function openWorkbench(task) {
   if (['pending', 'in_progress'].includes(task.status)) startProgress(task.id)
   return data
 }
-
 function scrollToWorkbench() {
   requestAnimationFrame(() => {
     workbenchRef.value?.$el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -305,7 +377,7 @@ async function handleUpload({ file: fileInfo, onFinish, onError }) {
   form.append('tier', selectedTier.value)
 
   try {
-    const res = await fetch(apiUrl('/api/tasks/upload'), { method: 'POST', body: form })
+    const res = await authFetch('/api/tasks/upload', { method: 'POST', body: form })
     if (!res.ok) {
       const body = await res.json().catch(() => ({}))
       throw new Error(body.detail || `上传失败（HTTP ${res.status}）`)
@@ -333,9 +405,17 @@ function handleFilesChange({ fileList }) {
   }
 }
 
-function startProgress(taskId) {
+async function startProgress(taskId) {
   stopProgress()
-  const es = new EventSource(apiUrl(`/api/tasks/${taskId}/events`))
+  // EventSource 带不了请求头，所以先用令牌换一张 events 用途的票据
+  let url
+  try {
+    url = await urlWithTicket(`/api/tasks/${taskId}/events`, taskId, 'events')
+  } catch {
+    startPolling(taskId)
+    return
+  }
+  const es = new EventSource(url)
   eventSource = es
   es.onmessage = (e) => {
     let evt
@@ -357,7 +437,7 @@ function startProgress(taskId) {
 function startPolling(taskId) {
   pollTimer = setInterval(async () => {
     try {
-      const res = await fetch(apiUrl(`/api/tasks/${taskId}`))
+      const res = await authFetch(`/api/tasks/${taskId}`)
       if (!res.ok) return
       const task = await res.json()
       applyEvent({
@@ -385,14 +465,37 @@ function applyEvent(evt) {
   }
 }
 
-function previewUrl() {
-  if (!currentTask.value) return ''
-  return apiUrl(`/api/tasks/${currentTask.value.id}/files/${previewMode.value}`)
+/** 预览地址带文件票据（iframe 也是浏览器发起的请求，带不了请求头）。 */
+async function refreshPreviewUrl() {
+  if (!currentTask.value || !fileAvailability.value[previewMode.value]) {
+    previewSrc.value = ''
+    return
+  }
+  try {
+    previewSrc.value = await urlWithTicket(
+      `/api/tasks/${currentTask.value.id}/files/${previewMode.value}`,
+      currentTask.value.id,
+      'files',
+    )
+  } catch {
+    previewSrc.value = ''
+  }
 }
 
-function downloadUrl(kind) {
-  if (!currentTask.value) return ''
-  return apiUrl(`/api/tasks/${currentTask.value.id}/files/${kind}?download=1`)
+/** 下载：先换票据再把浏览器导航过去（<a href> 同样带不了请求头）。 */
+async function downloadFile(kind) {
+  if (!currentTask.value) return
+  workbenchError.value = ''
+  try {
+    const url = await urlWithTicket(
+      `/api/tasks/${currentTask.value.id}/files/${kind}?download=1`,
+      currentTask.value.id,
+      'files',
+    )
+    window.location.assign(url)
+  } catch (err) {
+    workbenchError.value = err.message || '下载失败，请重试'
+  }
 }
 
 function stopProgress() {
@@ -408,7 +511,7 @@ function stopProgress() {
 
 async function loadBlocks(taskId) {
   try {
-    const res = await fetch(apiUrl(`/api/tasks/${taskId}`))
+    const res = await authFetch(`/api/tasks/${taskId}`)
     if (!res.ok) return
     const data = await res.json()
     const map = {}
@@ -421,13 +524,13 @@ async function loadUnderstanding(taskId, { generate = false } = {}) {
   if (!taskId) return
   understandingLoading.value = true
   try {
-    let res = await fetch(apiUrl(`/api/tasks/${taskId}/understanding`))
+    let res = await authFetch(`/api/tasks/${taskId}/understanding`)
     if (!res.ok) throw new Error(`加载失败（HTTP ${res.status}）`)
     let data = await res.json()
     if (generate && data.status !== 'ready') {
       // 惰性：用户打开"导读/术语表"页签时才触发计算（每个任务只自动试一次）
       understandingTried.value = true
-      const post = await fetch(apiUrl(`/api/tasks/${taskId}/understanding`), {
+      const post = await authFetch(`/api/tasks/${taskId}/understanding`, {
         method: 'POST',
       })
       if (post.ok) data = await post.json()
@@ -472,16 +575,51 @@ onUnmounted(stopProgress)
 
 <template>
   <n-config-provider :locale="zhCN" :date-locale="dateZhCN">
-    <n-layout class="page-layout">
+    <!-- 正在用已存令牌恢复登录态 -->
+    <div v-if="authChecking" class="boot-screen">
+      <n-spin size="large" />
+    </div>
+
+    <!-- 未登录：整页登录 / 注册 -->
+    <LoginView
+      v-else-if="!authUser"
+      :demo-autologin="demoAutologin"
+      @success="onLoginSuccess"
+    />
+
+    <n-layout v-else class="page-layout">
       <n-layout-header bordered class="page-header">
         <div class="page-header-inner">
           <span class="brand">docwise</span>
           <span class="brand-sub">学术文献理解智能体</span>
+          <span class="header-spacer" />
+          <n-text depth="3" v-if="authNotice" class="header-notice">
+            {{ authNotice }}
+          </n-text>
+          <n-button
+            size="small"
+            quaternary
+            @click="showAdmin = !showAdmin"
+          >
+            {{ showAdmin ? '返回阅读' : '我的论文' }}
+          </n-button>
+          <n-button
+            v-if="authUser.role === 'admin'"
+            size="small"
+            quaternary
+            @click="showAdmin = true"
+          >
+            管理后台
+          </n-button>
+          <n-text depth="3" class="header-user">{{ authUser.username }}</n-text>
+          <n-button size="small" quaternary @click="onLogout">退出</n-button>
         </div>
       </n-layout-header>
 
       <n-layout-content content-style="padding: 0">
         <main class="page-main">
+          <AdminView v-if="showAdmin" />
+          <template v-else>
           <section class="page-hero">
             <h1>把英文文献读懂</h1>
             <p class="tagline">翻译只是起点，理解才是价值</p>
@@ -597,7 +735,11 @@ onUnmounted(stopProgress)
                   >
                     <n-tab-pane name="bilingual" tab="双语稿">
                       <div class="result-toolbar">
-                        <n-radio-group v-model:value="previewMode" size="small">
+                        <n-radio-group
+                          v-model:value="previewMode"
+                          size="small"
+                          @update:value="refreshPreviewUrl"
+                        >
                           <n-radio-button
                             value="mono"
                             :disabled="previewCheckDone && !fileAvailability.mono"
@@ -614,24 +756,29 @@ onUnmounted(stopProgress)
                         <n-space size="small">
                           <n-button
                             size="small"
-                            tag="a"
-                            :href="downloadUrl('mono')"
-                            download
                             :disabled="previewCheckDone && !fileAvailability.mono"
+                            @click="downloadFile('mono')"
                           >
                             下载纯中文 PDF
                           </n-button>
                           <n-button
                             size="small"
-                            tag="a"
-                            :href="downloadUrl('dual')"
-                            download
                             :disabled="previewCheckDone && !fileAvailability.dual"
+                            @click="downloadFile('dual')"
                           >
                             下载双语 PDF
                           </n-button>
                         </n-space>
                       </div>
+
+                      <n-alert
+                        v-if="workbenchError"
+                        type="error"
+                        :show-icon="true"
+                        class="workbench-msg"
+                      >
+                        {{ workbenchError }}
+                      </n-alert>
                       <n-empty
                         v-if="previewCheckDone && !fileAvailability[previewMode]"
                         :description="
@@ -643,10 +790,10 @@ onUnmounted(stopProgress)
                       />
                       <n-spin v-else :show="previewLoading" size="small">
                         <iframe
-                          v-if="fileAvailability[previewMode]"
-                          :key="previewMode"
+                          v-if="fileAvailability[previewMode] && previewSrc"
+                          :key="previewSrc"
                           class="pdf-preview"
-                          :src="previewUrl()"
+                          :src="previewSrc"
                           title="译文预览"
                         />
                       </n-spin>
@@ -928,6 +1075,7 @@ onUnmounted(stopProgress)
               数据库：{{ healthInfo.database_error }}
             </n-text>
           </section>
+          </template>
         </main>
       </n-layout-content>
 
@@ -943,7 +1091,8 @@ onUnmounted(stopProgress)
             <n-text strong>{{ detailTitle }}</n-text>
             <n-tag
               v-if="detailTask"
-              :type="statusTypeMap[detailTask.status] || 'default'"              :bordered="false"
+              :type="statusTypeMap[detailTask.status] || 'default'"
+              :bordered="false"
             >
               {{ statusTextMap[detailTask.status] || detailTask.status }}
             </n-tag>

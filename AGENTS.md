@@ -47,20 +47,23 @@
 
 ```text
 backend/
-├── app/main.py       # FastAPI：/api/health（真检查：DB 写探测 + worker 心跳 + 队列）、/api/tasks、/api/tasks/{id}（blocks + files_ready + understanding_status）、POST /api/tasks（异步）、GET /api/tasks/{id}/events（SSE 实时进度）、导读/术语 GET|POST /api/tasks/{id}/understanding
-├── app/routers/      # M4 起新路由拆到这里：ask.py = POST /api/tasks/{id}/ask 论文问答（全量入上下文 + FTS5 超阈值兜底；**检索限定本任务**、出处 id 校验存在性）
-├── app/deps.py       # 集中依赖注入：get_db（db.py 再导出）/ get_settings
+├── app/main.py       # FastAPI：/api/health（真检查）、任务路由（全部需登录且按归属过滤）、SSE 进度、建档；已删除旧的 POST /api/tasks（服务器路径入口）
+├── app/routers/      # ask.py = 论文问答；auth.py = 注册/登录/退出/me/改密/票据/演示一键登录；admin.py = 管理后台
+├── app/auth.py       # 账号核心逻辑：scrypt 密码哈希、会话令牌（只存 sha256、可吊销）、临时票据、登录限流
+├── app/deps.py       # 依赖注入 + 守卫：get_current_user / get_user_for_files(票据) / get_user_for_events(票据) / load_owned_task / require_admin
 ├── app/llm.py        # DeepSeek 客户端：extract_understanding（导读/术语）+ answer_question（问答）
-├── app/models.py     # SQLAlchemy：tasks（任务卡，含 source_lang/target_lang/tier/translated_path）、task_history、task_blocks（每块状态）、task_understanding
-├── app/config.py     # 配置：DATABASE_URL 读 .env；docwise_cors_origins / docwise_ask_full_context_max_chars（问答全量上下文阈值，默认 30 万字符）
+├── app/models.py     # SQLAlchemy：tasks（含 user_id 归属）、task_history、task_blocks、task_understanding、users、auth_sessions、auth_tickets
+├── app/config.py     # 配置：DATABASE_URL；CORS 白名单；问答阈值；账号开关（session_days / legacy_owner / demo_autologin / 登录失败上限）
 ├── app/db.py         # 引擎与会话；SQLite PRAGMA（WAL+busy_timeout）；ensure_fts 建 FTS5（trigram）检索表 + 触发器
 ├── app/logging_setup.py # 日志：data/logs/docwise.log 轮转 + 控制台（写不了文件自动降级）
 ├── app/worker.py     # 单进程 worker：扫表恢复/行锁认领/线程池跑引擎/事件总线；心跳 + 空闲扫表兜底 + 单任务异常不杀循环
 ├── app/engine/       # 翻译引擎接口（TranslationEngine）+ OpenSourceEngine 适配器 + registry（按档位选引擎）
+├── scripts/          # 运维脚本：reset_password.py（重置密码/提升管理员/列账号）
 └── pyproject.toml    # uv 依赖；.env.example 模板（复制为 .env，不提交）
 ```
 
-- **任务流转**：POST /api/tasks 只建任务立即返回 202（status=pending），worker 后台处理（in_progress→completed/failed），SSE 推送进度（前端也可轮询 GET /api/tasks/{id} 兜底）。**更新了旧"同步卡几十秒"的路径。**
+- **账号与权限**：所有任务接口都需登录（`Authorization: Bearer <令牌>`），并按归属过滤——**非本人一律 404**；进度推送 / PDF 预览 / 文件下载这三种浏览器请求带不了请求头，用 `?ticket=` 票据（绑定 用户+任务+用途，60 秒）。账号表/会话表/票据表由 `create_all` 自动建；`tasks.user_id` 由 `_ensure_schema` 补列；存量无主任务在启动时按 `DOCWISE_LEGACY_OWNER` 归属。
+- **任务流转**：POST /api/tasks/upload 只建任务立即返回 202（status=pending），worker 后台处理（in_progress→completed/failed），SSE 推送进度（前端也可轮询 GET /api/tasks/{id} 兜底）。**更新了旧"同步卡几十秒"的路径。**
 - 启动后端：`cd backend && uv sync && uv run uvicorn app.main:app --port 8000`（单进程 worker，勿用 `--workers N` 并发，避免 SQLite 写锁）。
 - > 翻译引擎（OpenSourceEngine）通过子进程调用，需配置环境变量 `DOCWISE_ENGINE_PYTHON` / `DOCWISE_ENGINE_SCRIPT` / `DOCWISE_ENGINE_SERVICE` 才会运行；未配置则返回错误。**中档引擎（MediumEngine）用独立的前缀 `DOCWISE_ENGINE_MEDIUM_PYTHON` / `DOCWISE_ENGINE_MEDIUM_SCRIPT` / `DOCWISE_ENGINE_MEDIUM_SERVICE`，未配则回退到基础变量。** 这些（及 `DEEPSEEK_*`）写入 `backend/.env` 后，后端启动时自动注入环境（`_inject_engine_env`），无需手动 `$env:`。
 - **代码架构图**：完整的分层 / 模块依赖 / 数据流 / 接入点 / 注意事项见 `docs/代码架构图.md`。**改动代码（尤其模块 / 接口 / 数据结构 / 路由 / 引擎层）后，请同步更新该图**，方便后续 AI 快速理解底层。
@@ -68,6 +71,7 @@ backend/
 ## 测试与验收
 
 - 改完代码必须验证：后端 `pytest tests/ -q` 全过 + `ruff check app tests` 通过；`/api/health` 正常。
+- 测试约定：功能测试默认"已登录"（conftest 覆盖鉴权依赖，账号 id 见 `tests/helpers.py`）；**直接建任务要带 `user_id=TEST_USER_ID`**；鉴权本身由 `test_auth` / `test_authz` / `test_admin` 用真实令牌覆盖（未登录 401、跨用户 404、后台 403）。
 - 前端 `bun dev` 能跑、页面正常；界面改动请在 PR 里贴截图。
 - 各阶段验收标准见 README「开发路线」与对应 issue。
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
+from helpers import TEST_USER_ID
 
 from app.db import SessionLocal
 from app.engine import BlockState
@@ -13,7 +14,7 @@ def test_task_detail_returns_blocks() -> None:
     # 否则 worker 启动时的"崩溃恢复"会把 in_progress 拉回 pending。
     with TestClient(app) as client:
         with SessionLocal() as session:
-            task = Task(filename="a.pdf", status="in_progress")
+            task = Task(user_id=TEST_USER_ID, filename="a.pdf", status="in_progress")
             session.add(task)
             session.flush()
             session.add(

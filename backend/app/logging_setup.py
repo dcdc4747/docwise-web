@@ -46,3 +46,8 @@ def setup_logging(level: int = logging.INFO) -> None:
     root.addHandler(console)
 
     _configured = True
+
+
+def get_logger(name: str) -> logging.Logger:
+    """取模块级 logger（各模块统一用 `get_logger(__name__)`）。"""
+    return logging.getLogger(name)

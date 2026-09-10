@@ -23,6 +23,19 @@ class Settings(BaseSettings):
     # 论文问答"全量入上下文"的字符数阈值：译文总字符数超过它时，
     # 降级为 FTS5 词法检索兜底（控制在上下文窗口与单问成本内）。
     docwise_ask_full_context_max_chars: int = 300_000
+
+    # ---- 账号体系 ----
+    # 会话有效期（天）：登录签发的令牌多久过期（访问时滑动续期）
+    docwise_session_days: int = 30
+    # 存量无主任务（user_id 为空）归属给哪个账号；不配则只在日志里提示
+    docwise_legacy_owner: str | None = None
+    # 打开后登录页出现「演示账号一键进入」（仅演示环境开，默认关）
+    docwise_demo_autologin: bool = False
+    # 演示账号用户名（配合上一项使用）
+    docwise_demo_username: str = "demo"
+    # 同一用户名 + IP 连续登录失败上限（超过锁 5 分钟）
+    docwise_login_max_attempts: int = 5
+
     deepseek_api_key: str | None = None
     deepseek_model: str | None = None
     deepseek_base_url: str | None = None

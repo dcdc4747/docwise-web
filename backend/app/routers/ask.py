@@ -15,9 +15,9 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
-from ..deps import get_db, settings
+from ..deps import get_current_user, get_db, load_owned_task, settings
 from ..llm import answer_question
-from ..models import Task, TaskBlock
+from ..models import TaskBlock, User
 
 router = APIRouter(prefix="/api/tasks", tags=["ask"])
 
@@ -130,11 +130,17 @@ def _keep_known_sources(ids: list[str], known: set[str]) -> list[str]:
 
 
 @router.post("/{task_id}/ask")
-def ask_paper(task_id: int, body: AskRequest, db: Session = Depends(get_db)):
-    """回答论文问题：全量入上下文（超阈值则 FTS 兜底），回答带 block_id 出处。"""
-    task = db.get(Task, task_id)
-    if task is None:
-        raise HTTPException(status_code=404, detail="task not found")
+def ask_paper(
+    task_id: int,
+    body: AskRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """回答论文问题：全量入上下文（超阈值则 FTS 兜底），回答带 block_id 出处。
+
+    鉴权与归属：只能问自己的论文；非本人一律 404（不暴露"存在但无权限"）。
+    """
+    load_owned_task(db, user, task_id)
 
     blocks = db.scalars(
         select(TaskBlock).where(TaskBlock.task_id == task_id).order_by(TaskBlock.id)
