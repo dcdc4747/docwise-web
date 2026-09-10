@@ -6,9 +6,11 @@
 
 | 脚本 | 用途 | 状态 |
 |---|---|---|
-| `reset_password.py` | 忘记密码时由管理员重置某账号密码（本项目不做邮箱找回） | 待加（账号体系批次） |
-| `cleanup_data.py` | 清理过期上传文件与引擎产物（`data/uploads/`、`data/outputs/`） | 待加（任务生命周期批次） |
-| `backup_db.py` | 数据库备份（SQLite `VACUUM INTO`） | 待加（任务生命周期批次） |
+| `reset_password.py` | 忘记密码时由管理员重置某账号密码（本项目不做邮箱找回） | 已加（B 批） |
+| `cleanup_data.py` | 清理孤儿产物（`data/outputs/`、无人引用的 `data/uploads/`、陈旧引擎临时目录）；**默认干跑**，加 `--yes` 才真删 | 已加（E 批） |
+| `backup_db.py` | 数据库备份（SQLite `VACUUM INTO`，备份后自动校验并只留最近 N 份） | 已加（E 批） |
+
+服务启动时也会自动回收「孤儿结果目录 + 陈旧引擎临时目录」，所以 `cleanup_data.py` 是"想立刻清一次"时用的手动工具。
 
 约定：
 

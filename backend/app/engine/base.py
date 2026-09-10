@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -21,6 +22,37 @@ class TaskState(StrEnum):
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
     FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class TaskCancelled(RuntimeError):
+    """任务被用户取消（区别于"出错失败"，取消不算引擎缺陷）。"""
+
+
+class CancelToken:
+    """取消信号：从接口线程传进引擎线程，让跑着的引擎子进程能被叫停。
+
+    引擎在自己的线程里轮询 `cancelled`（或 `wait(timeout)` 一小段），
+    发现被取消就终止子进程并返回 CANCELLED，而不是继续烧算力。
+    """
+
+    def __init__(self) -> None:
+        self._event = threading.Event()
+
+    def cancel(self) -> None:
+        self._event.set()
+
+    @property
+    def cancelled(self) -> bool:
+        return self._event.is_set()
+
+    def wait(self, timeout: float) -> bool:
+        """等待取消信号最多 timeout 秒；返回是否已取消（兼当 sleep 用）。"""
+        return self._event.wait(timeout)
+
+    def raise_if_cancelled(self) -> None:
+        if self._event.is_set():
+            raise TaskCancelled("任务已被取消")
 
 
 class BlockState(StrEnum):
@@ -40,6 +72,9 @@ class TranslateRequest:
     target_lang: str = "zh"
     tier: Tier = Tier.FAST
     terms_path: Path | None = None
+    # 结果落到哪个目录（约定 data/outputs/{task_id}，便于删除任务时整体清理）；
+    # 不传则由引擎自己开临时目录（测试与一次性调用用）。
+    output_dir: Path | None = None
 
 
 @dataclass
@@ -75,6 +110,12 @@ class TranslationEngine(ABC):
     name: str = "base"
 
     @abstractmethod
-    def translate(self, request: TranslateRequest) -> TranslationResult:
-        """执行一次翻译，返回译文与每块状态。"""
+    def translate(
+        self, request: TranslateRequest, cancel: CancelToken | None = None
+    ) -> TranslationResult:
+        """执行一次翻译，返回译文与每块状态。
+
+        `cancel` 不为空时，引擎应周期性检查它；一旦被取消就停止子进程并返回
+        `TaskState.CANCELLED` 的结果（不要抛异常，让调度器能如实落库）。
+        """
         raise NotImplementedError

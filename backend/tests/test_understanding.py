@@ -37,7 +37,7 @@ def _make_completed_task_with_block() -> int:
 
 
 def test_compute_understanding_ready(monkeypatch) -> None:
-    monkeypatch.setattr("app.main.extract_understanding", lambda items: FAKE)
+    monkeypatch.setattr("app.routers.tasks.extract_understanding", lambda items: FAKE)
     with TestClient(app) as client:
         task_id = _make_completed_task_with_block()
         res = client.post(f"/api/tasks/{task_id}/understanding")
@@ -57,7 +57,7 @@ def test_compute_understanding_idempotent(monkeypatch) -> None:
         calls.append(items)
         return FAKE
 
-    monkeypatch.setattr("app.main.extract_understanding", fake)
+    monkeypatch.setattr("app.routers.tasks.extract_understanding", fake)
     with TestClient(app) as client:
         task_id = _make_completed_task_with_block()
         client.post(f"/api/tasks/{task_id}/understanding")
@@ -70,7 +70,7 @@ def test_compute_understanding_failed_degrades(monkeypatch) -> None:
     def boom(items) -> dict:
         raise RuntimeError("llm down")
 
-    monkeypatch.setattr("app.main.extract_understanding", boom)
+    monkeypatch.setattr("app.routers.tasks.extract_understanding", boom)
     with TestClient(app) as client:
         task_id = _make_completed_task_with_block()
         res = client.post(f"/api/tasks/{task_id}/understanding")
@@ -83,7 +83,7 @@ def test_compute_understanding_failed_degrades(monkeypatch) -> None:
 
 
 def test_get_understanding_pending_before_compute(monkeypatch) -> None:
-    monkeypatch.setattr("app.main.extract_understanding", lambda items: FAKE)
+    monkeypatch.setattr("app.routers.tasks.extract_understanding", lambda items: FAKE)
     with TestClient(app) as client:
         with SessionLocal() as session:
             task = Task(user_id=TEST_USER_ID, filename="a.pdf", status="completed")

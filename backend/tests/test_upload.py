@@ -14,8 +14,8 @@ class FakeEngine:
 
     name = "open-source"
 
-    def translate(self, request) -> TranslationResult:
-        _ = request
+    def translate(self, request, cancel=None) -> TranslationResult:
+        _ = request, cancel
         return TranslationResult(
             task_id="fake",
             translated_path=Path("/tmp/out.pdf"),

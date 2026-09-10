@@ -22,8 +22,8 @@ class ResultEngine:
         self.mono = mono
         self.dual = dual
 
-    def translate(self, request) -> TranslationResult:
-        _ = request
+    def translate(self, request, cancel=None) -> TranslationResult:
+        _ = request, cancel
         return TranslationResult(
             task_id="res",
             translated_path=self.mono,

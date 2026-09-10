@@ -155,6 +155,7 @@ const statusTextMap = {
   in_progress: '翻译中',
   completed: '已完成',
   failed: '失败',
+  cancelled: '已取消',
 }
 
 const statusTypeMap = {
@@ -162,7 +163,13 @@ const statusTypeMap = {
   in_progress: 'info',
   completed: 'success',
   failed: 'error',
+  cancelled: 'warning',
 }
+
+// 终态：到了这里进度推送就收工（E 批加了"已取消"）
+const TERMINAL_STATES = ['completed', 'failed', 'cancelled']
+// 可以重试的状态（失败 / 已取消）
+const RETRYABLE_STATES = ['failed', 'cancelled']
 
 const blockStatusMeta = {
   success: { type: 'success', text: '成功' },
@@ -291,6 +298,67 @@ function openTaskDetail(task) {
   fetchTaskDetail(task.id)
 }
 
+// ---- 任务生命周期动作（E 批）：取消 / 重试 / 删除 ----
+const taskActionBusy = ref(false)
+const taskActionError = ref('')
+// 删除是破坏性操作：先点一次"删除"进入确认态，再点"确认删除"才真删
+const deleteConfirmId = ref(null)
+
+async function cancelTask(task) {
+  taskActionBusy.value = true
+  taskActionError.value = ''
+  try {
+    const res = await authFetch(`/api/tasks/${task.id}/cancel`, { method: 'POST' })
+    const body = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(body.detail || `取消失败（HTTP ${res.status}）`)
+    await loadTasks()
+    // 正在跑的会在半秒内停下来（worker 会推 cancelled 事件），这里先刷新一次状态
+    if (currentTask.value?.id === task.id) await refreshWorkbench(task.id)
+  } catch (err) {
+    taskActionError.value = err.message || '取消失败'
+  } finally {
+    taskActionBusy.value = false
+  }
+}
+
+async function retryTask(task) {
+  taskActionBusy.value = true
+  taskActionError.value = ''
+  try {
+    const res = await authFetch(`/api/tasks/${task.id}/retry`, { method: 'POST' })
+    const body = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(body.detail || `重试失败（HTTP ${res.status}）`)
+    await loadTasks()
+    if (currentTask.value?.id === task.id) await openWorkbench(body)
+  } catch (err) {
+    taskActionError.value = err.message || '重试失败'
+  } finally {
+    taskActionBusy.value = false
+  }
+}
+
+async function deleteTask(task) {
+  taskActionBusy.value = true
+  taskActionError.value = ''
+  try {
+    const res = await authFetch(`/api/tasks/${task.id}`, { method: 'DELETE' })
+    const body = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(body.detail || `删除失败（HTTP ${res.status}）`)
+    deleteConfirmId.value = null
+    // 删掉的正好是当前打开的任务：工作台与详情抽屉一起收起来
+    if (currentTask.value?.id === task.id) {
+      stopProgress()
+      currentTask.value = null
+    }
+    if (detailTaskId.value === task.id) drawerVisible.value = false
+    await loadTasks()
+  } catch (err) {
+    taskActionError.value = err.message || '删除失败'
+  } finally {
+    taskActionBusy.value = false
+  }
+}
+
 // ---- 统一的"打开任务到阅读工作台"：上传完成后与历史回看走同一条路径 ----
 const workbenchRef = ref(null)
 
@@ -394,6 +462,12 @@ async function handleUpload({ file: fileInfo, onFinish, onError }) {
   } finally {
     uploading.value = false
     loadTasks()
+    // 关键：naive-ui 的 onFinish() 只把文件标成 finished，**不会从内部文件列表里移除**
+    // （Upload.mjs: onFinish -> doChange({status:'finished'})）。配上 :max="1"，
+    // 列表长度已到 1 → maxReached 为真 → 触发器点击直接 return、拖入的文件被
+    // slice(0,0) 丢掉，表现就是"翻译完再想传一篇，点也没反应、拖也没反应"。
+    // 这里手动清空列表，恢复可上传（工作台上已经有文件名了，列表不需要留着）。
+    uploadRef.value?.clear()
   }
 }
 
@@ -425,7 +499,7 @@ async function startProgress(taskId) {
       return
     }
     applyEvent(evt)
-    if (['completed', 'failed'].includes(evt.type)) stopProgress()
+    if (TERMINAL_STATES.includes(evt.type)) stopProgress()
   }
   es.onerror = () => {
     // SSE 断开时轮询兜底，避免进度卡死
@@ -446,7 +520,7 @@ function startPolling(taskId) {
         progress: task.progress,
         error: task.error_message,
       })
-      if (['completed', 'failed'].includes(task.status)) stopProgress()
+      if (TERMINAL_STATES.includes(task.status)) stopProgress()
     } catch {
       // 后端暂不可达，等待下一轮
     }
@@ -458,7 +532,7 @@ function applyEvent(evt) {
   currentTask.value.status = evt.status || currentTask.value.status
   if (typeof evt.progress === 'number') currentTask.value.progress = evt.progress
   if (evt.error) currentTask.value.error_message = evt.error
-  if (['completed', 'failed'].includes(evt.type)) {
+  if (TERMINAL_STATES.includes(evt.type)) {
     loadTasks()
     // 完成后一次性取全（块 + 文件就绪 + 导读状态），不再单独探测
     if (evt.type === 'completed') refreshWorkbench(currentTask.value.id)
@@ -702,25 +776,84 @@ onUnmounted(stopProgress)
                   >
                     {{ statusTextMap[currentTask.status] || currentTask.status }}
                   </n-tag>
+                  <n-space size="small" class="workbench-actions">
+                    <n-button
+                      v-if="['pending', 'in_progress'].includes(currentTask.status)"
+                      size="small"
+                      :loading="taskActionBusy"
+                      @click="cancelTask(currentTask)"
+                    >
+                      取消翻译
+                    </n-button>
+                    <n-button
+                      v-if="RETRYABLE_STATES.includes(currentTask.status)"
+                      size="small"
+                      type="primary"
+                      ghost
+                      :loading="taskActionBusy"
+                      @click="retryTask(currentTask)"
+                    >
+                      重新翻译
+                    </n-button>
+                    <n-button
+                      v-if="deleteConfirmId === currentTask.id"
+                      size="small"
+                      type="error"
+                      :loading="taskActionBusy"
+                      @click="deleteTask(currentTask)"
+                    >
+                      确认删除
+                    </n-button>
+                    <n-button
+                      v-else
+                      size="small"
+                      quaternary
+                      @click="deleteConfirmId = currentTask.id"
+                    >
+                      删除
+                    </n-button>
+                    <n-button
+                      v-if="deleteConfirmId === currentTask.id"
+                      size="small"
+                      quaternary
+                      @click="deleteConfirmId = null"
+                    >
+                      再想想
+                    </n-button>
+                  </n-space>
                 </div>
               </template>
+
+              <n-alert
+                v-if="taskActionError"
+                type="error"
+                class="task-error"
+                :show-icon="true"
+              >
+                {{ taskActionError }}
+              </n-alert>
 
               <div class="task-progress">
                 <n-progress
                   type="line"
                   :percentage="progressPercent()"
-                  :status="currentTask.status === 'failed' ? 'error' : currentTask.status === 'completed' ? 'success' : 'default'"
+                  :status="currentTask.status === 'failed' ? 'error' : currentTask.status === 'cancelled' ? 'warning' : currentTask.status === 'completed' ? 'success' : 'default'"
                   :processing="currentTask.status === 'in_progress'"
                   indicator-placement="inside"
                   :height="18"
                 />
                 <n-alert
                   v-if="currentTask.error_message"
-                  type="error"
+                  :type="currentTask.status === 'cancelled' ? 'warning' : 'error'"
                   class="task-error"
                   :show-icon="true"
                 >
                   {{ currentTask.error_message }}
+                  <template v-if="RETRYABLE_STATES.includes(currentTask.status)" #action>
+                    <n-button size="tiny" @click="retryTask(currentTask)">
+                      重新翻译
+                    </n-button>
+                  </template>
                 </n-alert>
 
                 <div
@@ -1003,6 +1136,14 @@ onUnmounted(stopProgress)
                   {{ historyError }}
                 </n-alert>
                 <div v-else-if="tasks.length" class="task-list">
+                  <n-alert
+                    v-if="taskActionError"
+                    type="error"
+                    :show-icon="true"
+                    class="task-action-error"
+                  >
+                    {{ taskActionError }}
+                  </n-alert>
                   <div v-for="task in tasks" :key="task.id" class="task-row">
                     <div class="task-row-info">
                       <div class="task-row-name">
@@ -1034,8 +1175,45 @@ onUnmounted(stopProgress)
                       >
                         {{ task.status === 'completed' ? '继续读' : '查看进度' }}
                       </n-button>
+                      <n-button
+                        v-if="['pending', 'in_progress'].includes(task.status)"
+                        size="small"
+                        :loading="taskActionBusy"
+                        @click="cancelTask(task)"
+                      >
+                        取消
+                      </n-button>
+                      <n-button
+                        v-if="RETRYABLE_STATES.includes(task.status)"
+                        size="small"
+                        :loading="taskActionBusy"
+                        @click="retryTask(task)"
+                      >
+                        重试
+                      </n-button>
                       <n-button size="small" quaternary @click="openTaskDetail(task)">
                         详情
+                      </n-button>
+                      <template v-if="deleteConfirmId === task.id">
+                        <n-button
+                          size="small"
+                          type="error"
+                          :loading="taskActionBusy"
+                          @click="deleteTask(task)"
+                        >
+                          确认删除
+                        </n-button>
+                        <n-button size="small" quaternary @click="deleteConfirmId = null">
+                          取消
+                        </n-button>
+                      </template>
+                      <n-button
+                        v-else
+                        size="small"
+                        quaternary
+                        @click="deleteConfirmId = task.id"
+                      >
+                        删除
                       </n-button>
                     </n-space>
                   </div>
