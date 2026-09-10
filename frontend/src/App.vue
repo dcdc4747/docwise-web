@@ -26,6 +26,7 @@ import {
   NRadioGroup,
   NSpace,
   NSpin,
+  NInput,
   NTabs,
   NTabPane,
 } from 'naive-ui'
@@ -52,6 +53,40 @@ const understandingError = ref('')
 const blocksById = ref({})
 const traceVisible = ref(false)
 const tracePoint = ref(null)
+
+// ---- 论文问答（M4：全量入上下文 + FTS5 兜底，回答带出处）----
+const askQuestion = ref('')
+const askLoading = ref(false)
+const askResult = ref(null)
+const askError = ref('')
+
+async function submitAsk() {
+  const q = (askQuestion.value || '').trim()
+  if (!q || askLoading.value || !currentTask.value) return
+  askLoading.value = true
+  askError.value = ''
+  askResult.value = null
+  try {
+    if (!Object.keys(blocksById.value).length) {
+      await loadBlocks(currentTask.value.id)
+    }
+    const res = await fetch(apiUrl(`/api/tasks/${currentTask.value.id}/ask`), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question: q }),
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      throw new Error(body.detail || `问答失败（HTTP ${res.status}）`)
+    }
+    askResult.value = await res.json()
+  } catch (err) {
+    askError.value = err.message || '问答失败，请重试'
+  } finally {
+    askLoading.value = false
+  }
+}
+
 const guideFields = ['research_question', 'method', 'conclusion', 'innovation', 'contribution']
 const guideFieldLabel = {
   research_question: '研究问题',
@@ -587,6 +622,81 @@ onUnmounted(stopProgress)
                           <span class="t-cn">{{ t.cn }}</span>
                           <span class="t-def">{{ t.definition }}</span>
                         </div>
+                      </div>
+                    </n-tab-pane>
+
+                    <n-tab-pane name="ask" tab="问答">
+                      <div class="ask-panel">
+                        <div class="ask-input-row">
+                          <n-input
+                            v-model:value="askQuestion"
+                            type="textarea"
+                            :autosize="{ minRows: 1, maxRows: 4 }"
+                            placeholder="就这篇论文提问，例如：这篇论文的核心贡献是什么？"
+                            :disabled="askLoading"
+                            @keydown.enter.prevent="submitAsk"
+                          />
+                          <n-button
+                            type="primary"
+                            :loading="askLoading"
+                            :disabled="!askQuestion.trim()"
+                            @click="submitAsk"
+                          >
+                            提问
+                          </n-button>
+                        </div>
+
+                        <n-alert
+                          v-if="askError"
+                          type="error"
+                          :show-icon="true"
+                          class="workbench-msg"
+                        >
+                          {{ askError }}
+                        </n-alert>
+                        <n-empty
+                          v-else-if="!askResult && !askLoading"
+                          description="向这篇论文提问，答案会给出处（点击出处块可溯源原文）"
+                          class="result-empty"
+                        />
+                        <n-spin :show="askLoading" size="small">
+                          <div v-if="askResult" class="ask-answer">
+                            <div class="ask-answer-head">
+                              <n-tag
+                                v-if="askResult.mode === 'fts'"
+                                size="small"
+                                type="warning"
+                                :bordered="false"
+                              >
+                                长文 · 检索模式
+                              </n-tag>
+                            </div>
+                            <div class="ask-answer-text">{{ askResult.answer }}</div>
+                            <div
+                              v-if="askResult.source_block_ids && askResult.source_block_ids.length"
+                              class="ask-sources"
+                            >
+                              <span class="ask-sources-label">出处：</span>
+                              <n-tag
+                                v-for="id in askResult.source_block_ids"
+                                :key="id"
+                                size="small"
+                                type="info"
+                                class="ask-src-tag"
+                                @click="
+                                  openTrace({
+                                    label: '问答出处',
+                                    text: askResult.answer,
+                                    source: [id],
+                                  })
+                                "
+                              >
+                                {{ id }} ▸
+                              </n-tag>
+                            </div>
+                            <div v-else class="ask-sources-label">（回答未给出处）</div>
+                          </div>
+                        </n-spin>
                       </div>
                     </n-tab-pane>
                   </n-tabs>

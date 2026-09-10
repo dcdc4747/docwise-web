@@ -24,6 +24,16 @@ _SYSTEM_PROMPT = (
     "terms 只取关键术语并给统一中文译名。"
 )
 
+_QA_SYSTEM_PROMPT = (
+    "你是一个学术论文问答助手。你会收到论文的分段文字，每段以 [block_id] 开头标记。"
+    "请仅依据给定文本回答用户的问题，不要编造文本中没有的内容。"
+    "只输出一个 JSON 对象，不要任何额外文字。JSON 结构：\n"
+    '{"answer": "回答（中文，简洁准确）", "source_block_ids": ["b1", "b5"]}\n'
+    "要点：source_block_ids 必须是确实支撑该回答的段标记；"
+    "如果给定文本不足以回答，answer 里诚实说明文本中没有相关信息，"
+    "source_block_ids 为空数组。"
+)
+
 
 def _headers() -> dict[str, str]:
     return {"Authorization": f"Bearer {settings.deepseek_api_key}"}
@@ -86,3 +96,25 @@ def extract_understanding(blocks: list[tuple[str, str]]) -> dict:
         ]
     )
     return _extract_json(content)
+
+
+def answer_question(blocks: list[tuple[str, str]], question: str) -> dict:
+    """基于 (block_id, text) 片段回答论文问题，返回 {answer, source_block_ids}。
+
+    回答必须按 block_id 引用出处；文本不足时由提示词要求 LLM 诚实说明。
+    """
+    labeled = "\n\n".join(f"[{bid}] {txt}" for bid, txt in blocks)
+    user_msg = f"论文分段文字：\n\n{labeled}\n\n问题：{question}"
+    content = _chat(
+        [
+            {"role": "system", "content": _QA_SYSTEM_PROMPT},
+            {"role": "user", "content": user_msg},
+        ],
+        max_tokens=1500,
+        temperature=0.2,
+    )
+    data = _extract_json(content)
+    return {
+        "answer": str(data.get("answer") or ""),
+        "source_block_ids": [str(x) for x in data.get("source_block_ids") or []],
+    }

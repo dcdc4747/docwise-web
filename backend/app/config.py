@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     # 前端跨域白名单追加项（逗号分隔，如手机真机访问 http://192.168.1.5:5173）；
     # 默认已允许本地开发端口（5173/4173）。
     docwise_cors_origins: str | None = None
+    # 论文问答"全量入上下文"的字符数阈值：译文总字符数超过它时，
+    # 降级为 FTS5 词法检索兜底（控制在上下文窗口与单问成本内）。
+    docwise_ask_full_context_max_chars: int = 300_000
     deepseek_api_key: str | None = None
     deepseek_model: str | None = None
     deepseek_base_url: str | None = None

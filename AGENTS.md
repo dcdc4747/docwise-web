@@ -47,10 +47,13 @@
 
 ```text
 backend/
-├── app/main.py       # FastAPI：/api/health、/api/tasks、/api/tasks/{id}、POST /api/tasks（异步）、GET /api/tasks/{id}/events（SSE 实时进度）
-├── app/models.py     # SQLAlchemy：tasks（任务卡，含 source_lang/target_lang/tier/translated_path）、task_history、task_blocks（每块状态）
-├── app/config.py     # 配置：DATABASE_URL 读 .env
-├── app/db.py         # 引擎与会话
+├── app/main.py       # FastAPI：/api/health、/api/tasks、/api/tasks/{id}、POST /api/tasks（异步）、GET /api/tasks/{id}/events（SSE 实时进度）、导读/术语 GET|POST /api/tasks/{id}/understanding
+├── app/routers/      # M4 起新路由拆到这里：ask.py = POST /api/tasks/{id}/ask 论文问答（全量入上下文 + FTS5 超阈值兜底，带 block_id 出处）
+├── app/deps.py       # 集中依赖注入：get_db（db.py 再导出）/ get_settings
+├── app/llm.py        # DeepSeek 客户端：extract_understanding（导读/术语）+ answer_question（问答）
+├── app/models.py     # SQLAlchemy：tasks（任务卡，含 source_lang/target_lang/tier/translated_path）、task_history、task_blocks（每块状态）、task_understanding
+├── app/config.py     # 配置：DATABASE_URL 读 .env；docwise_cors_origins / docwise_ask_full_context_max_chars（问答全量上下文阈值，默认 30 万字符）
+├── app/db.py         # 引擎与会话；ensure_fts 建 FTS5（trigram）检索表 + 触发器（每次启动重建）
 ├── app/worker.py     # 单进程 worker：启动扫表恢复（in_progress→pending）+ 行锁认领 + 线程池跑引擎 + 事件总线（供 SSE）
 ├── app/engine/       # 翻译引擎接口（TranslationEngine）+ OpenSourceEngine 适配器 + registry（按档位选引擎）
 └── pyproject.toml    # uv 依赖；.env.example 模板（复制为 .env，不提交）
