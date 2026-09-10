@@ -72,19 +72,25 @@ def _short_cjk_terms(question: str) -> list[str]:
     return terms[:_FTS_MAX_TOKENS]
 
 
-def _fts_search(db: Session, question: str) -> list[tuple[str, str]]:
-    """FTS5（trigram）词法召回 (block_id, text)；索引未就绪时安全降级为空。"""
+def _fts_search(db: Session, task_id: int, question: str) -> list[tuple[str, str]]:
+    """FTS5（trigram）词法召回 (block_id, text)，**限定在本任务内**。
+
+    FTS 表是外部内容表（rowid = task_blocks.id），因此 join task_blocks 即可按任务过滤；
+    不做过滤会把别的论文的块当成本论文的出处（block_id 跨任务还会重名）。
+    索引未就绪时安全降级为空。
+    """
     tokens = _query_tokens(question)
     if tokens:
         match = " OR ".join(f'"{token}"' for token in tokens)
         try:
             rows = db.execute(
                 text(
-                    "SELECT block_id, text, translated FROM task_blocks_fts "
-                    "WHERE task_blocks_fts MATCH :q "
+                    "SELECT f.block_id, f.text, f.translated FROM task_blocks_fts f "
+                    "JOIN task_blocks tb ON tb.id = f.rowid "
+                    "WHERE task_blocks_fts MATCH :q AND tb.task_id = :task_id "
                     "ORDER BY bm25(task_blocks_fts) LIMIT :limit"
                 ),
-                {"q": match, "limit": _FTS_LIMIT},
+                {"q": match, "task_id": task_id, "limit": _FTS_LIMIT},
             ).all()
         except OperationalError:
             rows = []
@@ -92,12 +98,12 @@ def _fts_search(db: Session, question: str) -> list[tuple[str, str]]:
         if hits:
             return hits
 
-    # trigram 最少 3 字符：对短词（2 字滑窗）做 LIKE 词法扫描兜底
+    # trigram 最少 3 字符：对短词（2 字滑窗）做 LIKE 词法扫描兜底（同样限定本任务）
     terms = _short_cjk_terms(question)
     if not terms:
         return []
     clauses = []
-    params: dict = {"limit": _FTS_LIMIT}
+    params: dict = {"limit": _FTS_LIMIT, "task_id": task_id}
     for idx, term in enumerate(terms):
         key = f"p{idx}"
         params[key] = f"%{term}%"
@@ -105,11 +111,22 @@ def _fts_search(db: Session, question: str) -> list[tuple[str, str]]:
     rows = db.execute(
         text(
             "SELECT block_id, text, translated FROM task_blocks "
-            f"WHERE {' OR '.join(clauses)} LIMIT :limit"
+            f"WHERE task_id = :task_id AND ({' OR '.join(clauses)}) LIMIT :limit"
         ),
         params,
     ).all()
     return [(row[0], row[2] or row[1]) for row in rows]
+
+
+def _keep_known_sources(ids: list[str], known: set[str]) -> list[str]:
+    """只保留本任务真实存在的 block_id（LLM 可能编造出处）。"""
+    seen: set[str] = set()
+    kept: list[str] = []
+    for block_id in ids:
+        if block_id in known and block_id not in seen:
+            seen.add(block_id)
+            kept.append(block_id)
+    return kept
 
 
 @router.post("/{task_id}/ask")
@@ -134,16 +151,19 @@ def ask_paper(task_id: int, body: AskRequest, db: Session = Depends(get_db)):
     if not question:
         raise HTTPException(status_code=400, detail="问题不能为空")
 
+    known_ids = {block_id for block_id, _ in items}
     total_chars = sum(len(text) for _, text in items)
     if total_chars <= settings.docwise_ask_full_context_max_chars:
         result = answer_question(items, question)
         return {
             "answer": result["answer"],
-            "source_block_ids": result["source_block_ids"],
+            "source_block_ids": _keep_known_sources(
+                result["source_block_ids"], known_ids
+            ),
             "mode": "full_context",
         }
 
-    hits = _fts_search(db, question)
+    hits = _fts_search(db, task_id, question)
     if not hits:
         return {
             "answer": _HONEST_NO_HIT,
@@ -153,6 +173,8 @@ def ask_paper(task_id: int, body: AskRequest, db: Session = Depends(get_db)):
     result = answer_question(hits, question)
     return {
         "answer": result["answer"],
-        "source_block_ids": result["source_block_ids"],
+        "source_block_ids": _keep_known_sources(
+            result["source_block_ids"], {block_id for block_id, _ in hits}
+        ),
         "mode": "fts",
     }

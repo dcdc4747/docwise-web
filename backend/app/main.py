@@ -111,6 +111,16 @@ def _serialize_block(block: TaskBlock) -> dict:
     }
 
 
+def _task_files(task: Task) -> dict[str, bool]:
+    """结果文件是否就绪（供前端一次取全，省掉额外的 HEAD 探测请求）。"""
+    return {
+        "mono": bool(task.translated_path and Path(task.translated_path).exists()),
+        "dual": bool(
+            task.dual_translated_path and Path(task.dual_translated_path).exists()
+        ),
+    }
+
+
 def _serialize_task(task: Task, blocks: list[TaskBlock] | None = None) -> dict:
     data = {
         "id": task.id,
@@ -158,6 +168,7 @@ def list_tasks(db: Annotated[Session, Depends(get_db)]):
 
 @app.get("/api/tasks/{task_id}")
 def get_task(task_id: int, db: Annotated[Session, Depends(get_db)]):
+    """任务详情：块 + 结果文件就绪状态 + 导读/术语状态（供工作台一次取全）。"""
     task = db.get(Task, task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="task not found")
@@ -165,7 +176,15 @@ def get_task(task_id: int, db: Annotated[Session, Depends(get_db)]):
     blocks = db.scalars(
         select(TaskBlock).where(TaskBlock.task_id == task.id).order_by(TaskBlock.id)
     ).all()
-    return _serialize_task(task, blocks)
+    data = _serialize_task(task, blocks)
+    understanding = db.scalars(
+        select(TaskUnderstanding).where(TaskUnderstanding.task_id == task.id)
+    ).first()
+    data["files_ready"] = _task_files(task)
+    data["understanding_status"] = (
+        understanding.status if understanding is not None else "pending"
+    )
+    return data
 
 
 @app.api_route("/api/tasks/{task_id}/files/{kind}", methods=["GET", "HEAD"])
