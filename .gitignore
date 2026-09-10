@@ -11,7 +11,10 @@ __pycache__/
 # 本地数据库
 **/data/*.db
 **/data/*.db-journal
+**/data/*.db-wal
+**/data/*.db-shm
 **/data/uploads/
+**/data/logs/
 
 # 本地工具脚本
 .tools/

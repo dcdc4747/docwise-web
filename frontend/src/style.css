@@ -535,3 +535,41 @@ body {
     align-items: stretch;
   }
 }
+
+/* ---- 阅读工作台卡片（补门：上传后与历史"继续读"共用同一处）---- */
+.workbench-card .n-card-header__main {
+  min-width: 0;
+}
+
+.workbench-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.workbench-name {
+  font-weight: 700;
+  font-size: 16px;
+  word-break: break-all;
+}
+
+.history-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.history-title {
+  font-weight: 700;
+  font-size: 16px;
+}
+
+.history-sub {
+  font-size: 13px;
+}
+
+.task-row-actions {
+  flex: none;
+}
