@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { apiUrl } from './api'
 import {
   authFetch,
@@ -304,17 +304,15 @@ function formatTime(iso) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
-// —— 下面几个是模板里直接调用的"诚实进度"文案（读到的都是真实数据）——
+// —— 下面几个是模板里直接用的"诚实进度"文案（读到的都是真实数据）——
+// 一律用 computed 而不是普通函数：模板里写 {{ stageText }} 也能正常取值，
+// 不会再出现"少写一对括号 → Vue 把函数 toString 印在页面上"的低级事故。
 
-function isRunning() {
-  return isRunningTask(currentTask.value)
-}
+const isRunning = computed(() => isRunningTask(currentTask.value))
 
-function hasEngineProgress() {
-  return !!engineProgress.value
-}
+const hasEngineProgress = computed(() => !!engineProgress.value)
 
-function stageText() {
+const stageText = computed(() => {
   const task = currentTask.value
   if (!task) return ''
   if (task.status === 'pending') {
@@ -323,31 +321,36 @@ function stageText() {
   }
   if (task.status === 'in_progress') {
     const engine = engineProgress.value
-    if (!engine) return '正在翻译'
+    // 引擎还没打进度条时，只说"还在准备"，不把内部实现细节（抽结构/加载模型）端给用户
+    if (!engine) return '正在翻译 · 引擎还在准备'
     const rate = engine.rate ? ` · ${engine.rate.toFixed(2)} 页/秒` : ''
     return `正在翻译 · 第 ${engine.done}/${engine.total} 页${rate}`
   }
   if (task.status === 'completed') return '翻译完成'
   if (task.status === 'cancelled') return '已取消'
   return '翻译失败'
-}
+})
 
-function elapsedText() {
+const elapsedText = computed(() => {
   const task = currentTask.value
   if (!task || !task.started_at) return ''
   const running = isRunningTask(task)
-  const drift = running ? Math.max(0, (elapsedTick.value - elapsedBase.at) / 1000) : 0
+  const drift = running
+    ? Math.max(0, (elapsedTick.value - elapsedBase.at) / 1000)
+    : 0
   const seconds = elapsedBase.seconds + drift
+  // 刚点下去显示"已用 0 秒"很傻，满一秒再说
+  if (running && seconds < 1) return ''
   return `${running ? '已用' : '总耗时'} ${formatDuration(seconds)}`
-}
+})
 
-function etaText() {
+const etaText = computed(() => {
   const task = currentTask.value
   if (!task || !isRunningTask(task)) return ''
   // 引擎自报 0 秒时不必写出来（tqdm 会四舍五入到 0，那不是"马上好"，只是精度不够）
   if (typeof task.eta_seconds !== 'number' || task.eta_seconds <= 0) return ''
   return `引擎预计还需 ${formatDuration(task.eta_seconds)}`
-}
+})
 
 async function loadTasks() {
   historyLoading.value = true
@@ -980,7 +983,7 @@ onUnmounted(stopProgress)
 
               <div class="task-progress">
                 <!-- 诚实进度（F 批）：能拿到引擎自报的页进度就画确定进度条，
-                     拿不到就画转圈 + 说清楚"引擎还没报进度"，不编百分比 -->
+                     拿不到就只转圈 + 一行"引擎还在准备"，不编百分比、也不写内部实现细节 -->
                 <n-progress
                   v-if="isRunning && hasEngineProgress"
                   type="line"
@@ -990,12 +993,8 @@ onUnmounted(stopProgress)
                   indicator-placement="inside"
                   :height="18"
                 />
-                <div v-else-if="isRunning" class="progress-unknown">
-                  <n-spin :size="16" />
-                  <span>引擎还没报进度（可能正在抽取结构 / 加载版面模型）</span>
-                </div>
                 <n-progress
-                  v-else
+                  v-else-if="!isRunning"
                   type="line"
                   :percentage="progressPercent()"
                   :status="currentTask.status === 'failed' ? 'error' : currentTask.status === 'cancelled' ? 'warning' : 'success'"
@@ -1003,6 +1002,7 @@ onUnmounted(stopProgress)
                   :height="18"
                 />
                 <div class="progress-facts">
+                  <n-spin v-if="isRunning && !hasEngineProgress" :size="14" />
                   <span class="progress-stage">{{ stageText }}</span>
                   <span v-if="elapsedText">{{ elapsedText }}</span>
                   <span v-if="etaText" class="progress-eta">{{ etaText }}</span>

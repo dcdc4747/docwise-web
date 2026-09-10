@@ -577,6 +577,7 @@ body {
 /* ---- 诚实进度（F 批）：阶段文字 / 已耗时 / 引擎自报剩余 ---- */
 .progress-facts {
   display: flex;
+  align-items: center;
   flex-wrap: wrap;
   gap: 12px;
   margin-top: 8px;
@@ -591,15 +592,6 @@ body {
 
 .progress-eta {
   color: #4f6ef7;
-}
-
-.progress-unknown {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 0;
-  font-size: 13px;
-  color: #666;
 }
 
 /* ---- 任务生命周期动作（E 批）：取消 / 重试 / 删除 ---- */
