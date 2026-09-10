@@ -574,6 +574,34 @@ body {
   flex: none;
 }
 
+/* ---- 诚实进度（F 批）：阶段文字 / 已耗时 / 引擎自报剩余 ---- */
+.progress-facts {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 8px;
+  font-size: 13px;
+  color: #666;
+}
+
+.progress-stage {
+  font-weight: 600;
+  color: #333;
+}
+
+.progress-elapsed {
+  font-variant-numeric: tabular-nums;
+}
+
+.progress-engine {
+  color: #999;
+}
+
+.progress-eta {
+  color: #4f6ef7;
+}
+
 /* ---- 任务生命周期动作（E 批）：取消 / 重试 / 删除 ---- */
 .workbench-actions {
   margin-left: auto;

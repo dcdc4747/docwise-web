@@ -3,7 +3,9 @@
 // 2) 页面导航网络优先、离线回退缓存壳；
 // 3) 同源静态资源缓存优先（构建产物带 hash，天然不怕陈旧）；
 // 4) /api、/files 一律直连不缓存（动态内容，绝不缓存）。
-const CACHE_NAME = 'docwise-shell-v1'
+// 改缓存名 = 装新壳：activate 时会把旧缓存整锅删掉（改完前端记得升一位，
+// 否则用户可能一直吃旧的应用壳，刷新也看不到新版本）
+const CACHE_NAME = 'docwise-shell-v2'
 const PRECACHE = [
   '/',
   '/index.html',

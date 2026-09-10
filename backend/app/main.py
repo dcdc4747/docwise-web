@@ -58,6 +58,11 @@ def _ensure_schema() -> None:
         "tier": "VARCHAR(16) DEFAULT 'fast'",
         "translated_path": "VARCHAR(1024)",
         "dual_translated_path": "VARCHAR(1024)",
+        # F 批（诚实进度）：阶段 + 引擎自报剩余 + 起止时间
+        "stage": "VARCHAR(16)",
+        "eta_seconds": "INTEGER",
+        "started_at": "DATETIME",
+        "finished_at": "DATETIME",
     }
     with engine.begin() as conn:
         for column, ddl in additions.items():

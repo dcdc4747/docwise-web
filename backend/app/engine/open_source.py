@@ -93,6 +93,11 @@ class OpenSourceEngine(TranslationEngine):
         child_env = os.environ.copy()
         child_env["PYTHONIOENCODING"] = "utf-8"
         child_env["PYTHONUTF8"] = "1"
+        # PYTHONUNBUFFERED：**关键**。子进程的 stderr 重定向到文件时是块缓冲的，
+        # 而进度条本来就"停在原地"（tqdm 用 `\r` 重绘、不换行），于是进度会攒在缓冲里、
+        # 直到进程快结束才一次性落盘。实测过一次：引擎其实 1 秒 1 页地在报进度，
+        # 我们却只能读到 20 秒前的 `2/10`，前端看着就是"进度条卡死、然后突然完成"。
+        child_env["PYTHONUNBUFFERED"] = "1"
         with log_file.open("w", encoding="utf-8", errors="replace") as handle:
             proc = subprocess.Popen(
                 cmd, env=child_env, stdout=handle, stderr=subprocess.STDOUT

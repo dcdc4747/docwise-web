@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import time
+from datetime import datetime
 from pathlib import Path
 
 from sqlalchemy import delete, select, update
 
+from . import progress as progress_lib
 from . import storage
 from .db import SessionLocal
 from .engine import (
@@ -24,6 +27,10 @@ logger = logging.getLogger(__name__)
 # 空闲时也周期性刷新心跳；顺带扫表兜底，避免漏掉新建任务
 HEARTBEAT_INTERVAL_SECONDS = 10.0
 SWEEP_INTERVAL_SECONDS = 30.0
+# 引擎跑的时候多久去 engine.log 捞一次真实进度（秒）
+PROGRESS_POLL_SECONDS = 1.5
+# 阶段文字（库里只存机器值，人话在前端拼）
+STAGE_TRANSLATING = "translating"
 
 
 def _status_value(status) -> str:
@@ -206,6 +213,10 @@ class TranslationWorker:
                 .values(
                     status=TaskState.PENDING.value,
                     progress=0.0,
+                    stage=None,
+                    eta_seconds=None,
+                    started_at=None,
+                    finished_at=None,
                     error_message=None,
                 )
             )
@@ -235,7 +246,15 @@ class TranslationWorker:
                     Task.id == task_id,
                     Task.status == TaskState.PENDING.value,
                 )
-                .values(status=TaskState.IN_PROGRESS.value, progress=0.0)
+                .values(
+                    status=TaskState.IN_PROGRESS.value,
+                    progress=0.0,
+                    # 诚实进度（F 批）：记下真正开跑的时刻，前端据此走秒
+                    stage=STAGE_TRANSLATING,
+                    eta_seconds=None,
+                    started_at=datetime.now(),
+                    finished_at=None,
+                )
             )
             session.execute(delete(TaskBlock).where(TaskBlock.task_id == task_id))
             if result.rowcount == 1:
@@ -290,9 +309,19 @@ class TranslationWorker:
 
         await self.bus.publish(
             task_id,
-            {"type": "status", "status": TaskState.IN_PROGRESS.value, "progress": 0.0},
+            {
+                "type": "status",
+                "status": TaskState.IN_PROGRESS.value,
+                "progress": 0.0,
+                "stage": STAGE_TRANSLATING,
+                "started_at": datetime.now().isoformat(timespec="seconds"),
+            },
         )
         started = time.monotonic()
+        # 引擎跑的时候，另起一个任务定期把 engine.log 里的真实进度搬进库并推给前端
+        watcher = asyncio.create_task(
+            self._watch_progress(task_id, request.output_dir)
+        )
         try:
             result = await asyncio.to_thread(self._run_engine, request, cancel)
         except Exception as exc:  # noqa: BLE001 - 引擎异常也如实落库并回传
@@ -316,6 +345,10 @@ class TranslationWorker:
                 },
             )
             return
+        finally:
+            watcher.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await watcher
 
         terminal = _status_value(result.status)
         if terminal == TaskState.CANCELLED.value:
@@ -353,6 +386,62 @@ class TranslationWorker:
         except Exception:  # noqa: BLE001 - 清理失败不影响主流程
             logger.exception("清理已删除任务的输出目录失败：task_id=%s", task_id)
 
+    async def _watch_progress(self, task_id: int, output_dir: Path | None) -> None:
+        """引擎跑的时候，定期把 engine.log 里的**真实**进度搬进库并推给前端。
+
+        解析不出（引擎还没打进度条 / 换了输出格式）就什么都不做——宁可让前端显示
+        "引擎还没报进度"，也不编一个百分比出来。进度只增不减：引擎分阶段重跑时
+        进度条会回到 0，落库时取历史最大值，避免进度条来回跳。
+        """
+        if output_dir is None:
+            return
+        log_path = output_dir / "engine.log"
+        best_percent = 0.0
+        last_eta: int | None = None
+        while True:
+            await asyncio.sleep(PROGRESS_POLL_SECONDS)
+            parsed = progress_lib.progress_from_log(log_path)
+            if parsed is None:
+                continue
+            percent = max(best_percent, parsed.percent)
+            if percent <= best_percent and parsed.eta_seconds == last_eta:
+                continue
+            best_percent = percent
+            last_eta = parsed.eta_seconds
+            if not self._persist_progress(task_id, percent, parsed.eta_seconds):
+                return  # 任务已经不在跑了（取消/删除/已结束），收工
+            await self.bus.publish(
+                task_id,
+                {
+                    "type": "progress",
+                    "status": TaskState.IN_PROGRESS.value,
+                    "progress": percent,
+                    "stage": STAGE_TRANSLATING,
+                    "eta_seconds": parsed.eta_seconds,
+                    "engine_done": parsed.done,
+                    "engine_total": parsed.total,
+                    "engine_rate": parsed.rate,
+                },
+            )
+
+    def _persist_progress(
+        self, task_id: int, progress: float, eta_seconds: int | None
+    ) -> bool:
+        """把进度落库；返回任务是否仍在进行中。"""
+        try:
+            with SessionLocal() as session:
+                task = session.get(Task, task_id)
+                if task is None or task.status != TaskState.IN_PROGRESS.value:
+                    return False
+                task.progress = progress
+                task.eta_seconds = eta_seconds
+                task.stage = STAGE_TRANSLATING
+                session.commit()
+            return True
+        except Exception:  # noqa: BLE001 - 进度写不进去也不能影响翻译本身
+            logger.exception("写进度失败：task_id=%s", task_id)
+            return True
+
     def _persist_result(self, task_id: int, result: TranslationResult) -> None:
         with SessionLocal() as session:
             task = session.get(Task, task_id)
@@ -379,6 +468,10 @@ class TranslationWorker:
             task.dual_translated_path = (
                 str(result.dual_path) if result.dual_path else None
             )
+            # 终态：不再有"阶段"与"预计剩余"，耗时由 started_at/finished_at 决定
+            task.stage = None
+            task.eta_seconds = None
+            task.finished_at = datetime.now()
             _record_history(session, task_id, terminal, result.error)
             session.commit()
             session.refresh(task)
@@ -391,6 +484,9 @@ class TranslationWorker:
             task.status = TaskState.FAILED.value
             task.progress = 0.0
             task.error_message = error
+            task.stage = None
+            task.eta_seconds = None
+            task.finished_at = datetime.now()
             _record_history(session, task_id, TaskState.FAILED.value, error)
             session.commit()
 
@@ -403,5 +499,8 @@ class TranslationWorker:
             task.status = TaskState.CANCELLED.value
             task.progress = 0.0
             task.error_message = "已取消"
+            task.stage = None
+            task.eta_seconds = None
+            task.finished_at = datetime.now()
             _record_history(session, task_id, TaskState.CANCELLED.value, "用户取消")
             session.commit()

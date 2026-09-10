@@ -8,13 +8,11 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 
-# 本地数据库
-**/data/*.db
-**/data/*.db-journal
-**/data/*.db-wal
-**/data/*.db-shm
-**/data/uploads/
-**/data/logs/
+# 本地运行数据：数据库（含 WAL/shm）、上传原件、翻译产物、备份、日志
+# —— 整个 data/ 一律不进仓库。公开仓库绝不能带上用户的论文、引擎日志或数据库备份
+# （E 批把产物落到 data/outputs/{task_id}、备份落到 data/backups/ 之后，
+#  旧的 `**/data/*.db` 之类就不够用了：`git add .` 会把它们一起提交）
+**/data/
 
 # 本地工具脚本
 .tools/

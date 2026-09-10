@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run"
   },
   "dependencies": {
     "naive-ui": "^2.44.1",
@@ -14,6 +15,9 @@
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^6.0.8",
-    "vite": "^8.2.0"
+    "@vue/test-utils": "^2.5.0",
+    "happy-dom": "^20.14.3",
+    "vite": "^8.2.0",
+    "vitest": "^5.0.0"
   }
 }

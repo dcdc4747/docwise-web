@@ -1,6 +1,16 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Enum, Float, ForeignKey, String, Text, func
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    Enum,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .db import Base
@@ -28,8 +38,13 @@ class Task(Base):
     )
     status: Mapped[str] = mapped_column(
         String(32), default="pending", index=True
-    )  # pending / in_progress / completed / failed
+    )  # pending / in_progress / completed / failed / cancelled
     progress: Mapped[float] = mapped_column(Float, default=0.0)
+    # 诚实进度（F 批）：阶段 + 引擎自报的预计剩余秒数；进度只增不减
+    stage: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    eta_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now()

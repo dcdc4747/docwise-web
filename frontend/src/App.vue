@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { apiUrl } from './api'
 import {
   authFetch,
@@ -13,6 +13,13 @@ import {
 } from './auth'
 import LoginView from './components/LoginView.vue'
 import AdminView from './components/AdminView.vue'
+import {
+  elapsedTextFor,
+  engineText as engineTextFor,
+  etaTextFor,
+  formatDuration,
+  stageTextFor,
+} from './progressText'
 import {
   zhCN,
   dateZhCN,
@@ -247,7 +254,45 @@ async function onLogout() {
 
 function progressPercent() {
   if (!currentTask.value) return 0
+  // 优先用引擎刚报的页进度：库里那份是后台每 1.5 秒搬一次的，最多会旧 1.5 秒，
+  // 而详情接口里的 engine_progress 是当场从日志里解析的（更准）
+  if (isRunningTask(currentTask.value) && engineProgress.value) {
+    return Math.round((engineProgress.value.percent ?? 0) * 100)
+  }
   return Math.round((currentTask.value.progress ?? 0) * 100)
+}
+
+// ---- 诚实进度（F 批）----
+// 进度、阶段、预计剩余全部来自后端（后端又是从引擎自己的进度条里读的）；
+// 读不到就不显示，绝不编一个百分比糊弄人。
+const engineProgress = ref(null)
+let elapsedBase = { seconds: 0, at: Date.now() }
+const elapsedTick = ref(Date.now())
+let elapsedTimer = null
+
+function startElapsedTimer() {
+  if (elapsedTimer) return
+  elapsedTimer = setInterval(() => {
+    elapsedTick.value = Date.now()
+  }, 1000)
+}
+
+function stopElapsedTimer() {
+  if (elapsedTimer) {
+    clearInterval(elapsedTimer)
+    elapsedTimer = null
+  }
+}
+
+/** 记录后端给的"已耗时"，然后本地走秒（避免手机与电脑时钟不一致时数字乱跳）。 */
+function rememberElapsed(task) {
+  if (!task || typeof task.elapsed_seconds !== 'number') return
+  elapsedBase = { seconds: task.elapsed_seconds, at: Date.now() }
+  elapsedTick.value = Date.now()
+}
+
+function isRunningTask(task) {
+  return !!task && task.status === 'in_progress'
 }
 
 function formatTime(iso) {
@@ -257,6 +302,36 @@ function formatTime(iso) {
   const pad = (n) => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
+
+// —— 下面几个是模板里直接用的"诚实进度"文案（读到的都是真实数据）——
+// 一律用 computed 而不是普通函数：模板里写 {{ stageText }} 也能正常取值，
+// 不会再出现"少写一对括号 → Vue 把函数 toString 印在页面上"的低级事故。
+// 具体文案逻辑在 src/progressText.js（那边有单测）。
+
+const isRunning = computed(() => isRunningTask(currentTask.value))
+
+const hasEngineProgress = computed(() => !!engineProgress.value)
+
+const stageText = computed(() =>
+  stageTextFor(currentTask.value, engineProgress.value),
+)
+
+// 引擎自报的页进度单独一行文字（标着"引擎自报"，它不是我们的承诺）
+const engineText = computed(() => engineTextFor(engineProgress.value))
+
+const elapsedText = computed(() => {
+  const task = currentTask.value
+  if (!task || !task.started_at) return ''
+  const running = isRunningTask(task)
+  const drift = running
+    ? Math.max(0, (elapsedTick.value - elapsedBase.at) / 1000)
+    : 0
+  return elapsedTextFor(task, elapsedBase.seconds + drift)
+})
+
+const etaText = computed(() =>
+  etaTextFor(currentTask.value, currentTask.value?.eta_seconds),
+)
 
 async function loadTasks() {
   historyLoading.value = true
@@ -389,6 +464,11 @@ async function refreshWorkbench(taskId) {
   const data = await fetchTaskDetail(taskId)
   if (!data) return
   currentTask.value = { ...(currentTask.value || {}), ...data }
+  // 诚实进度：把后端给的阶段/耗时/引擎进度接过来（没有就是 null，界面显示"没报进度"）
+  engineProgress.value = data.engine_progress || null
+  rememberElapsed(data)
+  if (isRunningTask(data)) startElapsedTimer()
+  else stopElapsedTimer()
   blocksById.value = Object.fromEntries(
     (data.blocks || []).map((b) => [b.block_id, b]),
   )
@@ -411,6 +491,8 @@ async function openWorkbench(task) {
   previewCheckDone.value = false
   previewLoading.value = true
   fileAvailability.value = { mono: false, dual: false }
+  engineProgress.value = null
+  rememberElapsed(task)
   resetUnderstanding()
   askQuestion.value = ''
   askResult.value = null
@@ -453,6 +535,9 @@ async function handleUpload({ file: fileInfo, onFinish, onError }) {
     const task = await res.json()
     currentTask.value = task
     workbenchTab.value = 'bilingual'
+    engineProgress.value = null
+    rememberElapsed(task)
+    startElapsedTimer()
     onFinish()
     startProgress(task.id)
     scrollToWorkbench()
@@ -514,10 +599,14 @@ function startPolling(taskId) {
       const res = await authFetch(`/api/tasks/${taskId}`)
       if (!res.ok) return
       const task = await res.json()
+      // 轮询兜底也要把"阶段/耗时/引擎进度"接过来（否则断线后进度就不动了）
+      engineProgress.value = task.engine_progress || null
+      rememberElapsed(task)
       applyEvent({
         type: task.status,
         status: task.status,
         progress: task.progress,
+        eta_seconds: task.eta_seconds,
         error: task.error_message,
       })
       if (TERMINAL_STATES.includes(task.status)) stopProgress()
@@ -532,7 +621,26 @@ function applyEvent(evt) {
   currentTask.value.status = evt.status || currentTask.value.status
   if (typeof evt.progress === 'number') currentTask.value.progress = evt.progress
   if (evt.error) currentTask.value.error_message = evt.error
+  // 诚实进度：SSE 会把引擎自报的页进度与预计剩余一起推过来
+  if (typeof evt.eta_seconds === 'number' || evt.eta_seconds === null) {
+    currentTask.value.eta_seconds = evt.eta_seconds
+  }
+  if (typeof evt.engine_done === 'number' && typeof evt.engine_total === 'number') {
+    engineProgress.value = {
+      done: evt.engine_done,
+      total: evt.engine_total,
+      percent: evt.progress ?? 0,
+      eta_seconds: evt.eta_seconds ?? null,
+      rate: evt.engine_rate ?? null,
+    }
+    startElapsedTimer()
+  }
   if (TERMINAL_STATES.includes(evt.type)) {
+    // 终态：没有阶段、没有预计剩余，进度条收在终值上
+    engineProgress.value = null
+    stopElapsedTimer()
+    currentTask.value.stage = null
+    currentTask.value.eta_seconds = null
     loadTasks()
     // 完成后一次性取全（块 + 文件就绪 + 导读状态），不再单独探测
     if (evt.type === 'completed') refreshWorkbench(currentTask.value.id)
@@ -581,6 +689,26 @@ function stopProgress() {
     clearInterval(pollTimer)
     pollTimer = null
   }
+  stopElapsedTimer()
+}
+
+/** 历史列表里那一小行状态说明（同样是真实数据：排队位置 / 已用 / 引擎自报剩余）。 */
+function rowProgressText(task) {
+  if (task.status === 'in_progress') {
+    const parts = [`翻译中 ${Math.round((task.progress ?? 0) * 100)}%`]
+    if (typeof task.elapsed_seconds === 'number' && task.elapsed_seconds >= 1) {
+      parts.push(`已用 ${formatDuration(task.elapsed_seconds)}`)
+    }
+    if (typeof task.eta_seconds === 'number' && task.eta_seconds > 0) {
+      parts.push(`引擎自报还需 ${formatDuration(task.eta_seconds)}`)
+    }
+    return parts.join(' · ')
+  }
+  if (task.status === 'pending') return '排队中'
+  if (typeof task.elapsed_seconds === 'number' && task.elapsed_seconds > 0) {
+    return `总耗时 ${formatDuration(task.elapsed_seconds)}`
+  }
+  return ''
 }
 
 async function loadBlocks(taskId) {
@@ -834,14 +962,44 @@ onUnmounted(stopProgress)
               </n-alert>
 
               <div class="task-progress">
+                <!-- 诚实进度（F 批）：进度条**永远在**——引擎报了页数就画确定进度条，
+                     没报就画一根流动的条纹条（不写百分比）。理由是实测发现这台引擎十几秒
+                     不更新一次进度条，若"没数字就不画"，用户看到的会是"进度条消失"。 -->
+                <!-- 引擎报了页数 → 确定进度条（百分比标在条里）；
+                     没报 → 一根流动的条纹条，**不写百分比**（naive-ui 的
+                     show-indicator 只在 indicator-placement="outside" 下生效，
+                     所以这一支干脆不放指示器）。 -->
                 <n-progress
+                  v-if="isRunning && hasEngineProgress"
                   type="line"
                   :percentage="progressPercent()"
-                  :status="currentTask.status === 'failed' ? 'error' : currentTask.status === 'cancelled' ? 'warning' : currentTask.status === 'completed' ? 'success' : 'default'"
-                  :processing="currentTask.status === 'in_progress'"
+                  status="info"
+                  :processing="true"
                   indicator-placement="inside"
                   :height="18"
                 />
+                <n-progress
+                  v-else-if="isRunning"
+                  type="line"
+                  :percentage="0"
+                  :processing="true"
+                  :show-indicator="false"
+                  :height="18"
+                />
+                <n-progress
+                  v-else
+                  type="line"
+                  :percentage="progressPercent()"
+                  :status="currentTask.status === 'failed' ? 'error' : currentTask.status === 'cancelled' ? 'warning' : 'success'"
+                  indicator-placement="inside"
+                  :height="18"
+                />
+                <div class="progress-facts">
+                  <span class="progress-stage">{{ stageText }}</span>
+                  <span v-if="elapsedText" class="progress-elapsed">{{ elapsedText }}</span>
+                  <span v-if="engineText" class="progress-engine">{{ engineText }}</span>
+                  <span v-if="etaText" class="progress-eta">{{ etaText }}</span>
+                </div>
                 <n-alert
                   v-if="currentTask.error_message"
                   :type="currentTask.status === 'cancelled' ? 'warning' : 'error'"
@@ -1161,8 +1319,8 @@ onUnmounted(stopProgress)
                       </div>
                       <div class="task-row-meta">
                         <span>{{ formatTime(task.created_at) }}</span>
-                        <span v-if="task.status === 'in_progress'">
-                          进度 {{ Math.round((task.progress ?? 0) * 100) }}%
+                        <span v-if="rowProgressText(task)">
+                          {{ rowProgressText(task) }}
                         </span>
                       </div>
                     </div>
