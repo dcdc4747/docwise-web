@@ -1,7 +1,9 @@
 import asyncio
 import json
+import logging
 import os
 from contextlib import asynccontextmanager
+from datetime import datetime
 from pathlib import Path
 from typing import Annotated
 from uuid import uuid4
@@ -17,11 +19,18 @@ from .config import BASE_DIR, _to_env, settings
 from .db import Base, engine, ensure_fts, get_db
 from .engine import Tier
 from .llm import extract_understanding
+from .logging_setup import setup_logging
 from .models import Task, TaskBlock, TaskUnderstanding
 from .routers.ask import router as ask_router
 from .worker import TaskEventBus, TranslationWorker
 
+setup_logging()
+logger = logging.getLogger(__name__)
+
 UPLOAD_DIR = BASE_DIR / "data" / "uploads"
+
+# worker 心跳超过这个秒数视为不健康（循环卡死或已被杀）
+WORKER_HEARTBEAT_STALE_SECONDS = 60.0
 
 
 def _inject_engine_env() -> None:
@@ -143,9 +152,60 @@ def _sse_event(payload: dict) -> str:
     return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
+def _database_writable() -> tuple[bool, str | None]:
+    """真写一次数据库来判定可写（此前只读挂载时健康检查仍报"已连接"）。"""
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "CREATE TABLE IF NOT EXISTS _health_probe ("
+                    "id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL)"
+                )
+            )
+            conn.execute(
+                text("INSERT INTO _health_probe(ts) VALUES (:ts)"),
+                {"ts": datetime.now().isoformat(timespec="seconds")},
+            )
+            conn.execute(
+                text(
+                    "DELETE FROM _health_probe WHERE id NOT IN "
+                    "(SELECT MAX(id) FROM _health_probe)"
+                )
+            )
+        return True, None
+    except Exception as exc:  # noqa: BLE001 - 健康检查本身不能抛异常
+        return False, str(exc)
+
+
 @app.get("/api/health")
-def health():
-    return {"status": "ok", "service": "docwise-web", "version": "0.1.0"}
+def health(request: Request):
+    """真健康检查：数据库可写？worker 还活着（心跳新鲜）？队列里排了几篇？"""
+    db_ok, db_error = _database_writable()
+
+    worker = getattr(request.app.state, "worker", None)
+    heartbeat_age = worker.heartbeat_age if worker is not None else None
+    worker_ok = bool(
+        worker is not None
+        and worker.is_alive()
+        and heartbeat_age is not None
+        and heartbeat_age < WORKER_HEARTBEAT_STALE_SECONDS
+    )
+
+    checks = {"database": db_ok, "worker": worker_ok}
+    payload = {
+        "status": "ok" if all(checks.values()) else "degraded",
+        "service": "docwise-web",
+        "version": "0.1.0",
+        "checks": checks,
+        "queue_size": worker.queue_size if worker is not None else None,
+        "running_task_id": worker.current_task_id if worker is not None else None,
+        "worker_heartbeat_age": (
+            round(heartbeat_age, 1) if heartbeat_age is not None else None
+        ),
+    }
+    if db_error:
+        payload["database_error"] = db_error
+    return payload
 
 
 @app.get("/api/tasks")

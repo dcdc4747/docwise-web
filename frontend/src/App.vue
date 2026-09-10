@@ -32,6 +32,7 @@ import {
 } from 'naive-ui'
 
 const backendStatus = ref('checking')
+const healthInfo = ref(null)
 const taskCount = ref(null)
 const uploading = ref(false)
 const uploadError = ref('')
@@ -122,6 +123,7 @@ const detailTask = ref(null)
 const statusMeta = {
   checking: { type: 'default', text: '检测中…' },
   ok: { type: 'success', text: '已连接' },
+  degraded: { type: 'warning', text: '部分异常（数据库或后台处理程序）' },
   down: { type: 'error', text: '未连接（请先启动后端）' },
 }
 
@@ -152,8 +154,10 @@ onMounted(async () => {
   try {
     const res = await fetch(apiUrl('/api/health'))
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    await res.json()
-    backendStatus.value = 'ok'
+    // 后端返回"真检查"结果：数据库可写？后台处理程序心跳新鲜？队列排了几篇？
+    const health = await res.json()
+    healthInfo.value = health
+    backendStatus.value = health.status === 'ok' ? 'ok' : 'degraded'
     await loadTasks()
   } catch {
     backendStatus.value = 'down'
@@ -800,6 +804,14 @@ onUnmounted(stopProgress)
             </n-tag>
             <n-text v-if="backendStatus === 'ok' && taskCount !== null" depth="3" class="task-count">
               任务列表共 {{ taskCount }} 条
+            </n-text>
+            <n-text v-if="healthInfo" depth="3" class="task-count">
+              排队 {{ healthInfo.queue_size ?? 0 }} 篇<template
+                v-if="healthInfo.running_task_id"
+              >，正在处理 #{{ healthInfo.running_task_id }}</template>
+            </n-text>
+            <n-text v-if="healthInfo?.database_error" depth="3" class="task-count">
+              数据库：{{ healthInfo.database_error }}
             </n-text>
           </section>
         </main>
