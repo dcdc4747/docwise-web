@@ -1,4 +1,4 @@
-"""FastAPI 入口：建库建表、启动 worker、健康检查、CORS、挂载各路由。
+"""FastAPI 入口：建库建表、启动 worker、健康检查、CORS、挂载各路由与前端产物。
 
 E 批起任务路由已拆到 `app/routers/tasks.py`，这里只留"启动/运维/健康检查"。
 
@@ -15,7 +15,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import inspect, select, text
 
-from . import storage
+from . import storage, webapp
 from .config import _to_env, settings
 from .db import Base, SessionLocal, engine, ensure_fts
 from .logging_setup import setup_logging
@@ -242,3 +242,9 @@ def health(request: Request):
     if db_error:
         payload["database_error"] = db_error
     return payload
+
+
+# 同源部署（后端托管前端产物）：**必须放在文件最后**——Starlette 按注册顺序匹配，
+# 挂在 "/" 的静态托管写在前面会把后面定义的路由（含 /api/health）一起吃掉。
+# 产物不存在时它自己跳过并打日志，不影响"只跑 API"的开发态。
+webapp.mount_frontend(app)
