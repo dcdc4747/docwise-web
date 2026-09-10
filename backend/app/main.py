@@ -14,10 +14,11 @@ from sqlalchemy import inspect, select, text
 from sqlalchemy.orm import Session
 
 from .config import BASE_DIR, _to_env, settings
-from .db import Base, engine, get_db
+from .db import Base, engine, ensure_fts, get_db
 from .engine import Tier
 from .llm import extract_understanding
 from .models import Task, TaskBlock, TaskUnderstanding
+from .routers.ask import router as ask_router
 from .worker import TaskEventBus, TranslationWorker
 
 UPLOAD_DIR = BASE_DIR / "data" / "uploads"
@@ -59,6 +60,7 @@ async def lifespan(app: FastAPI):
     (BASE_DIR / "data").mkdir(exist_ok=True)
     Base.metadata.create_all(bind=engine)
     _ensure_schema()
+    ensure_fts()
     _inject_engine_env()
     # 每个应用生命周期新建独立 worker/事件总线，避免 asyncio.Queue 跨事件循环绑定。
     app.state.event_bus = TaskEventBus()
@@ -91,6 +93,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(ask_router)
 
 
 def _status_value(status):
