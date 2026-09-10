@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
+from helpers import TEST_USER_ID
 
 from app.db import SessionLocal
 from app.engine import BlockState
@@ -15,7 +16,7 @@ B2 = "结论是模型精度达到百分之九十九。"
 
 def _make_task_with_blocks(translated: list[str]) -> int:
     with SessionLocal() as session:
-        task = Task(filename="a.pdf", status="completed")
+        task = Task(user_id=TEST_USER_ID, filename="a.pdf", status="completed")
         session.add(task)
         session.flush()
         for idx, text in enumerate(translated, start=1):
@@ -158,7 +159,7 @@ def test_ask_task_without_blocks_400(monkeypatch) -> None:
     monkeypatch.setattr("app.routers.ask.answer_question", lambda items, q: FAKE_ANSWER)
     with TestClient(app) as client:
         with SessionLocal() as session:
-            task = Task(filename="a.pdf", status="completed")
+            task = Task(user_id=TEST_USER_ID, filename="a.pdf", status="completed")
             session.add(task)
             session.commit()
             task_id = task.id

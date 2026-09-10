@@ -573,3 +573,178 @@ body {
 .task-row-actions {
   flex: none;
 }
+
+/* ---- 账号：顶栏用户区 ---- */
+.page-header-inner {
+  align-items: center;
+}
+
+.header-spacer {
+  flex: 1;
+}
+
+.header-user {
+  font-size: 13px;
+}
+
+.header-notice {
+  font-size: 13px;
+  color: #d03050;
+}
+
+/* ---- 账号：登录 / 注册 ---- */
+.boot-screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.auth-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: #f5f7fa;
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 420px;
+  background: #fff;
+  border: 1px solid #e6eaf0;
+  border-radius: 14px;
+  padding: 28px 26px 24px;
+  box-shadow: 0 12px 32px rgba(31, 39, 51, 0.08);
+}
+
+.auth-brand {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.auth-logo {
+  font-size: 24px;
+  font-weight: 800;
+  color: #4f6ef7;
+}
+
+.auth-sub {
+  font-size: 13px;
+  color: #667085;
+}
+
+.auth-slogan {
+  margin: 6px 0 18px;
+  color: #475467;
+  font-size: 14px;
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 6px;
+}
+
+.auth-remember {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #667085;
+}
+
+.auth-tip {
+  font-size: 12px;
+}
+
+.auth-error {
+  margin-top: 12px;
+}
+
+.auth-demo {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px dashed #e6eaf0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* ---- 账号：管理后台 ---- */
+.admin-page {
+  padding-top: 8px;
+}
+
+.admin-card .admin-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.admin-title {
+  font-weight: 700;
+  font-size: 16px;
+}
+
+.admin-sub {
+  font-size: 13px;
+}
+
+.admin-error {
+  margin-bottom: 12px;
+}
+
+.admin-section-title {
+  margin: 18px 0 10px;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.admin-user-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.admin-user-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  border: 1px solid #e6eaf0;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.admin-user-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.admin-user-meta {
+  font-size: 12px;
+  color: #8a94a6;
+}
+
+.admin-user-actions {
+  flex: none;
+}
+
+.admin-tip {
+  font-size: 12px;
+}
+
+@media (max-width: 768px) {
+  .admin-user-row {
+    align-items: flex-start;
+  }
+}

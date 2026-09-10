@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from helpers import TEST_USER_ID, upload_pdf
 
 from app.db import SessionLocal
 from app.engine import BlockState, BlockStatus, TaskState, Tier, TranslationResult
@@ -66,23 +67,17 @@ def _wait_terminal(client: TestClient, task_id: int, timeout: float = 5.0) -> st
 
 def test_create_task_returns_immediately(sample_pdf, monkeypatch) -> None:
     _patch_engine(monkeypatch)
-    src = sample_pdf
     with TestClient(app) as client:
-        resp = client.post("/api/tasks", json={"source_path": str(src)})
+        data = upload_pdf(client, sample_pdf)
     # 立即返回，不阻塞：202 + id + 状态（待处理或进行中）
-    assert resp.status_code == 202
-    data = resp.json()
     assert data["id"] > 0
     assert data["status"] in ("pending", "in_progress")
 
 
 def test_task_runs_to_completion_and_stores_blocks(sample_pdf, monkeypatch) -> None:
     _patch_engine(monkeypatch)
-    src = sample_pdf
     with TestClient(app) as client:
-        task_id = client.post(
-            "/api/tasks", json={"source_path": str(src)}
-        ).json()["id"]
+        task_id = upload_pdf(client, sample_pdf)["id"]
         status = _wait_terminal(client, task_id)
         detail = client.get(f"/api/tasks/{task_id}").json()
     assert status == "completed"
@@ -111,12 +106,8 @@ def test_worker_routes_tier_to_engine(sample_pdf, monkeypatch) -> None:
         return RecorderEngine()
 
     monkeypatch.setattr("app.worker.get_engine", fake_get_engine)
-    src = sample_pdf
     with TestClient(app) as client:
-        task_id = client.post(
-            "/api/tasks",
-            json={"source_path": str(src), "tier": "medium"},
-        ).json()["id"]
+        task_id = upload_pdf(client, sample_pdf, tier="medium")["id"]
         status = _wait_terminal(client, task_id)
     assert status == "completed"
     assert requested_tiers and requested_tiers[-1] == Tier.MEDIUM
@@ -127,6 +118,7 @@ def test_interrupted_task_recovered_on_startup(sample_pdf, monkeypatch) -> None:
     # 模拟崩溃前留下的 in_progress 任务（无子进程真实产物）
     with SessionLocal() as session:
         task = Task(
+            user_id=TEST_USER_ID,
             filename="b.pdf",
             original_path=str(sample_pdf),
             status=TaskState.IN_PROGRESS.value,
@@ -158,11 +150,8 @@ def _read_sse_events(response) -> list[dict]:
 
 def test_sse_streams_progress(sample_pdf, monkeypatch) -> None:
     _patch_engine(monkeypatch)
-    src = sample_pdf
     with TestClient(app) as client:
-        task_id = client.post(
-            "/api/tasks", json={"source_path": str(src)}
-        ).json()["id"]
+        task_id = upload_pdf(client, sample_pdf)["id"]
         with client.stream("GET", f"/api/tasks/{task_id}/events") as response:
             assert response.status_code == 200
             assert response.headers["content-type"].startswith("text/event-stream")

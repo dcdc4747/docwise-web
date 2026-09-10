@@ -11,17 +11,24 @@ from uuid import uuid4
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
-from pydantic import BaseModel
 from sqlalchemy import inspect, select, text
 from sqlalchemy.orm import Session
 
 from .config import BASE_DIR, _to_env, settings
-from .db import Base, engine, ensure_fts, get_db
+from .db import Base, SessionLocal, engine, ensure_fts, get_db
+from .deps import (
+    get_current_user,
+    get_user_for_events,
+    get_user_for_files,
+    load_owned_task,
+)
 from .engine import Tier
 from .llm import extract_understanding
 from .logging_setup import setup_logging
-from .models import Task, TaskBlock, TaskUnderstanding
+from .models import Task, TaskBlock, TaskUnderstanding, User
+from .routers.admin import router as admin_router
 from .routers.ask import router as ask_router
+from .routers.auth import router as auth_router
 from .worker import TaskEventBus, TranslationWorker
 
 setup_logging()
@@ -52,6 +59,7 @@ def _ensure_schema() -> None:
         return
     existing = {col["name"] for col in inspector.get_columns("tasks")}
     additions = {
+        "user_id": "INTEGER",
         "source_lang": "VARCHAR(16) DEFAULT 'en'",
         "target_lang": "VARCHAR(16) DEFAULT 'zh'",
         "tier": "VARCHAR(16) DEFAULT 'fast'",
@@ -62,6 +70,40 @@ def _ensure_schema() -> None:
         for column, ddl in additions.items():
             if column not in existing:
                 conn.execute(text(f"ALTER TABLE tasks ADD COLUMN {column} {ddl}"))
+        conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_tasks_user_id ON tasks (user_id)")
+        )
+
+
+def _assign_legacy_tasks() -> None:
+    """把没有主人的老任务归属给指定账号（DOCWISE_LEGACY_OWNER）。
+
+    不配该变量时只打日志提示——否则这些任务加完鉴权后就没人看得见了。
+    """
+    with SessionLocal() as session:
+        orphans = session.scalars(select(Task).where(Task.user_id.is_(None))).all()
+        if not orphans:
+            return
+        owner = (settings.docwise_legacy_owner or "").strip()
+        if not owner:
+            logger.warning(
+                "有 %s 条无主任务（user_id 为空），未配置 DOCWISE_LEGACY_OWNER，"
+                "登录后没人能看到它们",
+                len(orphans),
+            )
+            return
+        user = session.scalars(select(User).where(User.username == owner)).first()
+        if user is None:
+            logger.warning(
+                "DOCWISE_LEGACY_OWNER=%s 账号不存在，%s 条无主任务仍未归属",
+                owner,
+                len(orphans),
+            )
+            return
+        for task in orphans:
+            task.user_id = user.id
+        session.commit()
+        logger.info("已把 %s 条无主任务归属给账号 %s", len(orphans), owner)
 
 
 @asynccontextmanager
@@ -71,6 +113,16 @@ async def lifespan(app: FastAPI):
     _ensure_schema()
     ensure_fts()
     _inject_engine_env()
+    with SessionLocal() as session:
+        from .auth import purge_expired
+
+        purge_expired(session)
+    _assign_legacy_tasks()
+    if settings.docwise_demo_autologin:
+        logger.warning(
+            "DOCWISE_DEMO_AUTOLOGIN 已开启：登录页可一键进入演示账号 %s（仅演示开）",
+            settings.docwise_demo_username,
+        )
     # 每个应用生命周期新建独立 worker/事件总线，避免 asyncio.Queue 跨事件循环绑定。
     app.state.event_bus = TaskEventBus()
     app.state.worker = TranslationWorker(app.state.event_bus)
@@ -104,6 +156,8 @@ app.add_middleware(
 )
 
 app.include_router(ask_router)
+app.include_router(auth_router)
+app.include_router(admin_router)
 
 
 def _status_value(status):
@@ -212,6 +266,11 @@ def health(request: Request):
         "worker_heartbeat_age": (
             round(heartbeat_age, 1) if heartbeat_age is not None else None
         ),
+        # 公开的登录选项（供登录页显示"演示账号一键进入"，不含任何敏感信息）
+        "auth": {
+            "demo_autologin": bool(settings.docwise_demo_autologin),
+            "session_days": settings.docwise_session_days,
+        },
     }
     if db_error:
         payload["database_error"] = db_error
@@ -219,19 +278,25 @@ def health(request: Request):
 
 
 @app.get("/api/tasks")
-def list_tasks(db: Annotated[Session, Depends(get_db)]):
+def list_tasks(
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_user)],
+):
+    """当前登录用户自己的任务（最多 50 条，新的在前）。"""
     rows = db.scalars(
-        select(Task).order_by(Task.id.desc()).limit(50)
+        select(Task).where(Task.user_id == user.id).order_by(Task.id.desc()).limit(50)
     ).all()
     return [_serialize_task(task) for task in rows]
 
 
 @app.get("/api/tasks/{task_id}")
-def get_task(task_id: int, db: Annotated[Session, Depends(get_db)]):
+def get_task(
+    task_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_user)],
+):
     """任务详情：块 + 结果文件就绪状态 + 导读/术语状态（供工作台一次取全）。"""
-    task = db.get(Task, task_id)
-    if task is None:
-        raise HTTPException(status_code=404, detail="task not found")
+    task = load_owned_task(db, user, task_id)
 
     blocks = db.scalars(
         select(TaskBlock).where(TaskBlock.task_id == task.id).order_by(TaskBlock.id)
@@ -252,12 +317,14 @@ def get_task_file(
     task_id: int,
     kind: str,
     db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_user_for_files)],
     download: bool = False,
 ):
-    """返回任务结果文件（mono 纯中文 / dual 双语 PDF），供预览与下载。"""
-    task = db.get(Task, task_id)
-    if task is None:
-        raise HTTPException(status_code=404, detail="task not found")
+    """返回结果文件（mono 纯中文 / dual 双语 PDF）供预览与下载。
+
+    鉴权：Bearer，或 `?ticket=`（浏览器发起的 iframe/下载带不了请求头）。
+    """
+    task = load_owned_task(db, user, task_id)
     if kind not in ("mono", "dual"):
         raise HTTPException(status_code=400, detail="未知文件类型")
 
@@ -281,11 +348,13 @@ async def task_events(
     task_id: int,
     request: Request,
     db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_user_for_events)],
 ):
-    """SSE 推送：实时进度；前端也可轮询 GET /api/tasks/{id} 兜底。"""
-    task = db.get(Task, task_id)
-    if task is None:
-        raise HTTPException(status_code=404, detail="task not found")
+    """SSE 推送：实时进度；前端也可轮询 GET /api/tasks/{id} 兜底。
+
+    鉴权：Bearer，或 `?ticket=`（EventSource 带不了请求头）。
+    """
+    task = load_owned_task(db, user, task_id)
 
     initial_status = _status_value(task.status)
     initial_progress = task.progress or 0.0
@@ -322,39 +391,36 @@ async def task_events(
     return StreamingResponse(stream(), media_type="text/event-stream")
 
 
-class TranslateRequestModel(BaseModel):
-    """创建一次翻译任务的请求体（阶段 1 用本地文件路径驱动）。"""
-
-    source_path: str
-    source_lang: str = "en"
-    target_lang: str = "zh"
-    tier: str = "fast"
-
-
 @app.post("/api/tasks/upload", status_code=202)
 async def create_task_upload(
     request: Request,
     db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_user)],
     file: UploadFile = File(...),
     tier: str = Form("fast"),
     source_lang: str = Form("en"),
     target_lang: str = Form("zh"),
 ):
-    """前端上传 PDF：保存文件后创建异步翻译任务，返回任务卡。"""
+    """前端上传 PDF：保存文件后创建异步翻译任务（归属当前登录用户），返回任务卡。"""
     filename = Path(file.filename or "upload.pdf").name
     if file.content_type != "application/pdf" and not filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="仅支持 PDF 文件")
+    try:
+        tier_value = Tier(tier).value
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"未知档位：{tier}") from None
 
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     dest = UPLOAD_DIR / f"{uuid4().hex}_{filename}"
     dest.write_bytes(await file.read())
 
     task = Task(
+        user_id=user.id,
         filename=filename,
         original_path=str(dest),
         source_lang=source_lang,
         target_lang=target_lang,
-        tier=Tier(tier).value,
+        tier=tier_value,
         status="pending",
         progress=0.0,
     )
@@ -362,16 +428,19 @@ async def create_task_upload(
     db.commit()
     db.refresh(task)
 
+    logger.info("收到上传：%s（%s，task_id=%s）", filename, tier_value, task.id)
     request.app.state.worker.enqueue(task.id)
     return _serialize_task(task)
 
 
 @app.get("/api/tasks/{task_id}/understanding")
-def get_understanding(task_id: int, db: Annotated[Session, Depends(get_db)]):
+def get_understanding(
+    task_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_user)],
+):
     """返回导读/术语表状态（惰性按需生成；未生成返回 pending）。"""
-    task = db.get(Task, task_id)
-    if task is None:
-        raise HTTPException(status_code=404, detail="task not found")
+    load_owned_task(db, user, task_id)
     u = db.scalars(
         select(TaskUnderstanding).where(TaskUnderstanding.task_id == task_id)
     ).first()
@@ -379,11 +448,13 @@ def get_understanding(task_id: int, db: Annotated[Session, Depends(get_db)]):
 
 
 @app.post("/api/tasks/{task_id}/understanding", status_code=200)
-def compute_understanding(task_id: int, db: Annotated[Session, Depends(get_db)]):
+def compute_understanding(
+    task_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_user)],
+):
     """惰性生成导读/术语表：先取；未生成/失败则调用 LLM 抽取并缓存。幂等。"""
-    task = db.get(Task, task_id)
-    if task is None:
-        raise HTTPException(status_code=404, detail="task not found")
+    load_owned_task(db, user, task_id)
 
     u = db.scalars(
         select(TaskUnderstanding).where(TaskUnderstanding.task_id == task_id)
@@ -434,31 +505,3 @@ def compute_understanding(task_id: int, db: Annotated[Session, Depends(get_db)])
         u.error = str(exc)
     db.commit()
     return _serialize_understanding(u)
-
-
-@app.post("/api/tasks", status_code=202)
-async def create_task(
-    body: TranslateRequestModel,
-    request: Request,
-    db: Annotated[Session, Depends(get_db)],
-):
-    """建任务即返回（异步），后台 worker 处理，SSE/轮询看进度。"""
-    source_path = Path(body.source_path)
-    if not source_path.exists():
-        raise HTTPException(status_code=400, detail="source_path 不存在")
-
-    task = Task(
-        filename=source_path.name,
-        original_path=str(source_path),
-        source_lang=body.source_lang,
-        target_lang=body.target_lang,
-        tier=Tier(body.tier).value,
-        status="pending",
-        progress=0.0,
-    )
-    db.add(task)
-    db.commit()
-    db.refresh(task)
-
-    request.app.state.worker.enqueue(task.id)
-    return _serialize_task(task)

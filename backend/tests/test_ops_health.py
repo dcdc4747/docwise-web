@@ -6,6 +6,7 @@ import asyncio
 import logging
 
 from fastapi.testclient import TestClient
+from helpers import TEST_USER_ID
 
 from app.db import SessionLocal, engine
 from app.logging_setup import setup_logging
@@ -45,7 +46,7 @@ def test_setup_logging_is_idempotent() -> None:
 def test_worker_loop_survives_task_exception(monkeypatch, caplog) -> None:
     """单任务异常不得杀死 worker 循环（此前会静默全站停摆且无日志）。"""
     with SessionLocal() as session:
-        task = Task(filename="boom.pdf", status="pending")
+        task = Task(user_id=TEST_USER_ID, filename="boom.pdf", status="pending")
         session.add(task)
         session.commit()
         task_id = task.id

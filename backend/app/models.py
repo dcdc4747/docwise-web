@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, Float, ForeignKey, String, Text, func
+from sqlalchemy import Boolean, DateTime, Enum, Float, ForeignKey, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .db import Base
@@ -13,6 +13,10 @@ class Task(Base):
     __tablename__ = "tasks"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # 归属：登录用户（老库里为空，启动时按 DOCWISE_LEGACY_OWNER 归属）
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True, index=True
+    )
     filename: Mapped[str] = mapped_column(String(255))
     original_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     source_lang: Mapped[str] = mapped_column(String(16), default="en")
@@ -88,3 +92,50 @@ class TaskUnderstanding(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
     )
+
+
+class User(Base):
+    """账号：密码只存哈希（scrypt + 每人独立盐），绝不存明文。"""
+
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    username: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    display_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    password_hash: Mapped[str] = mapped_column(String(255))
+    role: Mapped[str] = mapped_column(String(16), default="user")  # user / admin
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class AuthSession(Base):
+    """登录会话：只存令牌的 sha256，可随时吊销（退出 / 踢设备）。"""
+
+    __tablename__ = "auth_sessions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    expires_at: Mapped[datetime] = mapped_column(DateTime)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    user_agent: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+
+class AuthTicket(Base):
+    """临时票据：给"带不了请求头"的三种请求用（进度推送 / PDF 预览 / 下载）。
+
+    绑定 用户 + 任务 + 用途，60 秒内有效；**不一次性消费**——否则同一页面多次
+    取 URL 会互相把票据用掉，表现为"有时能打开、有时打不开"。
+    """
+
+    __tablename__ = "auth_tickets"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    ticket_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id"), index=True)
+    scope: Mapped[str] = mapped_column(String(16))  # files / events
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    expires_at: Mapped[datetime] = mapped_column(DateTime)
