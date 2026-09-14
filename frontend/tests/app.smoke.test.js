@@ -220,7 +220,8 @@ describe('App.vue 页面渲染', () => {
 
     const text = wrapper.text()
     expect(text).toContain('这里就是原文')
-    expect(text).toContain('下载原稿 PDF')
+    // 形态：下载入口统一成一个名字（具体下哪份在菜单里选）
+    expect(text).toContain('下载译稿')
     expect(text).not.toContain('中英对照')
     expect(text).not.toContain('下载双语 PDF')
     for (const leak of SOURCE_LEAKS) {

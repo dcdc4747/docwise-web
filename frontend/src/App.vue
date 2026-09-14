@@ -916,6 +916,12 @@ function onDocMouseUp() {
     return false
   }
   docMode.value = 'paragraph'
+  // 手机上：点出处要把助手降到 peek、露一行「已定位到…」——
+  // 否则抽屉把正文盖住，跳了等于没跳（评审 R-02 的要点）
+  if (isNarrow.value) {
+    sheetState.value = 'peek'
+    locatedHint.value = `已定位到 ${labelOf(blockId) || '该段落'}`
+  }
   if (node.scrollIntoView) node.scrollIntoView({ behavior: 'smooth', block: 'center' })
   node.classList.remove('block-flash')
   void node.offsetWidth
@@ -981,6 +987,61 @@ watch([currentTask, paragraphRows], () => {
   resumedForTask = task.id
   applyResumePosition()
 })
+
+/* ===== 手机端助手：底部抽屉三档（peek / 半屏 / 近全屏） =====
+   形态约定：peek 只露页签（正文让出来）；点出处自动降到 peek 并露一行「已定位到…」。 */
+const isNarrow = ref(false)
+const sheetState = ref('peek')
+const locatedHint = ref('')
+
+const sheetHint = computed(() => {
+  if (sheetState.value === 'peek') return '上拖展开助手'
+  if (sheetState.value === 'half') return '上拖到近全屏'
+  return '下拖回到半屏'
+})
+
+function syncNarrow() {
+  if (typeof window === 'undefined') return
+  isNarrow.value = window.innerWidth < 1024
+}
+
+if (typeof window !== 'undefined') {
+  syncNarrow()
+  window.addEventListener('resize', syncNarrow)
+}
+onUnmounted(() => {
+  if (typeof window !== 'undefined') window.removeEventListener('resize', syncNarrow)
+})
+
+function cycleSheet() {
+  const order = ['peek', 'half', 'full']
+  const next = order[(order.indexOf(sheetState.value) + 1) % order.length]
+  sheetState.value = next
+}
+
+/* ===== 下载与账号：入口统一（形态：下载只有一个名字；管理后台不占顶栏主位） ===== */
+const downloadOptions = computed(() => {
+  if (isNativeTask.value) return [{ label: '下载原稿 PDF', key: 'mono' }]
+  return [
+    { label: '下载双语稿（默认）', key: 'dual' },
+    { label: '下载纯中文稿', key: 'mono' },
+  ]
+})
+
+const accountOptions = computed(() => {
+  const items = [{ label: authUser.value?.username || '账号', key: 'me', disabled: true }]
+  if (authUser.value?.role === 'admin') {
+    items.push({ label: '管理后台', key: 'admin' })
+  }
+  items.push({ type: 'divider', key: 'divider-1' })
+  items.push({ label: '退出登录', key: 'logout' })
+  return items
+})
+
+function onAccountSelect(key) {
+  if (key === 'admin') showAdmin.value = true
+  else if (key === 'logout') onLogout()
+}
 
 /* ===== 术语定位（术语表没有出处字段 → 只能"命中后回填"，不许预填坐标） ===== */
 const termLocateState = ref({})
@@ -1079,16 +1140,16 @@ onUnmounted(stopProgress)
           >
             {{ showAdmin ? '返回阅读' : '我的论文' }}
           </n-button>
-          <n-button
-            v-if="authUser.role === 'admin'"
-            size="small"
-            quaternary
-            @click="showAdmin = true"
+          <!-- 形态：管理后台不占顶栏主位，收进账号菜单（仅管理员可见） -->
+          <n-dropdown
+            trigger="click"
+            :options="accountOptions"
+            @select="onAccountSelect"
           >
-            管理后台
-          </n-button>
-          <n-text depth="3" class="header-user">{{ authUser.username }}</n-text>
-          <n-button size="small" quaternary @click="onLogout">退出</n-button>
+            <n-button size="small" quaternary>
+              {{ authUser.username }} ▾
+            </n-button>
+          </n-dropdown>
         </div>
       </n-layout-header>
 
@@ -1345,23 +1406,14 @@ onUnmounted(stopProgress)
                         <n-text v-else depth="3" class="tier-picker-sub">
                           中文文献不翻译，这里就是原文
                         </n-text>
-                        <n-space size="small">
-                          <n-button
-                            size="small"
-                            :disabled="previewCheckDone && !fileAvailability.mono"
-                            @click="downloadFile('mono')"
+                          <!-- 形态：下载入口只有一个名字（「下载译稿」），具体下哪份在里面选 -->
+                          <n-dropdown
+                            trigger="click"
+                            :options="downloadOptions"
+                            @select="downloadFile"
                           >
-                            {{ isNativeTask ? '下载原稿 PDF' : '下载纯中文 PDF' }}
-                          </n-button>
-                          <n-button
-                            v-if="!isNativeTask"
-                            size="small"
-                            :disabled="previewCheckDone && !fileAvailability.dual"
-                            @click="downloadFile('dual')"
-                          >
-                            下载双语 PDF
-                          </n-button>
-                        </n-space>
+                            <n-button size="small">⤓ 下载译稿 ▾</n-button>
+                          </n-dropdown>
                       </div>
 
                       <n-alert
@@ -1443,8 +1495,18 @@ onUnmounted(stopProgress)
                       </div>
                   </div>
 
-                  <!-- 右：助手区（问答 / 导读 / 术语 三个副页签） -->
-                  <div class="reader-assist">
+                  <!-- 右：助手区（窄屏时变底部抽屉：peek / 半屏 / 近全屏） -->
+                  <div
+                    class="reader-assist"
+                    :class="{ 'assist-sheet': isNarrow, ['sheet-' + sheetState]: isNarrow }"
+                  >
+                    <div v-if="isNarrow" class="sheet-grip" @click="cycleSheet">
+                      <i></i>
+                      <span>{{ sheetHint }}</span>
+                    </div>
+                    <div v-if="isNarrow && locatedHint" class="peek-line">
+                      {{ locatedHint }}
+                    </div>
                     <n-tabs
                       v-model:value="workbenchTab"
                       type="line"

@@ -840,6 +840,31 @@ body {
   font-size: 12px; color: #15803d;
 }
 
+/* ===================== 形态：手机端助手 = 底部抽屉三档 ===================== */
+.assist-sheet {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
+  background: #fff; border: 1px solid #e5e7eb; border-bottom: 0;
+  border-radius: 14px 14px 0 0; padding: 0 14px 12px;
+  transition: height 0.18s ease; overflow: hidden;
+}
+.assist-sheet.sheet-peek { height: 118px; }
+.assist-sheet.sheet-half { height: 46vh; }
+.assist-sheet.sheet-full { height: 86vh; }
+.sheet-grip {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 8px 0; cursor: pointer; color: #6b7280; font-size: 12px;
+}
+.sheet-grip i { display: block; width: 40px; height: 4px; border-radius: 99px; background: #d7dbe3; }
+.peek-line {
+  padding: 0 0 8px; font-size: 12px; color: #4f6ef7;
+}
+/* peek 只露页签：正文/问答内容让出来（形态约定） */
+.assist-sheet.sheet-peek .tabbody { display: none; }
+/* 抽屉展开时别让正文被永久盖住：窄屏下正文底部留出 peek 的高度 */
+@media (max-width: 1023px) {
+  .reader-doc { padding-bottom: 130px; }
+}
+
 /* 术语「在原文中定位」按钮 */
 .t-ops { margin-top: 4px; }
 
