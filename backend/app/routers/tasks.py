@@ -22,6 +22,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
+from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
@@ -144,6 +145,8 @@ def _serialize_task(task: Task, blocks: list[TaskBlock] | None = None) -> dict:
         "elapsed_seconds": _elapsed_seconds(task),
         "started_at": task.started_at.isoformat() if task.started_at else None,
         "finished_at": task.finished_at.isoformat() if task.finished_at else None,
+        # 阅读位置记忆：null 表示没读过（前端据此显示「开始阅读」而不是「继续读」）
+        "last_read_page": task.last_read_page,
     }
     if blocks is not None:
         data["error_message"] = task.error_message
@@ -220,6 +223,30 @@ def get_task(
     data["queue_position"] = _queue_position(db, task)
     data["engine_progress"] = _engine_progress(task)
     return data
+
+
+class ReadingPositionRequest(BaseModel):
+    """读到第几页（1 起数）。"""
+
+    page: int = Field(ge=1, le=100_000)
+
+
+@router.post("/{task_id}/reading-position")
+def save_reading_position(
+    task_id: int,
+    body: ReadingPositionRequest,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_user)],
+):
+    """记住"读到第几页"（形态：L1 卡片显示「上次读到第 X 页」，进来跳回原处）。
+
+    只写这一个字段，**不碰任务状态机**——阅读位置是体验数据，与 worker 无关，
+    所以它走接口层、不进事件总线，也不需要 SSE。
+    """
+    task = load_owned_task(db, user, task_id)
+    task.last_read_page = body.page
+    db.commit()
+    return {"last_read_page": task.last_read_page}
 
 
 @router.delete("/{task_id}")
