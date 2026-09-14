@@ -894,6 +894,9 @@ body {
   0%, 100% { background: rgba(79, 110, 247, 0.18); }
   50% { background: rgba(79, 110, 247, 0.06); }
 }
+/* 段落精读：没有块级译文时的诚实提示（别让「纯中文」显示着英文） */
+.no-translation-msg { margin-bottom: 10px; }
+
 /* 划词后的锚点提示条 */
 .sel-chip {
   position: sticky; top: 0; z-index: 2;

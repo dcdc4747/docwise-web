@@ -337,4 +337,52 @@ describe('App.vue 页面渲染', () => {
       expect(text).not.toContain(leak)
     }
   })
+
+  it('块级译文缺失时诚实提示（别让「纯中文」显示着英文）', async () => {
+    localStorage.setItem('docwise_token', 'test-token')
+    const base = stubFetch()
+    const done = {
+      ...TASK,
+      status: 'completed',
+      progress: 1,
+      stage: null,
+      eta_seconds: null,
+      finished_at: '2026-09-10T12:05:00',
+    }
+    // 真实库就是这样：text 有、translated 全是空（实测 1510 个块无一例外）
+    const detail = {
+      ...TASK_DETAIL,
+      ...done,
+      files_ready: { mono: true, dual: true },
+      engine_progress: null,
+      blocks: [
+        { block_id: 'p0_b0', text: 'first block', translated: null, status: 'success', error: null },
+        { block_id: 'p0_b1', text: 'second block', translated: '', status: 'success', error: null },
+      ],
+    }
+    globalThis.fetch = vi.fn(async (input, init = {}) => {
+      const url = typeof input === 'string' ? input : String(input?.url ?? input)
+      const json = (data) => ({ ok: true, status: 200, json: async () => data })
+      if (url.match(/\/api\/tasks\/7\/?$/)) return json(detail)
+      if (url.includes('/api/tasks')) return json([done])
+      return base(input, init)
+    })
+
+    wrapper = mountApp()
+    await flushPromises()
+    const openButton = wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('开始阅读'))
+    await openButton.trigger('click')
+    await flushPromises()
+
+    const text = wrapper.text()
+    expect(text).toContain('暂无「块级」译文')
+    // 段落仍然渲染（回退显示原文），不是空白页
+    expect(wrapper.findAll('.paragraph-row').length).toBe(2)
+    expect(wrapper.text()).toContain('first block')
+    for (const leak of SOURCE_LEAKS) {
+      expect(text).not.toContain(leak)
+    }
+  })
 })
