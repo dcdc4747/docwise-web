@@ -828,3 +828,35 @@ body {
 
 /* L1 完成横幅 */
 .complete-banner { border-width: 1px; }
+
+/* ===================== 形态：段落精读（左栏，锚点是我们自己的 DOM） ===================== */
+.paragraph-pane {
+  border: 1px solid #e5e7eb; border-radius: 8px; background: #fff;
+  padding: 18px 22px; height: 72vh; overflow: auto; position: relative;
+}
+.paragraph-row { display: flex; gap: 10px; padding: 6px 8px; border-radius: 8px; }
+.paragraph-row + .paragraph-row { margin-top: 10px; }
+.paragraph-no { flex: 0 0 auto; font-size: 12px; color: #9aa1ad; padding-top: 3px; min-width: 38px; }
+.paragraph-body { min-width: 0; }
+/* 双语模式：原文小字灰、译文主文（不要左右等重双栏，那会逼着两眼来回跳） */
+.paragraph-source { font-size: 12.5px; line-height: 1.7; color: #8a9099; margin-bottom: 4px; }
+.paragraph-translated { font-size: 15px; line-height: 1.85; color: #1f2329; }
+.page-sep {
+  display: flex; align-items: center; justify-content: center;
+  margin: 14px 0 10px; font-size: 12px; color: #9aa1ad;
+}
+/* 点出处跳过来时的高亮脉冲——出处体系的"信任签名"，必须闪一下 */
+.block-flash { background: rgba(79, 110, 247, 0.18); box-shadow: inset 3px 0 0 #4f6ef7; }
+.paragraph-row.block-flash { animation: block-pulse 1.1s ease 2; }
+@keyframes block-pulse {
+  0%, 100% { background: rgba(79, 110, 247, 0.18); }
+  50% { background: rgba(79, 110, 247, 0.06); }
+}
+/* 划词后的锚点提示条 */
+.sel-chip {
+  position: sticky; top: 0; z-index: 2;
+  display: flex; align-items: center; gap: 10px; justify-content: space-between;
+  margin: -8px 0 12px; padding: 6px 10px;
+  background: #f1f4ff; border: 1px solid rgba(79, 110, 247, 0.45); border-radius: 8px;
+}
+.sel-chip-note { font-size: 12px; color: #3f4652; }

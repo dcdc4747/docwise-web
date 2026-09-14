@@ -20,7 +20,7 @@ import {
   formatDuration,
   stageTextFor,
 } from './progressText'
-import { blockLabel, findBlockByText } from './blockLabel'
+import { blockLabel, buildParagraphRows, findBlockByText } from './blockLabel'
 import {
   zhCN,
   dateZhCN,
@@ -866,11 +866,60 @@ function guideHasSource(key) {
 function openGuideTrace(key) {
   if (!guideHasSource(key)) return
   const field = understandingGuide.value[key]
-  openTrace({
-    label: guideFieldLabel[key],
-    text: field.text,
-    source: field.source_block_ids,
-  })
+  focusBlock(field.source_block_ids[0], { label: guideFieldLabel[key], text: field.text })
+}
+
+/* ===== 左栏：段落精读（我们自己的 DOM）/ 原版 PDF（iframe，浏览器自带阅读器） =====
+   为什么要有段落精读：iframe 里是黑盒插件，拿不到 DOM——「点出处 → 滚到那一段 → 高亮」
+   在 iframe 上物理上做不到。段落精读用的是自己的 DOM，锚点与出处才真正同一个坐标系。 */
+const docMode = ref('paragraph')
+
+const paragraphRows = computed(() =>
+  buildParagraphRows(blockOrder.value.map((id) => blocksById.value[id]).filter(Boolean)),
+)
+
+/** 划词提问：选区落在哪一段 → 锚到那个块；提问内容里就带着选中的那句话。 */
+const askAnchor = ref(null)
+
+const askAnchorLabel = computed(() => {
+  if (!askAnchor.value) return ''
+  const label = labelOf(askAnchor.value.blockId)
+  return label ? `已锚定 · ${label}` : '已锚定（位置待定）'
+})
+
+function onDocMouseUp() {
+  const selection = typeof window !== 'undefined' && window.getSelection
+    ? window.getSelection()
+    : null
+  const text = (selection?.toString() || '').trim()
+  if (!text) return
+  let node = selection.anchorNode
+  while (node && node.nodeType !== 1) node = node.parentNode
+  const holder = node && node.closest ? node.closest('[data-block-id]') : null
+  askAnchor.value = {
+    blockId: holder?.dataset?.blockId || '',
+    text: text.slice(0, 200),
+  }
+  askQuestion.value = text.length > 80 ? `${text.slice(0, 80)}…` : text
+}
+
+/** 点出处：滚到那一段 + 高亮脉冲；这一段没渲染出来才退回抽屉（诚实降级，不假装跳成功）。 */
+function focusBlock(blockId, meta = {}) {
+  const node =
+    typeof document !== 'undefined' ? document.getElementById(`block-${blockId}`) : null
+  if (!node) {
+    openTrace({ label: meta.label, text: meta.text, source: [blockId] })
+    return false
+  }
+  docMode.value = 'paragraph'
+  if (node.scrollIntoView) node.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  node.classList.remove('block-flash')
+  void node.offsetWidth
+  node.classList.add('block-flash')
+  if (typeof window !== 'undefined') {
+    window.setTimeout(() => node.classList.remove('block-flash'), 2200)
+  }
+  return true
 }
 
 /* ===== 术语定位（术语表没有出处字段 → 只能"命中后回填"，不许预填坐标） ===== */
@@ -898,6 +947,7 @@ async function locateTerm(term) {
     [key]: label ? `已定位 · ${label}` : '已定位（位置待定）',
   }
   openTrace({ label: key, text: term.definition, source: [hit.block_id] })
+  focusBlock(hit.block_id, { label: key, text: term.definition })
 }
 
 /* ===== 问答快捷提问（形态：chips 只放**导读与术语都没答**的问题，不重复） ===== */
@@ -1208,6 +1258,11 @@ onUnmounted(stopProgress)
                   <!-- 左：文档区（本批仍是现有 iframe 预览；pdf.js 与段落视图放下一批） -->
                   <div class="reader-doc">
                       <div class="result-toolbar">
+                        <!-- 左栏渲染方式：段落精读（自己的 DOM，锚点成立）/ 原版 PDF（iframe，只读） -->
+                        <n-radio-group v-model:value="docMode" size="small">
+                          <n-radio-button value="paragraph">段落精读</n-radio-button>
+                          <n-radio-button value="pdf">原版 PDF</n-radio-button>
+                        </n-radio-group>
                         <n-radio-group
                           v-if="!isNativeTask"
                           v-model:value="previewMode"
@@ -1258,11 +1313,11 @@ onUnmounted(stopProgress)
                         {{ workbenchError }}
                       </n-alert>
                       <n-empty
-                        v-if="previewCheckDone && !fileAvailability[previewMode]"
+                        v-if="docMode === 'pdf' && previewCheckDone && !fileAvailability[previewMode]"
                         :description="previewEmptyText"
                         class="result-empty"
                       />
-                      <n-spin v-else :show="previewLoading" size="small">
+                      <n-spin v-else-if="docMode === 'pdf'" :show="previewLoading" size="small">
                         <iframe
                           v-if="fileAvailability[previewMode] && previewSrc"
                           :key="previewSrc"
@@ -1271,6 +1326,49 @@ onUnmounted(stopProgress)
                           title="译文预览"
                         />
                       </n-spin>
+
+                      <!-- 段落精读：按块重排（原文小字灰 + 译文主文），跨页插页分隔条、段号页内重算 -->
+                      <div
+                        v-else
+                        class="paragraph-pane"
+                        @mouseup="onDocMouseUp"
+                      >
+                        <div v-if="askAnchor" class="sel-chip">
+                          <span class="sel-chip-note">{{ askAnchorLabel }}</span>
+                          <n-button size="tiny" type="primary" @click="workbenchTab = 'ask'">
+                            去提问
+                          </n-button>
+                        </div>
+                        <n-empty
+                          v-if="!paragraphRows.length"
+                          description="这篇文献还没有可读的段落块"
+                          class="result-empty"
+                        />
+                        <template v-for="(row, rowIndex) in paragraphRows" :key="rowIndex">
+                          <div v-if="row.kind === 'page'" class="page-sep">
+                            —— {{ row.label }} ——
+                          </div>
+                          <div
+                            v-else
+                            :id="`block-${row.block.block_id}`"
+                            class="paragraph-row"
+                            :data-block-id="row.block.block_id"
+                          >
+                            <span class="paragraph-no">{{ row.label }}</span>
+                            <div class="paragraph-body">
+                              <div
+                                v-if="previewMode === 'dual' && !isNativeTask && row.block.text"
+                                class="paragraph-source"
+                              >
+                                {{ row.block.text }}
+                              </div>
+                              <div class="paragraph-translated">
+                                {{ row.block.translated || row.block.text }}
+                              </div>
+                            </div>
+                          </div>
+                        </template>
+                      </div>
                   </div>
 
                   <!-- 右：助手区（问答 / 导读 / 术语 三个副页签） -->
@@ -1435,13 +1533,7 @@ onUnmounted(stopProgress)
                                 type="info"
                                 class="ask-src-tag"
                                 :title="'原文块 ' + id"
-                                @click="
-                                  openTrace({
-                                    label: '问答出处',
-                                    text: askResult.answer,
-                                    source: [id],
-                                  })
-                                "
+                                @click="focusBlock(id, { label: '问答出处', text: askResult.answer })"
                               >
                                 {{ labelOf(id) || '出处未能定位' }} ▸
                               </n-tag>
