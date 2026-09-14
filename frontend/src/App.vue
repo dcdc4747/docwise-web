@@ -826,8 +826,8 @@ onUnmounted(stopProgress)
             <h1>把英文文献读懂</h1>
             <p class="tagline">翻译只是起点，理解才是价值</p>
             <p class="description">
-              上传英文文献 PDF，得到双语对照稿、结构化导读与统一术语表；
-              还能就论文提问，每条答案都标明来自哪一段原文。
+              面向高校学生与研究者的英文文献阅读工作台：上传 PDF，得到双语对照稿、
+              结构化导读与统一术语表；还能就论文提问，每条答案都标明来自哪一段原文。
             </p>
             <div class="tech-tags">
               <n-tag round type="info">结构化导读</n-tag>
@@ -1416,7 +1416,7 @@ onUnmounted(stopProgress)
       </n-layout-content>
 
       <n-layout-footer bordered class="page-footer">
-        docwise · 让读不懂英文文献的人，把它读懂
+        docwise · 让高校学生与研究者把英文论文读成中文精读
       </n-layout-footer>
     </n-layout>
 
