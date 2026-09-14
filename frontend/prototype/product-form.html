@@ -1,0 +1,1317 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>docwise · 产品形态原型 v2（静态示意）</title>
+<style>
+  :root {
+    --accent: #4f6ef7;
+    --accent-soft: rgba(79, 110, 247, .12);
+    --accent-line: rgba(79, 110, 247, .45);
+    --bg: #f7f8fa;
+    --surface: #ffffff;
+    --ink: #1f2329;
+    --muted: #6b7280;
+    --line: #e5e7eb;
+    --radius: 12px;
+    --warn: #d97706;
+    --danger: #dc2626;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    font: 14px/1.6 system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    color: var(--ink);
+    background: var(--bg);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---------- 原型导航条（不属于产品界面） ---------- */
+  .proto-bar {
+    position: sticky; top: 0; z-index: 99;
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    padding: 8px 16px; background: #111827; color: #e5e7eb; font-size: 12px;
+  }
+  .proto-bar b { color: #fff; font-weight: 600; }
+  .proto-bar .note { color: #9ca3af; }
+  .proto-bar .spacer { flex: 1; }
+  .proto-bar button {
+    font: inherit; padding: 4px 12px; border-radius: 999px;
+    border: 1px solid #374151; background: transparent; color: #e5e7eb; cursor: pointer;
+  }
+  .proto-bar button:hover { border-color: #6b7280; }
+  .proto-bar button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+  .screen { display: none; }
+  .screen.active { display: block; }
+
+  /* ---------- 通用零件 ---------- */
+  .topbar {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 24px; background: var(--surface); border-bottom: 1px solid var(--line);
+  }
+  .brand { font-weight: 700; letter-spacing: .2px; }
+  .brand-sub { color: var(--muted); font-size: 12px; }
+  .spacer { flex: 1; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 3px 10px; border-radius: 999px; font-size: 12px;
+    background: #f1f3f7; color: var(--muted);
+  }
+  .chip.blue { background: var(--accent-soft); color: var(--accent); }
+  .chip.ok { background: #e8f6ee; color: #15803d; }
+  .chip.fail { background: #fdeaea; color: var(--danger); }
+  .chip.warn { background: #fdf3e3; color: var(--warn); }
+  .btn {
+    font: inherit; padding: 6px 14px; border-radius: 8px; cursor: pointer;
+    border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+  }
+  .btn:hover { border-color: #cbd0da; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.ghost { border-color: transparent; color: var(--muted); }
+  .btn.ghost:hover { background: #f1f3f7; }
+  .btn.sm { padding: 3px 10px; font-size: 12px; }
+  .card {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 20px;
+  }
+  .muted { color: var(--muted); }
+  .tiny { font-size: 12px; }
+
+  /* ---------- L1 库页 ---------- */
+  .lib-wrap { max-width: 1080px; margin: 0 auto; padding: 28px 24px 56px; }
+  .hero { text-align: center; padding: 40px 0 28px; }
+  .hero h1 { margin: 0 0 6px; font-size: 30px; letter-spacing: .3px; }
+  /* v2：副标语不再用蓝色（蓝色只留一处强调） */
+  .hero .tagline { margin: 0 0 10px; color: #3f4652; font-weight: 600; }
+  .hero p { margin: 0 auto 16px; max-width: 620px; color: var(--muted); }
+  .pills { display: flex; gap: 8px; justify-content: center; }
+  .pill {
+    font: inherit; font-size: 12px; padding: 6px 14px; border-radius: 12px;
+    background: #fff; color: var(--accent);
+    border: 1px solid var(--accent-line); cursor: pointer;
+  }
+  .pill:hover { background: var(--accent-soft); }
+
+  .upload-card { display: grid; grid-template-columns: 1.35fr 1fr; gap: 24px; }
+  .drop {
+    border: 1.5px dashed #c7cdda; border-radius: 10px; padding: 40px 16px;
+    text-align: center; color: var(--muted); background: #fbfcfe;
+  }
+  .drop .big { color: var(--ink); font-weight: 600; margin-bottom: 4px; }
+  .drop-hint { margin-top: 10px; font-size: 12px; color: var(--muted); }
+  .sample-link {
+    font: inherit; font-size: 12px; color: var(--accent); background: transparent;
+    border: 0; cursor: pointer; text-decoration: underline; padding: 0;
+  }
+  .tier-label { font-weight: 600; margin-bottom: 10px; }
+  .seg { display: flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; width: fit-content; }
+  .seg span { padding: 6px 16px; font-size: 13px; border-right: 1px solid var(--line); color: var(--muted); cursor: pointer; }
+  .seg span:last-child { border-right: 0; }
+  .seg span.on { background: var(--accent); color: #fff; }
+  .tier-note { margin-top: 12px; font-size: 12px; color: var(--muted); line-height: 1.9; }
+
+  .title-row { display: flex; align-items: center; gap: 12px; margin: 4px 0 16px; }
+  .title-row h2 { margin: 0; font-size: 20px; }
+
+  .running { display: flex; align-items: center; gap: 16px; padding: 14px 20px; margin-bottom: 18px; }
+  .running .name { font-weight: 600; }
+  .running .queue { font-size: 12px; color: var(--muted); }
+  .bar { flex: 1; height: 8px; border-radius: 999px; background: #eef0f4; overflow: hidden; }
+  .bar > i { display: block; height: 100%; background: var(--accent); }
+  .bar.striped > i {
+    background-image: linear-gradient(45deg, rgba(255,255,255,.45) 25%, transparent 25%, transparent 50%, rgba(255,255,255,.45) 50%, rgba(255,255,255,.45) 75%, transparent 75%);
+    background-size: 14px 14px;
+  }
+
+  .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .paper-card { display: flex; flex-direction: column; gap: 10px; }
+  .paper-card .row { display: flex; align-items: center; gap: 8px; }
+  .paper-card .fname { font-weight: 600; }
+  .paper-card .meta { font-size: 12px; color: var(--muted); }
+  .paper-card .lastpos { font-size: 12px; color: var(--accent); }
+  .paper-card .actions { display: flex; gap: 8px; margin-top: auto; }
+
+  /* v2：健康状态正常时不显示，异常才出现 */
+  .footline { display: flex; align-items: center; gap: 16px; margin-top: 28px; font-size: 12px; color: var(--muted); }
+
+  /* v3：翻译完成后任务条不退场，变绿给下一步动作（3 秒后可手动关） */
+  .taskbar-ok {
+    display: flex; align-items: center; gap: 12px; padding: 10px 20px; margin-bottom: 14px;
+    border-color: #cde9d8; background: #f2fbf5;
+  }
+  .taskbar-ok .ok-text { color: #15803d; font-weight: 600; }
+
+  /* ---------- L2 阅读工作区 ---------- */
+  #screen-reader { height: calc(100vh - 37px); display: none; flex-direction: column; }
+  #screen-reader.active { display: flex; }
+  .reader-top {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 18px; background: var(--surface); border-bottom: 1px solid var(--line);
+  }
+  .reader-top .fname { font-weight: 600; }
+  .thin-bar { height: 3px; background: #eef0f4; }
+  .thin-bar > i { display: block; height: 100%; width: 30%; background: var(--accent); }
+  .note-line { padding: 0 18px; font-size: 12px; color: var(--muted); background: #fff; }
+  .note-line:not(:empty) { padding: 8px 18px; border-bottom: 1px solid var(--line); }
+  .reader-body { flex: 1; display: flex; min-height: 0; }
+
+  .menu-wrap { position: relative; }
+  .menu {
+    position: absolute; right: 0; top: 34px; z-index: 8; display: none;
+    min-width: 260px; padding: 6px; background: #fff;
+    border: 1px solid var(--line); border-radius: 10px;
+  }
+  .menu.open { display: block; }
+  .menu button {
+    display: block; width: 100%; text-align: left; font: inherit; font-size: 13px;
+    padding: 8px 10px; border: 0; background: transparent; border-radius: 6px; cursor: pointer;
+  }
+  .menu button:hover { background: #f1f3f7; }
+  .menu button.danger { color: var(--danger); }
+  .menu button.danger:hover { background: #fdeaea; }
+  .menu .sep { height: 1px; background: var(--line); margin: 4px 0; }
+
+  /* v4：问答失败态 / 撤销 toast / 演示入口 */
+  .fail-card { border: 1px solid #f2d5d5; background: #fdf6f6; border-radius: 10px; padding: 10px 12px; font-size: 13px; margin-bottom: 14px; }
+  .fail-card .q-kept { color: var(--muted); font-size: 12px; margin-top: 6px; }
+  .demo-link {
+    font: inherit; font-size: 12px; color: var(--muted); background: transparent;
+    border: 1px dashed var(--line); border-radius: 8px; padding: 4px 10px; cursor: pointer; margin-bottom: 12px;
+  }
+  .demo-link:hover { color: var(--accent); border-color: var(--accent-line); }
+  .toast {
+    position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 200;
+    display: none; align-items: center; gap: 12px;
+    padding: 10px 16px; border-radius: 10px; background: #1f2329; color: #fff; font-size: 13px;
+  }
+  .toast.show { display: flex; }
+  .toast button { font: inherit; font-size: 13px; background: transparent; border: 0; color: #8fb0ff; cursor: pointer; }
+
+  .doc-pane { flex: 1 1 auto; overflow: auto; background: #eef0f4; padding: 24px; }
+  .page {
+    width: 760px; margin: 0 auto; background: #fff; border: 1px solid #dfe3ea;
+    border-radius: 6px; padding: 40px 44px; position: relative;
+  }
+  .page + .page { margin-top: 20px; }
+  .page h3 { margin: 0 0 4px; font-size: 15px; }
+  .page .authors { font-size: 11px; color: var(--muted); margin-bottom: 16px; }
+  .page .cols { column-count: 2; column-gap: 30px; font-size: 11.5px; line-height: 1.7; color: #39404c; text-align: justify; }
+  .page .cols p { margin: 0 0 8px; }
+  .page .fig {
+    break-inside: avoid; margin: 6px 0 10px; height: 74px; border: 1px solid var(--line);
+    border-radius: 4px; background: repeating-linear-gradient(45deg, #fafbfd, #fafbfd 8px, #f3f5f9 8px, #f3f5f9 16px);
+    display: flex; align-items: center; justify-content: center; font-size: 10px; color: #9aa1ad;
+  }
+  .sel { background: var(--accent-soft); box-shadow: inset 0 -2px 0 var(--accent-line); }
+  .anchor.flash { background: rgba(79,110,247,.28); outline: 2px solid var(--accent-line); animation: flash 1.1s ease 2; border-radius: 3px; }
+  @keyframes flash { 0%,100% { background: rgba(79,110,247,.28); } 50% { background: rgba(79,110,247,.10); } }
+
+  .selchip {
+    position: absolute; transform: translateY(-4px);
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 5px 12px; border-radius: 999px; font-size: 12px;
+    background: #1f2329; color: #fff; cursor: pointer; white-space: nowrap;
+  }
+  .selchip:hover { background: #000; }
+  .selchip::before { content: "💬"; font-size: 11px; }
+
+  .assist { flex: 0 0 400px; display: flex; flex-direction: column; min-height: 0; background: #fff; border-left: 1px solid var(--line); }
+  .tabs { display: flex; gap: 4px; padding: 10px 14px 0; border-bottom: 1px solid var(--line); }
+  .tabs button {
+    font: inherit; font-size: 13px; padding: 8px 12px; border: 0; background: transparent;
+    color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px;
+  }
+  .tabs button.on { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+  .tabbody { flex: 1; overflow: auto; padding: 14px; min-height: 0; }
+  .tabpane { display: none; }
+  .tabpane.on { display: block; }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+  .chips button {
+    font: inherit; font-size: 12px; padding: 4px 10px; border-radius: 999px;
+    border: 1px solid var(--line); background: #fbfcfe; color: #4b5563; cursor: pointer;
+  }
+  .chips button:hover { border-color: var(--accent); color: var(--accent); }
+  .chips-hint { font-size: 11px; color: var(--muted); margin: -6px 0 12px; }
+
+  .turn { margin-bottom: 14px; }
+  .bubble-q {
+    margin-left: auto; max-width: 88%; width: fit-content;
+    background: var(--accent-soft); color: #2c3550;
+    padding: 8px 12px; border-radius: 10px 10px 2px 10px; font-size: 13px;
+  }
+  .bubble-a {
+    max-width: 96%; background: #f8f9fc; border: 1px solid var(--line);
+    padding: 10px 12px; border-radius: 10px 10px 10px 2px; font-size: 13px; margin-top: 8px;
+  }
+  .a-tools { display: flex; gap: 10px; margin-top: 8px; font-size: 12px; }
+  .a-tools button {
+    font: inherit; font-size: 12px; padding: 0; border: 0; background: transparent;
+    color: var(--muted); cursor: pointer;
+  }
+  .a-tools button:hover { color: var(--accent); text-decoration: underline; }
+  .srcs { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 8px; }
+  .srcs .lbl { font-size: 12px; color: var(--muted); }
+  .src-tag {
+    font: inherit; font-size: 12px; padding: 2px 8px; border-radius: 6px; cursor: pointer;
+    border: 1px solid var(--accent-line); background: var(--accent-soft); color: var(--accent);
+  }
+  .src-tag:hover { background: var(--accent); color: #fff; }
+  .src-tag.unknown { border-color: var(--line); background: #f4f5f8; color: var(--muted); cursor: default; }
+  .honest { font-size: 12px; color: var(--warn); margin-top: 6px; }
+
+  .guide-card { border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-bottom: 10px; }
+  .guide-card .k { font-weight: 600; margin-bottom: 4px; }
+  .guide-card .v { font-size: 13px; color: #3f4652; }
+  .guide-card .ops { display: flex; gap: 12px; margin-top: 8px; }
+  .guide-card .ops button {
+    font: inherit; font-size: 12px; padding: 0; border: 0; background: transparent;
+    color: var(--accent); cursor: pointer;
+  }
+  .guide-card .ops button:hover { text-decoration: underline; }
+  /* v3：无出处的要点——降级态必须一眼看出不可点（死链不许做成活链样式） */
+  .guide-card .ops .dead { color: #9aa1ad; cursor: default; }
+  .guide-card .ops .dead:hover { text-decoration: none; }
+  .dead-note { font-size: 12px; color: var(--muted); margin-top: 6px; }
+
+  .termlist { display: flex; flex-direction: column; gap: 10px; }
+  .term { border-bottom: 1px dashed var(--line); padding-bottom: 10px; }
+  .term b { display: block; }
+  .term .cn { color: var(--accent); font-size: 13px; }
+  .term .def { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .term .ops { margin-top: 4px; }
+  .term .ops button {
+    font: inherit; font-size: 12px; padding: 0; border: 0; background: transparent;
+    color: var(--accent); cursor: pointer;
+  }
+
+  .composer { border-top: 1px solid var(--line); padding: 12px 14px; display: flex; gap: 8px; align-items: flex-end; }
+  .composer textarea {
+    flex: 1; font: inherit; font-size: 13px; padding: 9px 12px; resize: none;
+    border: 1px solid var(--line); border-radius: 10px; min-height: 38px; max-height: 96px;
+  }
+  .composer textarea:focus { outline: none; border-color: var(--accent-line); }
+
+  /* ---------- 手机端 ---------- */
+  .mobile-wrap { display: flex; gap: 40px; justify-content: center; padding: 32px 24px 64px; }
+  .ph-col { display: flex; flex-direction: column; }
+  .phone {
+    width: 320px; height: 660px; background: #fff; border: 10px solid #111827;
+    border-radius: 30px; overflow: hidden; position: relative; display: flex; flex-direction: column;
+  }
+  .phone .ptop { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line); font-size: 12px; }
+  .phone .ptop .fname { font-weight: 600; }
+  .phone .caption { text-align: center; font-size: 12px; color: var(--muted); margin-top: 10px; max-width: 320px; }
+
+  /* v2：手机主视图改为「按块重排的段落视图」 */
+  .pdoc { flex: 1; overflow: auto; padding: 12px 14px; background: #fff; }
+  .pdoc .pg { display: flex; gap: 8px; margin-bottom: 14px; }
+  .pdoc .idx { color: #9aa1ad; font-size: 11px; padding-top: 2px; min-width: 12px; }
+  /* v3：段号直接写「段 N」，并在跨页处插页分隔条——让「第 X 页 · 第 Y 段」在手机上找得到 */
+  .pdoc .seg-no { color: #9aa1ad; font-size: 11px; padding-top: 2px; min-width: 38px; }
+  .pdoc .pg-sep {
+    display: flex; align-items: center; gap: 10px; margin: 8px 0 14px;
+    color: #9aa1ad; font-size: 11px;
+  }
+  .pdoc .pg-sep::before, .pdoc .pg-sep::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+  /* v4（N-02）：可点热区只有段号本身 */
+  .pdoc .seg-btn { cursor: pointer; border-bottom: 1px dotted #b9bfcb; padding: 0 2px; }
+  .pdoc .seg-btn:hover { color: var(--accent); border-bottom-color: var(--accent-line); }
+  .pg-chip {
+    display: inline-flex; align-items: center; gap: 4px; margin: 0 0 12px 46px;
+    padding: 4px 10px; border-radius: 999px; border: 0; background: #1f2329; color: #fff;
+    font-size: 11px; cursor: pointer;
+  }
+  .pdoc .en { font-size: 11px; color: #8a9099; margin-bottom: 3px; }
+  .pdoc .zh { font-size: 13.5px; line-height: 1.8; color: #20242b; }
+  .pdoc .pg.flash .zh { background: rgba(79,110,247,.28); outline: 2px solid var(--accent-line); border-radius: 3px; }
+  .reader-ctrls {
+    display: flex; align-items: center; gap: 10px; padding: 8px 14px;
+    border-bottom: 1px solid var(--line); font-size: 12px; color: var(--muted);
+  }
+  .reader-ctrls .on { color: var(--accent); }
+  .progress-line { display: flex; align-items: center; gap: 8px; padding: 6px 14px; font-size: 11px; color: var(--muted); }
+  .progress-line .pl-bar { flex: 1; height: 3px; background: #eef0f4; border-radius: 99px; overflow: hidden; }
+  .progress-line .pl-bar > i { display: block; height: 100%; width: 30%; background: var(--accent); }
+
+  .sheet {
+    position: absolute; left: 0; right: 0; bottom: 0;
+    background: #fff; border-top: 1px solid var(--line); border-radius: 16px 16px 0 0;
+    display: flex; flex-direction: column; transition: height .18s ease; height: 46%;
+  }
+  .sheet.peek { height: 118px; }
+  .sheet.full { height: 88%; }
+  /* v3：peek 档只露「页签 + 当前问题摘要」；chips 与问答内容从半屏档起才出现 */
+  .sheet.peek .chips, .sheet.peek .bubble-a, .sheet.peek .bubble-q { display: none; }
+  .sheet .peek-summary { display: none; font-size: 12px; color: var(--muted); padding: 0 12px 8px; }
+  .sheet.peek .peek-summary { display: block; }
+  .sheet .grip { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 8px; cursor: pointer; color: var(--muted); font-size: 12px; }
+  .sheet .grip i { display: block; width: 40px; height: 4px; border-radius: 99px; background: #d7dbe3; }
+  .sheet .sbody { flex: 1; overflow: auto; padding: 0 12px 10px; font-size: 12.5px; }
+  .peek-line { font-size: 12px; color: var(--accent); padding: 0 12px 10px; }
+</style>
+</head>
+<body>
+
+<!-- 原型导航（不属于产品界面） -->
+<div class="proto-bar">
+  <b>docwise 形态原型 v4</b>
+  <span class="note">三审已落：⋯ 菜单去重（6 项）· 下载入口统一 · 管理后台收进账号菜单 · 提问触发热区收窄到段号 · 问答失败态 · 当前位置 toast · 关键术语 chip 换掉 · 数据为示例</span>
+  <span class="spacer"></span>
+  <button data-screen="screen-lib-empty" class="on">库页 · 空库</button>
+  <button data-screen="screen-lib">库页 · 有历史</button>
+  <button data-screen="screen-reader">阅读工作区</button>
+  <button data-screen="screen-mobile">手机端</button>
+</div>
+
+<!-- ================= L1：空库 ================= -->
+<section id="screen-lib-empty" class="screen active">
+  <div class="topbar">
+    <span class="brand">docwise</span>
+    <span class="brand-sub">学术文献理解智能体</span>
+    <span class="spacer"></span>
+    <button class="btn ghost sm">我的论文</button>
+    <!-- v4（R-22）：管理后台收进账号菜单（仅管理员可见），不再占顶栏主位 -->
+    <div class="menu-wrap">
+      <button class="btn ghost sm" id="acct-btn">demo ▾</button>
+      <div class="menu" id="acct-menu">
+        <button data-note="当前账号：demo（管理员）">demo（管理员）</button>
+        <button data-note="管理后台：账号列表、任务总览、重置密码（仅管理员可见）">管理后台</button>
+        <button data-note="退出登录">退出</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="lib-wrap">
+    <div class="hero">
+      <h1>把英文文献读懂</h1>
+      <p class="tagline">翻译只是起点，理解才是价值</p>
+      <p>上传英文文献 PDF，得到双语对照稿、结构化导读与统一术语表；还能就论文提问，每条答案都标明来自哪一段原文。</p>
+      <!-- v3：三枚标签改成描边按钮（可点性明确）；底部重复入口已删，只留这一个主入口 -->
+      <div class="pills">
+        <button class="pill" data-demo-tab="guide">看示例论文的结构化导读</button>
+        <button class="pill" data-demo-tab="terms">看示例论文的术语表</button>
+        <button class="pill" data-demo-tab="ask">看示例论文的带出处问答</button>
+      </div>
+    </div>
+
+    <div class="card upload-card">
+      <div class="drop">
+        <div class="big">点击或拖拽 PDF 到此处</div>
+        <div class="tiny">上传后自动开始翻译；完成后可读双语稿、导读与术语表</div>
+        <div class="drop-hint">支持电子版文字层 PDF（扫描件暂不支持）；耗时取决于页数与档位</div>
+      </div>
+      <div>
+        <div class="tier-label">翻译档位</div>
+        <div class="seg" data-seg>
+          <span>快档 · 最快</span>
+          <span class="on">中档 · 平衡</span>
+          <span>精档 · 最准</span>
+        </div>
+        <div class="tier-note">
+          档位影响速度与质量，请在上传前选择<br>
+          快：最快，先看个大概<br>
+          中：版式更稳，适合正式阅读<br>
+          精：最准，多一道审校，适合定稿引用<br>
+          耗时取决于页数与档位（不承诺秒数）
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= L1：有历史 ================= -->
+<section id="screen-lib" class="screen">
+  <div class="topbar">
+    <span class="brand">docwise</span>
+    <span class="brand-sub">学术文献理解智能体</span>
+    <span class="spacer"></span>
+    <div class="menu-wrap">
+      <button class="btn ghost sm" id="acct-btn2">demo ▾</button>
+      <div class="menu" id="acct-menu2">
+        <button data-note="当前账号：demo（管理员）">demo（管理员）</button>
+        <button data-note="管理后台：账号列表、任务总览、重置密码（仅管理员可见）">管理后台</button>
+        <button data-note="退出登录">退出</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="lib-wrap">
+    <div class="title-row">
+      <h2>我的论文（7 篇）</h2>
+      <span class="spacer"></span>
+      <button class="btn primary">＋ 上传 PDF</button>
+    </div>
+
+    <!-- v2：进行中任务行砍到 3 段信息；「队列还有几篇」并进这一行 -->
+    <div class="card running">
+      <span class="name">论文示例.pdf</span>
+      <div class="bar striped"><i style="width:30%"></i></div>
+      <!-- v3（R-05）：秒数一律标明来源「引擎自报」，与真实产品口径一致；不承诺数字 -->
+      <span class="tiny muted">正在翻译 · 第 3/10 页 · 已用 12 秒 · 引擎自报还需约 25 秒</span>
+      <span class="queue">队列还有 2 篇</span>
+      <button class="btn sm">取消</button>
+      <button class="btn ghost sm">详情</button>
+    </div>
+
+    <!-- v3：翻译完成后任务条不静默消失——变绿给下一步动作，3 秒后可手动关掉 -->
+    <div class="card taskbar-ok">
+      <span class="ok-text">翻译完成</span>
+      <span class="tiny muted">论文A2.pdf · 中档 · 平衡 · 24 页 · 用了 6 分 12 秒</span>
+      <span class="spacer"></span>
+      <button class="btn primary sm">开始阅读</button>
+      <button class="btn ghost sm">关闭</button>
+    </div>
+
+    <div class="grid3">
+      <div class="card paper-card">
+        <div class="row"><span class="fname">论文A.pdf</span><span class="chip ok">已完成</span></div>
+        <div class="meta">中档 · 平衡 · 24 页 · 2 天前</div>
+        <div class="lastpos">上次读到第 5 页</div>
+        <div class="actions">
+          <button class="btn primary sm">继续读</button>
+          <button class="btn ghost sm">详情</button>
+          <button class="btn ghost sm">删除</button>
+        </div>
+      </div>
+      <div class="card paper-card">
+        <div class="row"><span class="fname">论文C.pdf</span><span class="chip ok">已完成</span></div>
+        <div class="meta">精档 · 最准 · 8 页 · 昨天</div>
+        <div class="lastpos">上次读到第 2 页</div>
+        <div class="actions">
+          <button class="btn primary sm">继续读</button>
+          <button class="btn ghost sm">详情</button>
+          <button class="btn ghost sm">删除</button>
+        </div>
+      </div>
+      <div class="card paper-card">
+        <div class="row"><span class="fname">论文D.pdf</span><span class="chip fail">失败</span></div>
+        <!-- v2：用户看人话，技术细节收进「详情」 -->
+        <div class="meta">翻译引擎出错，重新翻译通常可解决</div>
+        <div class="actions">
+          <!-- v3：失败卡的唯一下一步就是重翻，给它主按钮权重 -->
+          <button class="btn primary sm">重新翻译</button>
+          <button class="btn ghost sm">详情</button>
+          <button class="btn ghost sm">删除</button>
+        </div>
+      </div>
+      <div class="card paper-card">
+        <div class="row"><span class="fname">论文E.pdf</span><span class="chip warn">已取消</span></div>
+        <div class="meta">中档 · 平衡 · 取消于第 4/12 页</div>
+        <div class="actions">
+          <!-- v2：不说"继续翻译"——当前实现是整篇重跑；v3：主按钮权重 -->
+          <button class="btn primary sm">重新翻译</button>
+          <button class="btn ghost sm">详情</button>
+          <button class="btn ghost sm">删除</button>
+        </div>
+      </div>
+      <div class="card paper-card">
+        <div class="row"><span class="fname">论文F.pdf</span><span class="chip ok">已完成</span></div>
+        <div class="meta">快档 · 最快 · 6 页 · 3 天前</div>
+        <div class="lastpos">上次读到第 6 页（已读到最后）</div>
+        <div class="actions">
+          <button class="btn primary sm">继续读</button>
+          <button class="btn ghost sm">详情</button>
+          <button class="btn ghost sm">删除</button>
+        </div>
+      </div>
+      <div class="card paper-card">
+        <div class="row"><span class="fname">论文G.pdf</span><span class="chip ok">已完成</span></div>
+        <div class="meta">中档 · 平衡 · 32 页 · 上周</div>
+        <div class="actions">
+          <button class="btn primary sm">开始阅读</button>
+          <button class="btn ghost sm">详情</button>
+          <button class="btn ghost sm">删除</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- v2：健康状态正常时不出现；这里只留品牌行 -->
+    <div class="footline">
+      <span class="spacer"></span>
+      <span>docwise · 学术文献理解智能体</span>
+    </div>
+  </div>
+</section>
+
+<!-- ================= L2：阅读工作区 ================= -->
+<section id="screen-reader" class="screen">
+  <div class="reader-top">
+    <button class="btn ghost sm">← 我的论文</button>
+    <span class="fname">论文A.pdf</span>
+    <!-- v2：档位只读；v3：全局统一写法「中档 · 平衡」+ tooltip 说明怎么换档 -->
+    <span class="chip" title="上传时选定；想换档请在 ⋯ 里以其他档位重新翻译（会新建任务）">中档 · 平衡</span>
+    <span class="chip">原版英文 ▾</span>
+    <span class="spacer"></span>
+    <button class="btn ghost sm">🔍 搜索</button>
+    <span class="chip">第 3/10 页</span>
+    <!-- v4（N-04）：下载入口只有一个，命名统一为「下载译稿」，两项在里面选 -->
+    <div class="menu-wrap">
+      <button class="btn ghost sm" id="dl-btn">⤓ 下载译稿 ▾</button>
+      <div class="menu" id="dl-menu">
+        <button data-note="下载双语稿：原页 + 译页（默认）">下载双语稿</button>
+        <button data-note="下载纯中文稿：只含译文">下载纯中文稿</button>
+      </div>
+    </div>
+    <div class="menu-wrap">
+      <button class="btn ghost sm" id="more-btn">⋯</button>
+      <div class="menu" id="more-menu">
+        <button data-note="文档信息：档位（中档 · 平衡）、页数、上传时间、完成用时">文档信息</button>
+        <button data-note="重试翻译（本档）：清空本任务结果，用同一档位从头重跑">重试翻译（本档）</button>
+        <button data-note="换档位重译…：新建一个任务（另选快档 / 精档），原任务保留">换档位重译…</button>
+        <button data-note="详情：每块的原文 / 译文 / 状态与失败原因（排查用）">详情</button>
+        <button data-note="问题反馈…：带着任务号与引擎日志尾部提交">问题反馈…</button>
+        <div class="sep"></div>
+        <button class="danger" data-note="删除…：删除后 5 秒内可撤销；超时才连同磁盘产物一起清掉">删除…</button>
+      </div>
+    </div>
+  </div>
+  <div class="thin-bar"><i></i></div>
+  <div class="note-line" id="menu-note"></div>
+
+  <div class="reader-body">
+    <div class="doc-pane">
+      <div class="page">
+        <h3>Retrieval-Augmented Translation for Academic Reading: A Field Study</h3>
+        <div class="authors">Anonymous et al. · 2026</div>
+        <div class="cols">
+          <p id="p0_b1"><b>Abstract.</b> Non-native readers of academic English often lose the argument while decoding the sentences. We study a reading assistant that pairs document translation with retrieval-augmented question answering, over a corpus of 120 papers and 30 participants.</p>
+          <p id="p0_b2"><b>1. Introduction.</b> Reading a paper in a second language is a slow, error-prone process. Previous work has focused on translation quality alone, leaving the reading task itself largely unmeasured.</p>
+          <p id="p0_b3"><span class="sel" id="sel-text">we evaluate how non-native readers use retrieval-augmented translation</span> while they work through a technical paper, and whether the assistant changes what they are able to report afterwards.</p>
+          <div class="fig">Figure 1 — system overview</div>
+          <p id="p0_b5"><b>2. Method.</b> Thirty participants read two papers each, one with the assistant and one without. Sessions were screen-recorded and coded for reading behaviour.</p>
+          <p id="p0_b7">We measure comprehension with a post-reading summary task, and record every question the participant asks, together with the paragraph the answer was grounded in. The corpus spans four sub-fields of information science.</p>
+          <p id="p0_b9"><b>3. Results.</b> Participants asked fewer but more specific questions when the assistant grounded answers in the source paragraph.</p>
+        </div>
+        <button class="selchip" id="selchip">就这句提问</button>
+      </div>
+
+      <div class="page">
+        <h3>（第 3 页）</h3>
+        <div class="cols">
+          <p id="p2_b2"><b>4. Discussion.</b> Grounding matters more than fluency: readers trusted an answer when they could jump back to the sentence it came from. Two limitations apply: all participants came from a single institution, and only English-to-Chinese translation was studied.</p>
+          <p id="p2_b4"><b>5. Conclusion.</b> A reading assistant is judged less by translation elegance than by whether the reader can verify what they just read. Future work should test other language pairs and longer documents.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="assist">
+      <div class="tabs" data-tabs>
+        <button data-tab="ask" class="on">问答</button>
+        <button data-tab="guide">导读</button>
+        <button data-tab="terms">术语</button>
+      </div>
+
+      <div class="tabbody">
+        <div class="tabpane on" data-pane="ask">
+          <!-- v2：chips 从 8 个砍到 5 个，且全部避开导读已覆盖的五个字段 -->
+          <div class="chips" id="quick-chips">
+            <button data-q="这项研究有什么局限？">局限与不足</button>
+            <button data-q="论文提到的未来工作是什么？">未来工作</button>
+            <button data-q="研究用了哪些数据或样本？">用了哪些数据</button>
+            <button data-q="主要结果是什么？">主要结果</button>
+            <!-- v4（R-08）：换掉「关键术语」——它与术语页签重复，违反"chips 只放别处没答的"这条规矩 -->
+            <button data-q="这批被试够代表全体研究者吗？">这批被试够代表吗？</button>
+          </div>
+          <div class="chips-hint">导读已覆盖的五个要点（研究问题/方法/结论/创新点/贡献）在「导读」页签里，术语解释在「术语」页签里——这里只放它们都没答的提问</div>
+          <button class="demo-link" id="demo-fail">演示：问答失败的样子 ▸</button>
+          <div id="thread"></div>
+        </div>
+
+        <div class="tabpane" data-pane="guide">
+          <div class="guide-card">
+            <div class="k">研究问题</div>
+            <div class="v">非母语读者在阅读英文论文时，理解损失究竟发生在哪一步。</div>
+            <div class="ops">
+              <button class="trace" data-anchor="p0_b1">看原文 ▸</button>
+              <button class="probe" data-field="研究问题">就这条追问</button>
+            </div>
+          </div>
+          <div class="guide-card">
+            <div class="k">方法</div>
+            <div class="v">30 名被试各读两篇论文（一篇用助手、一篇不用），录屏并按阅读行为编码；语料共 120 篇。</div>
+            <div class="ops">
+              <button class="trace" data-anchor="p0_b5">看原文 ▸</button>
+              <button class="probe" data-field="方法">就这条追问</button>
+            </div>
+          </div>
+          <div class="guide-card">
+            <div class="k">结论</div>
+            <div class="v">读者信任一个答案，取决于能否跳回它出处的那句话，而不取决于译文是否优雅。</div>
+            <div class="ops">
+              <button class="trace" data-anchor="p2_b4">看原文 ▸</button>
+              <button class="probe" data-field="结论">就这条追问</button>
+            </div>
+          </div>
+          <div class="guide-card">
+            <div class="k">创新点</div>
+            <div class="v">把"提问锚点"和"答案出处"放在同一个坐标系里度量。</div>
+            <div class="ops">
+              <!-- v3：无单一段落出处 → 降级态置灰、不可点、不给箭头（死链不许做成活链样式） -->
+              <button class="dead" disabled>无单一段落出处</button>
+              <button class="probe" data-field="创新点">就这条追问</button>
+            </div>
+            <div class="dead-note">该要点由全文综合而成，没有哪一段能单独代表它——所以这里不给「看原文」。</div>
+            <div class="honest" id="honest-note" hidden>这段没能定位到原文块（原文里没有对应段落）——宁可不给，也不假高亮。</div>
+          </div>
+          <div class="guide-card">
+            <div class="k">核心贡献</div>
+            <div class="v">给出"阅读行为—答案溯源"的可测指标，而不是只看翻译质量。</div>
+            <div class="ops">
+              <button class="trace" data-anchor="p0_b7">看原文 ▸</button>
+              <button class="probe" data-field="核心贡献">就这条追问</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="tabpane" data-pane="terms">
+          <div class="termlist">
+            <div class="term">
+              <b>retrieval-augmented translation</b><span class="cn">检索增强翻译</span>
+              <div class="def">在翻译过程中引入对原文段落的检索，使译文与出处对齐。</div>
+              <div class="ops"><button class="term-find" data-anchor="p0_b3">在原文中定位</button></div>
+            </div>
+            <div class="term">
+              <b>non-native readers</b><span class="cn">非母语读者</span>
+              <div class="def">以第二语言阅读学术文献的研究者。</div>
+              <div class="ops"><button class="term-find" data-anchor="p0_b1">在原文中定位</button></div>
+            </div>
+            <div class="term">
+              <b>grounded answer</b><span class="cn">带出处回答</span>
+              <div class="def">回答附带其所依据的原文段落。</div>
+              <div class="ops"><button class="term-find" data-anchor="p0_b9">在原文中定位</button></div>
+            </div>
+            <div class="term">
+              <b>field study</b><span class="cn">实地研究</span>
+              <div class="def">在真实使用场景中收集数据的研究，区别于受控实验。</div>
+              <!-- v3：术语没有出处字段 → 只能"命中后回填"；这条故意演示未命中 -->
+              <div class="ops"><button class="term-find" data-anchor="p7_b7">在原文中定位</button></div>
+            </div>
+          </div>
+          <div class="chips-hint">术语表当前没有出处字段：按钮只在**命中之后**才回填坐标，未命中会直说"没找到"——不预填假坐标。</div>
+        </div>
+      </div>
+
+      <div class="composer">
+        <textarea id="ask-input" rows="1" placeholder="就这篇论文提问，或先划词再问…"></textarea>
+        <button class="btn primary" id="ask-send">↑</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 手机端 ================= -->
+<section id="screen-mobile" class="screen">
+  <div class="mobile-wrap">
+    <div class="ph-col">
+      <div class="phone">
+        <div class="ptop">
+          <span>←</span><span class="spacer"></span><span class="fname">论文A.pdf</span><span class="spacer"></span>
+          <button class="btn ghost sm" style="padding:2px 6px">原版</button>
+        </div>
+        <div class="progress-line">
+          <span>第 3/10 页</span>
+          <div class="pl-bar"><i></i></div>
+          <span>翻译中</span>
+        </div>
+        <!-- v2：手机主视图 = 按块重排的段落视图（中文为主，可切中英对照） -->
+        <div class="reader-ctrls">
+          <span>字号 A- A+</span>
+          <span class="spacer"></span>
+          <span class="on">中英对照 ▾</span>
+        </div>
+        <!-- v3（R-02）：段号写成「段 N」并在跨页处插页分隔条，让「第 X 页 · 第 Y 段」在手机上对得上 -->
+        <div class="pdoc" id="mobile-doc">
+          <div class="pg" id="m_p0_b1"><span class="seg-no">段 1</span><div><div class="en">Non-native readers of academic English often lose the argument while decoding the sentences.</div><div class="zh">非母语读者读英文学术文献时，常常在"解码句子"的过程中丢掉了论证本身。</div></div></div>
+          <!-- v4（N-02）：触发热区收窄到「段 N」标签本身，正文点按不触发（不与系统选词/滚动抢手势） -->
+          <div class="pg" id="m_p0_b3"><span class="seg-no seg-btn" title="点段号提问">段 2</span><div><div class="en">we evaluate how non-native readers use retrieval-augmented translation</div><div class="zh">我们评估非母语读者如何使用"带出处的翻译"</div></div></div>
+          <div class="pg" id="m_p0_b5"><span class="seg-no">段 3</span><div><div class="en">Thirty participants read two papers each, one with the assistant and one without.</div><div class="zh">30 名被试各读两篇论文，一篇使用助手、一篇不使用。</div></div></div>
+          <div class="pg-sep">第 2 页</div>
+          <div class="pg" id="m_p1_b4"><span class="seg-no">段 1</span><div><div class="en">A reading assistant is judged less by translation elegance than by whether the reader can verify what they just read.</div><div class="zh">评判一个阅读助手，看的不是译文是否优雅，而是读者能否核实自己刚读到的东西。</div></div></div>
+        </div>
+        <div class="sheet peek" id="sheet">
+          <div class="grip" id="grip"><i></i><span id="grip-text">上拖展开（半屏 → 近全屏）</span></div>
+          <div class="peek-summary">读到有问题的地方，点段落浮出「就这句提问」</div>
+          <div class="peek-line" id="peek-line" hidden>已定位到第 1 页 · 第 2 段 · <button class="sample-link" id="peek-back">点我回来</button></div>
+          <div class="tabs" data-tabs>
+            <button data-tab="ask" class="on">问答</button>
+            <button data-tab="guide">导读</button>
+            <button data-tab="terms">术语</button>
+          </div>
+          <div class="sbody">
+            <div class="tabpane on" data-pane="ask">
+              <div class="chips">
+                <button>局限与不足</button><button>主要结果</button><button>实验怎么设计的</button>
+              </div>
+              <div id="mobile-thread">
+                <div class="bubble-q">这个术语是什么意思？</div>
+                <div class="bubble-a">
+                  指在翻译时把原文段落一起检索进来，让译文能对应回出处——也就是"答案能跳回原句"的基础。
+                  <div class="srcs">
+                    <span class="lbl">出处：</span>
+                    <button class="src-tag peek-src" data-anchor="m_p0_b3">第 1 页 · 第 2 段 ▸</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="tabpane" data-pane="guide">
+              <div class="guide-card"><div class="k">核心贡献</div><div class="v">给出"阅读行为—答案溯源"的可测指标。</div></div>
+            </div>
+            <div class="tabpane" data-pane="terms">
+              <div class="term"><b>grounded answer</b><span class="cn">带出处回答</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="caption">读：段落视图（按块重排，中英对照可切）+ 顶部极细进度；想看图/公式点「原版」</div>
+    </div>
+
+    <div class="ph-col">
+      <div class="phone">
+        <div class="ptop">
+          <span>←</span><span class="spacer"></span><span class="fname">论文A.pdf</span><span class="spacer"></span>
+          <button class="btn ghost sm" style="padding:2px 6px">原版</button>
+        </div>
+        <div class="progress-line">
+          <span>第 3/10 页</span>
+          <div class="pl-bar"><i></i></div>
+          <span>翻译中</span>
+        </div>
+        <div class="pdoc">
+          <div class="pg"><span class="seg-no">段 1</span><div><div class="en">Non-native readers of academic English often lose the argument while decoding the sentences.</div><div class="zh">非母语读者读英文学术文献时，常常在"解码句子"的过程中丢掉了论证本身。</div></div></div>
+          <div class="pg"><span class="seg-no">段 2</span><div><div class="en">we evaluate how non-native readers use retrieval-augmented translation</div><div class="zh">我们评估非母语读者如何使用"带出处的翻译"</div></div></div>
+        </div>
+        <div class="sheet" id="sheet2">
+          <div class="grip" id="grip2"><i></i><span id="grip2-text">上拖展开（半屏 → 近全屏）</span></div>
+          <div class="peek-summary">当前问题：这个术语是什么意思？</div>
+          <div class="peek-line" id="peek-line2" data-suffix="正文已滚到该段" hidden>已定位到第 1 页 · 第 2 段 · 正文已滚到该段</div>
+          <div class="tabs" data-tabs>
+            <button data-tab="ask" class="on">问答</button>
+            <button data-tab="guide">导读</button>
+            <button data-tab="terms">术语</button>
+          </div>
+          <div class="sbody">
+            <div class="tabpane on" data-pane="ask">
+              <div class="bubble-q">这个术语是什么意思？</div>
+              <div class="bubble-a">
+                指在翻译时把原文段落一起检索进来，让译文能对应回出处。
+                <div class="srcs">
+                  <span class="lbl">出处：</span>
+                  <!-- v2 规则：抽屉里点出处 → 自动降到 peek 档，露出「已定位到…点我回来」 -->
+                  <button class="src-tag" id="sheet2-src" data-anchor="m_p0_b3">第 1 页 · 第 2 段 ▸</button>
+                </div>
+              </div>
+            </div>
+            <div class="tabpane" data-pane="guide">
+              <div class="guide-card"><div class="k">核心贡献</div><div class="v">给出"阅读行为—答案溯源"的可测指标。</div></div>
+            </div>
+            <div class="tabpane" data-pane="terms">
+              <div class="term"><b>grounded answer</b><span class="cn">带出处回答</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="caption">问：抽屉半屏 / 近全屏；点出处会自动降到 peek 档，露出「已定位到…」</div>
+    </div>
+  </div>
+</section>
+
+<!-- v4：toast（阅读位置提示 / 删除撤销） -->
+<div class="toast" id="toast">
+  <span id="toast-text"></span>
+  <button id="toast-undo" hidden>撤销</button>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ---------- 原型导航（支持 #screen-id 直开某一屏，?tab=guide 直开某个页签） ---------- */
+  var navBtns = document.querySelectorAll('.proto-bar button[data-screen]');
+  function activate(id) {
+    navBtns.forEach(function (b) { b.classList.toggle('on', b.dataset.screen === id); });
+    document.querySelectorAll('.screen').forEach(function (s) { s.classList.toggle('active', s.id === id); });
+    if (id === 'screen-reader') placeSelChip();
+  }
+  navBtns.forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      activate(btn.dataset.screen);
+      if (location.hash.slice(1) !== btn.dataset.screen) location.hash = btn.dataset.screen;
+    });
+  });
+
+  /* ---------- 块编号 → 人类可读（「第 X 页 · 第 Y 段」） ----------
+     规则：id 形如 p<页序>_b<全文档块序>；b 是全局序号，**段号必须在页内重算**。
+     做法：取出当前屏里所有 p{n}_b* 的元素，按文档顺序编号。 */
+  var BLOCK_RE = /^p(\d+)_b(\d+)$/;
+  // 手机屏的段落用 m_ 前缀避免与桌面屏 id 撞车；这里统一归一化
+  function normId(raw) { return String(raw || '').replace(/^m_/, ''); }
+  function labelFor(blockId, scope) {
+    var m = BLOCK_RE.exec(normId(blockId));
+    if (!m) return null;
+    var page = parseInt(m[1], 10);
+    var root = scope || document.getElementById('screen-reader') || document;
+    var samePage = [];
+    root.querySelectorAll('[id]').forEach(function (el) {
+      var mm = BLOCK_RE.exec(normId(el.id));
+      if (mm && parseInt(mm[1], 10) === page) samePage.push(normId(el.id));
+    });
+    if (!samePage.length) return null;
+    var idx = samePage.indexOf(normId(blockId));
+    if (idx < 0) return { page: page + 1, ordinal: null, found: false };
+    return {
+      page: page + 1,
+      ordinal: idx + 1,
+      found: true,
+      text: '第 ' + (page + 1) + ' 页 · 第 ' + (idx + 1) + ' 段'
+    };
+  }
+
+  /* ---------- 页签（问答 / 导读 / 术语），每个容器各管各的 ---------- */
+  document.querySelectorAll('[data-tabs]').forEach(function (group) {
+    var scope = group.parentElement;
+    group.querySelectorAll('button[data-tab]').forEach(function (tab) {
+      tab.addEventListener('click', function () {
+        group.querySelectorAll('button[data-tab]').forEach(function (t) { t.classList.remove('on'); });
+        tab.classList.add('on');
+        scope.querySelectorAll('[data-pane]').forEach(function (p) {
+          p.classList.toggle('on', p.dataset.pane === tab.dataset.tab);
+        });
+      });
+    });
+  });
+
+  function showTab(tabName) {
+    var tab = document.querySelector('#screen-reader .tabs button[data-tab="' + tabName + '"]');
+    if (tab) tab.click();
+  }
+
+  /* ---------- 档位切换（只是示意） ---------- */
+  document.querySelectorAll('[data-seg]').forEach(function (seg) {
+    seg.querySelectorAll('span').forEach(function (item) {
+      item.addEventListener('click', function () {
+        seg.querySelectorAll('span').forEach(function (s) { s.classList.remove('on'); });
+        item.classList.add('on');
+      });
+    });
+  });
+
+  /* ---------- 下拉菜单（⋯ / 下载 / 账号 共用一套；单层级，互斥展开） ---------- */
+  var menuNote = document.getElementById('menu-note');
+  var allMenus = [];
+  function wireMenu(btnId, menuId) {
+    var btn = document.getElementById(btnId);
+    var menu = document.getElementById(menuId);
+    if (!btn || !menu) return null;
+    allMenus.push(menu);
+    btn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      var willOpen = !menu.classList.contains('open');
+      allMenus.forEach(function (m) { m.classList.remove('open'); });
+      if (willOpen) menu.classList.add('open');
+    });
+    menu.querySelectorAll('button').forEach(function (item) {
+      item.addEventListener('click', function () {
+        menu.classList.remove('open');
+        if (menuNote && item.dataset.note) menuNote.textContent = '（原型示意）' + item.dataset.note;
+      });
+    });
+    return menu;
+  }
+  document.addEventListener('click', function () {
+    allMenus.forEach(function (m) { m.classList.remove('open'); });
+  });
+  var moreMenu = wireMenu('more-btn', 'more-menu');
+  wireMenu('dl-btn', 'dl-menu');
+  wireMenu('acct-btn', 'acct-menu');
+  wireMenu('acct-btn2', 'acct-menu2');
+
+  /* ---------- 划词浮标 ---------- */
+  var selText = document.getElementById('sel-text');
+  var selChip = document.getElementById('selchip');
+  function placeSelChip() {
+    if (!selText || !selChip) return;
+    var rect = selText.getBoundingClientRect();
+    var page = selText.closest('.page');
+    if (!page) return;
+    var pageRect = page.getBoundingClientRect();
+    if (!rect.width) return;
+    // v3：浮标默认放在选区**上方**（放在下方会盖住正要读的下一行）；贴顶时退回下方
+    var top = rect.top - pageRect.top - 30;
+    if (top < 4) top = rect.bottom - pageRect.top + 10;
+    selChip.style.left = (rect.left - pageRect.left) + 'px';
+    selChip.style.top = top + 'px';
+  }
+  window.addEventListener('resize', placeSelChip);
+  window.addEventListener('load', placeSelChip);
+  var docPane = document.querySelector('.doc-pane');
+  if (docPane) docPane.addEventListener('scroll', placeSelChip);
+  placeSelChip();
+
+  /* ---------- 出处回跳：高亮 + 滚到眼前；定位不到就诚实说 ---------- */
+  function trace(blockId, silent) {
+    var node = document.getElementById(blockId);
+    if (!node) {
+      if (!silent) {
+        var note = document.getElementById('honest-note');
+        if (note) note.hidden = false;
+      }
+      return false;
+    }
+    node.classList.add('anchor', 'flash');
+    if (node.scrollIntoView) node.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    window.setTimeout(function () { node.classList.remove('flash'); }, 2400);
+    return true;
+  }
+
+  document.querySelectorAll('.trace').forEach(function (btn) {
+    btn.addEventListener('click', function () { trace(btn.dataset.anchor); });
+  });
+
+  /* 术语定位（R-19）：术语表没有出处字段 → **不许预填坐标**。
+     点之前只写「在原文中定位」；命中后回填「已定位 · 第 X 页 · 第 Y 段」；未命中直说没找到。 */
+  document.querySelectorAll('.term-find').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var info = labelFor(btn.dataset.anchor);
+      var hit = trace(btn.dataset.anchor, true);
+      if (hit && info && info.found) btn.textContent = '已定位 · ' + info.text;
+      else btn.textContent = '没找到，可能在图/表里';
+    });
+  });
+
+  /* 导读按钮带的坐标是**真数据**（LLM 返回的 source_block_ids），所以可以点前就显示 */
+  document.querySelectorAll('.trace').forEach(function (btn) {
+    var info = labelFor(btn.dataset.anchor);
+    if (info && info.found) btn.textContent = '看原文（' + info.text + '）▸';
+    else btn.textContent = '看原文（位置待定）▸';
+  });
+
+  /* ---------- 问答线程 ---------- */
+  var thread = document.getElementById('thread');
+  var input = document.getElementById('ask-input');
+  var sendBtn = document.getElementById('ask-send');
+
+  function sourceTags(container, srcIds) {
+    var srcs = document.createElement('div');
+    srcs.className = 'srcs';
+    var lbl = document.createElement('span');
+    lbl.className = 'lbl';
+    lbl.textContent = '出处：';
+    srcs.appendChild(lbl);
+    (srcIds || []).forEach(function (id) {
+      var info = labelFor(id);
+      var tag = document.createElement('button');
+      if (info && info.found) {
+        tag.className = 'src-tag';
+        tag.textContent = info.text + ' ▸';
+        tag.title = '原文块 ' + id;
+        tag.addEventListener('click', function () { trace(id); });
+      } else {
+        tag.className = 'src-tag unknown';
+        tag.textContent = '出处未能定位';
+        tag.title = '原文块 ' + id;
+        tag.addEventListener('click', function () { trace(id); });
+      }
+      srcs.appendChild(tag);
+    });
+    if (!(srcIds || []).length) {
+      var none = document.createElement('span');
+      none.className = 'lbl';
+      none.textContent = '（回答未给出处）';
+      srcs.appendChild(none);
+    }
+    container.appendChild(srcs);
+  }
+
+  function askTurn(question, answer, srcIds) {
+    var wrap = document.createElement('div');
+    wrap.className = 'turn';
+    wrap.dataset.answer = answer;
+
+    var q = document.createElement('div');
+    q.className = 'bubble-q';
+    q.textContent = question;
+    wrap.appendChild(q);
+
+    var a = document.createElement('div');
+    a.className = 'bubble-a';
+    a.appendChild(document.createTextNode(answer));
+    wrap.appendChild(a);
+    sourceTags(a, srcIds);
+
+    var tools = document.createElement('div');
+    tools.className = 'a-tools';
+    var copy = document.createElement('button');
+    copy.textContent = '复制答案';
+    copy.addEventListener('click', function () {
+      if (navigator.clipboard) navigator.clipboard.writeText(wrap.dataset.answer || '');
+      copy.textContent = '已复制';
+      window.setTimeout(function () { copy.textContent = '复制答案'; }, 1500);
+    });
+    var expand = document.createElement('button');
+    expand.textContent = '展开原文';
+    expand.addEventListener('click', function () { trace((srcIds || [])[0]); });
+    tools.appendChild(copy);
+    tools.appendChild(expand);
+    wrap.appendChild(tools);
+
+    thread.appendChild(wrap);
+    var scroller = thread.closest('.tabbody');
+    if (scroller) scroller.scrollTop = scroller.scrollHeight;
+  }
+
+  /* ---------- 划词提问 ---------- */
+  if (selChip) {
+    selChip.addEventListener('click', function () {
+      showTab('ask');
+      askTurn(
+        '就这句提问：这句话是什么意思？它在论文里起什么作用？',
+        '"retrieval-augmented translation" 指在翻译时把原文段落一起检索进来，使译文能对应回出处。这句话是论文的方法核心：作者要在读者真实阅读的过程中，测量这种"带出处的翻译"到底改变了什么。',
+        ['p0_b3']
+      );
+    });
+  }
+
+  /* ---------- 快捷 chips（答案都落在示例论文里，带真实块锚点） ---------- */
+  var ANSWERS = {
+    '这项研究有什么局限？': {
+      a: '论文自己写了两条局限：被试全部来自同一家机构，且只研究了英译中这一种语言对。',
+      src: ['p2_b2']
+    },
+    '论文提到的未来工作是什么？': {
+      a: '论文没有单列"未来工作"一节，只在结论里提了一句：应当验证其他语言对与更长的文档。',
+      src: ['p2_b4']
+    },
+    '研究用了哪些数据或样本？': {
+      a: '120 篇论文的语料，覆盖信息科学的四个子领域；30 名被试，每人读两篇（一篇用助手、一篇不用）。',
+      src: ['p0_b1', 'p0_b5']
+    },
+    '主要结果是什么？': {
+      a: '当助手把答案锚定在原文段落上时，被试提的问题更少、但更具体。',
+      src: ['p0_b9']
+    },
+    '这批被试够代表全体研究者吗？': {
+      a: '不够。论文自己列了两条局限：被试全部来自同一家机构，且只研究了英译中一种语言对——外推要谨慎。',
+      src: ['p2_b2']
+    }
+  };
+  document.querySelectorAll('#quick-chips button').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var item = ANSWERS[btn.dataset.q];
+      if (item) askTurn(btn.dataset.q, item.a, item.src);
+      else askTurn(btn.dataset.q, '（原型示意）答案由模型生成，下面标出它依据的原文段落。', ['p0_b1']);
+    });
+  });
+
+  function submit() {
+    var text = (input.value || '').trim();
+    if (!text) return;
+    input.value = '';
+    askTurn(text, '（原型示意）这里会显示带出处的答案：答案正文由模型生成，下面标出它依据的原文段落，点一下即可在左侧跳回原文并高亮。', ['p0_b3', 'p0_b7']);
+  }
+  if (sendBtn) sendBtn.addEventListener('click', submit);
+  if (input) {
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); }
+    });
+  }
+
+  /* ---------- v4（R-09）：问答失败态 —— 人话 + 保留问题原文 + 重试 ---------- */
+  var failBtn = document.getElementById('demo-fail');
+  if (failBtn) {
+    failBtn.addEventListener('click', function () {
+      var wrap = document.createElement('div');
+      wrap.className = 'turn';
+      var q = document.createElement('div');
+      q.className = 'bubble-q';
+      q.textContent = '这个方法为什么有效？';
+      wrap.appendChild(q);
+      var card = document.createElement('div');
+      card.className = 'fail-card';
+      card.appendChild(document.createTextNode('没答出来，通常是网络或服务繁忙。'));
+      var kept = document.createElement('div');
+      kept.className = 'q-kept';
+      kept.textContent = '你的问题已保留：「这个方法为什么有效？」';
+      card.appendChild(kept);
+      var retry = document.createElement('button');
+      retry.className = 'btn primary sm';
+      retry.textContent = '重试';
+      retry.style.marginTop = '8px';
+      retry.addEventListener('click', function () { card.remove(); });
+      card.appendChild(retry);
+      wrap.appendChild(card);
+      thread.appendChild(wrap);
+      var scroller = thread.closest('.tabbody');
+      if (scroller) scroller.scrollTop = scroller.scrollHeight;
+    });
+  }
+
+  /* ---------- v4：toast ---------- */
+  var toastEl = document.getElementById('toast');
+  var toastText = document.getElementById('toast-text');
+  var toastTimer = null;
+  function showToast(text) {
+    if (!toastEl || !toastText) return;
+    toastText.textContent = text;
+    toastEl.classList.add('show');
+    if (toastTimer) window.clearTimeout(toastTimer);
+    toastTimer = window.setTimeout(function () { toastEl.classList.remove('show'); }, 3000);
+  }
+
+  /* ---------- v4（R-15）：点「继续读」→ 回到上次位置 + toast ---------- */
+  document.querySelectorAll('#screen-lib .paper-card').forEach(function (card) {
+    var posLine = card.querySelector('.lastpos');
+    var btn = card.querySelector('.actions .btn');
+    if (!btn) return;
+    btn.addEventListener('click', function () {
+      activate('screen-reader');
+      if (location.hash.slice(1) !== 'screen-reader') location.hash = 'screen-reader';
+      if (posLine) {
+        var matched = /第 (\d+) 页/.exec(posLine.textContent);
+        if (matched) showToast('已回到第 ' + matched[1] + ' 页');
+      }
+    });
+  });
+
+  /* ---------- 导读卡「就这条追问」 ---------- */
+  document.querySelectorAll('.probe').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var field = btn.dataset.field;
+      showTab('ask');
+      askTurn('关于「' + field + '」这条，能再展开说一点吗？',
+        '（原型示意）会带着这条要点的出处段落去追问，答案同样标出处——这样"导读"和"问答"共用一套坐标，不需要两套上下文。',
+        ['p0_b7']);
+    });
+  });
+
+  /* ---------- 首屏标签 / 示例入口：点了直接进示例论文并切页签 ---------- */
+  document.querySelectorAll('[data-demo-tab]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      activate('screen-reader');
+      if (location.hash.slice(1) !== 'screen-reader') location.hash = 'screen-reader';
+      showTab(btn.dataset.demoTab);
+    });
+  });
+
+  /* ---------- 手机抽屉：peek（118px）→ 半屏 → 近全屏 ---------- */
+  function wireSheet(sheetId, gripId, textId, peekLineId, peekBackId, srcBtnId) {
+    var sheet = document.getElementById(sheetId);
+    var grip = document.getElementById(gripId);
+    var text = document.getElementById(textId);
+    if (!sheet || !grip) return;
+    var states = ['peek', 'half', 'full'];
+    function setState(state) {
+      sheet.classList.remove('peek', 'full');
+      if (state !== 'half') sheet.classList.add(state);
+      var labels = { peek: '上拖展开（半屏 → 近全屏）', half: '上拖到近全屏', full: '下拖回到半屏' };
+      if (text) text.textContent = labels[state];
+    }
+    grip.addEventListener('click', function () {
+      var current = sheet.classList.contains('full') ? 'full'
+        : (sheet.classList.contains('peek') ? 'peek' : 'half');
+      setState(states[(states.indexOf(current) + 1) % states.length]);
+    });
+    var srcBtn = srcBtnId ? document.getElementById(srcBtnId) : null;
+    var peekLine = peekLineId ? document.getElementById(peekLineId) : null;
+    if (srcBtn) {
+      srcBtn.addEventListener('click', function () {
+        var info = labelFor(srcBtn.dataset.anchor, document.getElementById('screen-mobile'));
+        setState('peek');
+        if (peekLine) {
+          peekLine.hidden = false;
+          if (info && info.found) {
+            peekLine.childNodes[0].nodeValue =
+              '已定位到' + info.text + ' · ' + (peekLine.dataset.suffix || '');
+          }
+        }
+        trace(srcBtn.dataset.anchor);
+      });
+    }
+    var back = peekBackId ? document.getElementById(peekBackId) : null;
+    if (back) back.addEventListener('click', function () { setState('half'); });
+    return setState;
+  }
+  var setSheet1 = wireSheet('sheet', 'grip', 'grip-text', 'peek-line', 'peek-back', null);
+  wireSheet('sheet2', 'grip2', 'grip2-text', 'peek-line2', null, 'sheet2-src');
+
+  /* v3（R-20）：手机端点段落 → 浮出「就这句提问」。
+     注意这里**不需要文本匹配**——段落本身就是锚点，比划词更稳，零新基建。 */
+  function mobileAsk(pgId) {
+    var info = labelFor(pgId, document.getElementById('screen-mobile'));
+    var threadEl = document.getElementById('mobile-thread');
+    if (!threadEl) return;
+    var wrap = document.createElement('div');
+    wrap.className = 'turn';
+    var qEl = document.createElement('div');
+    qEl.className = 'bubble-q';
+    qEl.textContent = '就这段提问：这段在讲什么？';
+    wrap.appendChild(qEl);
+    var aEl = document.createElement('div');
+    aEl.className = 'bubble-a';
+    aEl.appendChild(document.createTextNode('（原型示意）会带着这一段的块坐标去提问，答案同样带出处——段落本身就是锚点，手机上不用划词、也不用文本匹配。'));
+    var srcs = document.createElement('div');
+    srcs.className = 'srcs';
+    var lbl = document.createElement('span');
+    lbl.className = 'lbl';
+    lbl.textContent = '出处：';
+    srcs.appendChild(lbl);
+    var tag = document.createElement('button');
+    tag.className = 'src-tag';
+    tag.textContent = (info && info.found ? info.text : '位置待定') + ' ▸';
+    tag.addEventListener('click', function () { trace(pgId); });
+    srcs.appendChild(tag);
+    aEl.appendChild(srcs);
+    wrap.appendChild(aEl);
+    threadEl.appendChild(wrap);
+    var scroller = threadEl.closest('.sbody');
+    if (scroller) scroller.scrollTop = scroller.scrollHeight;
+  }
+
+  /* v4（N-02/N-03）：点**段号**才浮出「就这段提问」——热区不与系统选词/滚动抢手势；
+     文案也按真实粒度写（段落级说"这段"，桌面划词是句子级才说"这句"）。 */
+  document.querySelectorAll('#mobile-doc .seg-btn').forEach(function (segBtn) {
+    segBtn.addEventListener('click', function (ev) {
+      ev.stopPropagation();
+      var pg = segBtn.closest('.pg');
+      if (!pg) return;
+      var next = pg.nextElementSibling;
+      if (next && next.classList.contains('pg-chip')) { next.remove(); return; }
+      var chip = document.createElement('button');
+      chip.className = 'pg-chip';
+      chip.textContent = '就这段提问';
+      chip.addEventListener('click', function (e2) {
+        e2.stopPropagation();
+        if (setSheet1) setSheet1('half');
+        var askTab = document.querySelector('#sheet .tabs button[data-tab="ask"]');
+        if (askTab) askTab.click();
+        mobileAsk(pg.id);
+      });
+      pg.insertAdjacentElement('afterend', chip);
+    });
+  });
+
+  /* 开屏先给一条示例问答 */
+  askTurn('这篇论文的核心贡献是什么？',
+    '给出"阅读行为—答案溯源"的可测指标：不看译文是否优雅，而看读者能否跳回答案出处的那句话。',
+    ['p0_b7', 'p0_b9']);
+
+  /* 支持 #screen-id 与 ?tab=guide 直开 */
+  if (location.hash && document.getElementById(location.hash.slice(1))) {
+    activate(location.hash.slice(1));
+  }
+  window.addEventListener('hashchange', function () {
+    var id = location.hash.slice(1);
+    if (id && document.getElementById(id)) activate(id);
+  });
+  var params = new URLSearchParams(location.search);
+  var tabParam = params.get('tab');
+  if (tabParam) showTab(tabParam);
+  // ?menu=1 让 ⋯ 菜单展开（静态截图与评审用）；?flash=1 触发一次定位高亮脉冲（P0 的静态留证）
+  if (params.get('menu') === '1' && moreMenu) moreMenu.classList.add('open');
+  if (params.get('flash') === '1') trace('p0_b7');
+})();
+</script>
+</body>
+</html>

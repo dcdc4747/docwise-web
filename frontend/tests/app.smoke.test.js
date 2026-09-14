@@ -227,4 +227,36 @@ describe('App.vue 页面渲染', () => {
       expect(text).not.toContain(leak)
     }
   })
+
+  it('两级结构：打开一篇进 L2 阅读工作区，点「← 我的论文」回 L1 库页', async () => {
+    localStorage.setItem('docwise_token', 'test-token')
+    wrapper = mountApp()
+    await flushPromises()
+
+    // L1 库页：历史卡片在，阅读工作区不在
+    expect(wrapper.find('.history-card').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('← 我的论文')
+
+    const openButton = wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('查看进度'))
+    await openButton.trigger('click')
+    await flushPromises()
+
+    // L2 阅读工作区：有返回入口，库页的历史卡片收起（库与读不再同屏抢位置）
+    expect(wrapper.text()).toContain('← 我的论文')
+    expect(wrapper.find('.history-card').exists()).toBe(false)
+
+    const back = wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('← 我的论文'))
+    await back.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('.history-card').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('← 我的论文')
+    for (const leak of SOURCE_LEAKS) {
+      expect(wrapper.text()).not.toContain(leak)
+    }
+  })
 })
