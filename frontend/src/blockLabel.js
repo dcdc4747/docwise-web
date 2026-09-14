@@ -56,3 +56,43 @@ export function findBlockByText(needle, blocks) {
   }
   return null
 }
+
+/**
+ * 把块列表排成"段落精读"的行：块行 + 跨页分隔行（段号在页内重算、每翻一页插一条分隔）。
+ *
+ * 为什么要有它：左栏如果只用 iframe 看 PDF，浏览器自带阅读器是个黑盒——拿不到 DOM，
+ * 「点出处 → 滚到那一段 → 高亮」就物理上做不到。段落精读用的是我们自己的 DOM，锚点才成立。
+ *
+ * @returns {{kind:'page',page:number,label:string}|{kind:'block',block:object,page:number|null,index:number|null,label:string}[]
+ */
+export function buildParagraphRows(blocks) {
+  const rows = []
+  let lastPage = null
+  for (const block of blocks || []) {
+    const parsed = parseBlockId(block?.block_id)
+    const page = parsed ? parsed.page : null
+    if (page !== null && page !== lastPage) {
+      rows.push({ kind: 'page', page, label: `第 ${page + 1} 页` })
+      lastPage = page
+    }
+    rows.push({
+      kind: 'block',
+      block,
+      page,
+      label: '', // 段号要按页内重算，整页块都齐了才知道，渲染前用 appendBlockNumbers 补
+    })
+  }
+  return appendBlockNumbers(rows)
+}
+
+/** 给每一行补上「段 N」（页内序号，从 1 数起）；页分隔行原样返回，别动它的标签。 */
+export function appendBlockNumbers(rows) {
+  const counters = new Map()
+  return (rows || []).map((row) => {
+    if (row.kind !== 'block') return row
+    if (row.page === null) return { ...row, index: null, label: '' }
+    const next = (counters.get(row.page) || 0) + 1
+    counters.set(row.page, next)
+    return { ...row, index: next, label: `段 ${next}` }
+  })
+}

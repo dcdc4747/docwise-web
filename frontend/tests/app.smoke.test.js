@@ -312,6 +312,19 @@ describe('App.vue 页面渲染', () => {
     const text = wrapper.text()
     expect(text).toContain('第 2 页 · 第 1 段')
     expect(text).not.toContain('p1_b2') // 块编号只留给排查，不出现在界面上
+
+    // 左栏段落精读：跨页要插页分隔条，段号按页内重算（p0_b0/p0_b1 → 段 1/段 2）
+    expect(text).toContain('—— 第 2 页 ——')
+    expect(text).toContain('段 1')
+    expect(text).toContain('段 2')
+
+    // P0 的"信任签名"：点出处 → 滚到那一段并高亮脉冲（iframe 做不到，段落精读才做得到）
+    const sourceTag = wrapper.findAll('.ask-src-tag')[0]
+    expect(sourceTag, '问答答案里没有可点的出处标签').toBeTruthy()
+    await sourceTag.trigger('click')
+    await flushPromises()
+    expect(wrapper.find('#block-p1_b2').classes()).toContain('block-flash')
+
     for (const leak of SOURCE_LEAKS) {
       expect(text).not.toContain(leak)
     }

@@ -9,7 +9,7 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { blockLabel, findBlockByText, normalizeText, parseBlockId } from '../src/blockLabel'
+import { blockLabel, buildParagraphRows, findBlockByText, normalizeText, parseBlockId } from '../src/blockLabel'
 
 describe('parseBlockId', () => {
   it('解析 p<页>_b<全局块序>', () => {
@@ -75,5 +75,40 @@ describe('normalizeText / findBlockByText', () => {
     expect(findBlockByText('实地研究', blocks)).toBeNull()
     expect(findBlockByText('', blocks)).toBeNull()
     expect(findBlockByText('随便什么', undefined)).toBeNull()
+  })
+})
+
+describe('buildParagraphRows（段落精读的行）', () => {
+  const blocks = [
+    { block_id: 'p0_b0', text: 'a', translated: '甲' },
+    { block_id: 'p0_b1', text: 'b', translated: '乙' },
+    { block_id: 'p1_b2', text: 'c', translated: '丙' },
+    { block_id: 'p1_b3', text: 'd', translated: '丁' },
+    { block_id: 'p2_b91', text: 'e', translated: '戊' },
+  ]
+
+  it('每翻一页插一条页分隔，段号页内从 1 数起', () => {
+    const rows = buildParagraphRows(blocks)
+    expect(rows.map((row) => row.kind)).toEqual([
+      'page', 'block', 'block', 'page', 'block', 'block', 'page', 'block',
+    ])
+    const pageLabels = rows.filter((r) => r.kind === 'page').map((r) => r.label)
+    expect(pageLabels).toEqual(['第 1 页', '第 2 页', '第 3 页'])
+    const blockLabels = rows.filter((r) => r.kind === 'block').map((r) => r.label)
+    // 关键：p1_b2 是"第 2 页第 1 段"，p2_b91 是"第 3 页第 1 段"——都不是全局序号
+    expect(blockLabels).toEqual(['段 1', '段 2', '段 1', '段 2', '段 1'])
+  })
+
+  it('块编号不合格式时不炸，也不瞎标段号', () => {
+    const rows = buildParagraphRows([{ block_id: 'weird', text: 'x', translated: null }])
+    expect(rows).toHaveLength(1)
+    expect(rows[0].kind).toBe('block')
+    expect(rows[0].label).toBe('')
+    expect(rows[0].page).toBeNull()
+  })
+
+  it('空列表 → 空行', () => {
+    expect(buildParagraphRows([])).toEqual([])
+    expect(buildParagraphRows(undefined)).toEqual([])
   })
 })
