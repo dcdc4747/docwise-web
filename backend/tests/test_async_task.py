@@ -50,7 +50,8 @@ class FakeEngine:
 
 
 def _patch_engine(monkeypatch, engine=FakeEngine()) -> None:
-    monkeypatch.setattr("app.worker.get_engine", lambda name="open-source": engine)
+    # 签名要能吃下 (tier, source_lang, target_lang)：worker 现在按"语言对 + 档位"选引擎
+    monkeypatch.setattr("app.worker.get_engine", lambda *a, **kw: engine)
 
 
 def _wait_terminal(client: TestClient, task_id: int, timeout: float = 5.0) -> str:
@@ -101,8 +102,9 @@ def test_worker_routes_tier_to_engine(sample_pdf, monkeypatch) -> None:
                 progress=1.0,
             )
 
-    def fake_get_engine(tier=Tier.FAST):
-        requested_tiers.append(tier)
+    def fake_get_engine(*args, **kwargs):
+        # worker 现在按 (tier, source_lang, target_lang) 调；第一个位置参数仍是档位
+        requested_tiers.append(args[0] if args else kwargs.get("tier"))
         return RecorderEngine()
 
     monkeypatch.setattr("app.worker.get_engine", fake_get_engine)

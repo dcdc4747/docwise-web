@@ -186,7 +186,7 @@ def test_worker_copies_engine_progress_into_db(monkeypatch) -> None:
     """worker 在引擎跑的时候会把 engine.log 里的真实进度写进库并推 SSE。"""
     engine = FakeEngineWithLog()
 
-    monkeypatch.setattr("app.worker.get_engine", lambda tier=None: engine)
+    monkeypatch.setattr("app.worker.get_engine", lambda *a, **kw: engine)
 
     with TestClient(app) as client:
         resp = client.post(

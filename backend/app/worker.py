@@ -280,7 +280,9 @@ class TranslationWorker:
         self, request: TranslateRequest, cancel: CancelToken
     ) -> TranslationResult:
         # 引擎调用为阻塞子进程，放线程池执行（见 _process 的 asyncio.to_thread）
-        return get_engine(request.tier).translate(request, cancel)
+        # 按"语言对 + 档位"选引擎：中文文献不翻译，走取字引擎（NativeEngine）
+        engine = get_engine(request.tier, request.source_lang, request.target_lang)
+        return engine.translate(request, cancel)
 
     async def _process(self, task_id: int) -> None:
         if not self._claim(task_id):

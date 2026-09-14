@@ -155,4 +155,76 @@ describe('App.vue 页面渲染', () => {
       expect(text).not.toContain(leak)
     }
   })
+
+  it('中文文献：上传区能选语言，选中文后翻译档位消失', async () => {
+    localStorage.setItem('docwise_token', 'test-token')
+    wrapper = mountApp()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('文献语言')
+    expect(wrapper.text()).toContain('中文文献')
+    expect(wrapper.text()).toContain('翻译档位')
+
+    // 中文文献不翻译，档位没有意义 → 选中文后档位那块要收起来
+    const zhInput = wrapper
+      .findAll('input[type="radio"]')
+      .find((i) => i.element.value === 'zh')
+    expect(zhInput, '上传区没有"中文文献"选项').toBeTruthy()
+    await zhInput.setValue()
+    await flushPromises()
+
+    const text = wrapper.text()
+    expect(text).not.toContain('翻译档位')
+    expect(text).toContain('中文文献不翻译')
+    for (const leak of SOURCE_LEAKS) {
+      expect(text).not.toContain(leak)
+    }
+  })
+
+  it('中文文献：工作台显示"原文"，不提供中英对照与双语下载', async () => {
+    localStorage.setItem('docwise_token', 'test-token')
+    const base = stubFetch()
+    const nativeTask = {
+      ...TASK,
+      status: 'completed',
+      progress: 1,
+      stage: null,
+      eta_seconds: null,
+      native: true,
+      source_lang: 'zh',
+      target_lang: 'zh',
+    }
+    const nativeDetail = {
+      ...TASK_DETAIL,
+      ...nativeTask,
+      // 中文文献只有一份产物（原稿），没有双语稿
+      files_ready: { mono: true, dual: false },
+      engine_progress: null,
+    }
+    globalThis.fetch = vi.fn(async (input, init = {}) => {
+      const url = typeof input === 'string' ? input : String(input?.url ?? input)
+      const json = (data) => ({ ok: true, status: 200, json: async () => data })
+      if (url.match(/\/api\/tasks\/7\/?$/)) return json(nativeDetail)
+      if (url.includes('/api/tasks')) return json([nativeTask])
+      return base(input, init)
+    })
+
+    wrapper = mountApp()
+    await flushPromises()
+    const openButton = wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('继续读'))
+    expect(openButton, '历史列表里没找到"继续读"按钮').toBeTruthy()
+    await openButton.trigger('click')
+    await flushPromises()
+
+    const text = wrapper.text()
+    expect(text).toContain('这里就是原文')
+    expect(text).toContain('下载原稿 PDF')
+    expect(text).not.toContain('中英对照')
+    expect(text).not.toContain('下载双语 PDF')
+    for (const leak of SOURCE_LEAKS) {
+      expect(text).not.toContain(leak)
+    }
+  })
 })

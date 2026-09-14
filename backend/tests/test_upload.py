@@ -32,7 +32,8 @@ class FakeEngine:
 
 
 def _patch_engine(monkeypatch, engine=FakeEngine()) -> None:
-    monkeypatch.setattr("app.worker.get_engine", lambda name="open-source": engine)
+    # 签名要能吃下 (tier, source_lang, target_lang)：worker 现在按"语言对 + 档位"选引擎
+    monkeypatch.setattr("app.worker.get_engine", lambda *a, **kw: engine)
 
 
 def _wait_terminal(client: TestClient, task_id: int, timeout: float = 5.0) -> str:
