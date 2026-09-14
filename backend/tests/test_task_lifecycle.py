@@ -82,7 +82,7 @@ class BlockingEngine:
 
 
 def _patch_engine(monkeypatch, engine) -> None:
-    monkeypatch.setattr("app.worker.get_engine", lambda tier=None: engine)
+    monkeypatch.setattr("app.worker.get_engine", lambda *a, **kw: engine)
 
 
 def _upload(client: TestClient, name: str = "sample.pdf") -> dict:

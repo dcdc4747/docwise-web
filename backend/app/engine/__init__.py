@@ -10,14 +10,16 @@ from .base import (
     TranslationResult,
 )
 from .medium import MediumEngine
+from .native import NativeEngine
 from .open_source import OpenSourceEngine
-from .registry import get_engine
+from .registry import get_engine, is_native_language, is_native_pair
 
 __all__ = [
     "BlockState",
     "BlockStatus",
     "CancelToken",
     "MediumEngine",
+    "NativeEngine",
     "OpenSourceEngine",
     "TaskCancelled",
     "TaskState",
@@ -26,4 +28,6 @@ __all__ = [
     "TranslationEngine",
     "TranslationResult",
     "get_engine",
+    "is_native_language",
+    "is_native_pair",
 ]

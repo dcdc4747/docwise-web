@@ -10,7 +10,8 @@ from .config import settings
 _DEEPSEEK_URL = (settings.deepseek_base_url or "https://api.deepseek.com").rstrip("/")
 
 _SYSTEM_PROMPT = (
-    "你是一个学术文献理解助手。给你一篇论文的分段文字，每段以 [block_id] 开头标记。"
+    "你是一个学术文献理解助手。给你一份文献的分段文字（可能是中文，也可能是外文），"
+    "每段以 [block_id] 开头标记。"
     "请提取结构导读与术语表。只输出一个 JSON 对象，不要任何额外文字。JSON 结构：\n"
     "{\n"
     '  "research_question": {"text": "研究问题", "source_block_ids": ["b1"]},\n'
@@ -18,14 +19,14 @@ _SYSTEM_PROMPT = (
     '  "conclusion": {"text": "主要结论", "source_block_ids": ["b9"]},\n'
     '  "innovation": {"text": "创新点", "source_block_ids": ["b3"]},\n'
     '  "contribution": {"text": "核心贡献", "source_block_ids": ["b9"]},\n'
-    '  "terms": [{"term": "英文术语", "cn": "中文译名", "definition": "释义"}]\n'
+    '  "terms": [{"term": "术语原文", "cn": "规范名称", "definition": "释义"}]\n'
     "}\n"
-    "要点：source_block_ids 必须确实支撑该结论；导读忠实原文；"
-    "terms 只取关键术语并给统一中文译名。"
+    "要点：source_block_ids 必须确实支撑该结论；导读忠实原文，用中文表述；"
+    "terms 只取关键术语——原文是外文时给统一中文译名，原文是中文时给规范术语名与释义。"
 )
 
 _QA_SYSTEM_PROMPT = (
-    "你是一个学术论文问答助手。你会收到论文的分段文字，每段以 [block_id] 开头标记。"
+    "你是一个学术文献问答助手。你会收到文献的分段文字，每段以 [block_id] 开头标记。"
     "请仅依据给定文本回答用户的问题，不要编造文本中没有的内容。"
     "只输出一个 JSON 对象，不要任何额外文字。JSON 结构：\n"
     '{"answer": "回答（中文，简洁准确）", "source_block_ids": ["b1", "b5"]}\n'
@@ -85,7 +86,7 @@ def extract_understanding(blocks: list[tuple[str, str]]) -> dict:
     """
     labeled = "\n\n".join(f"[{bid}] {txt}" for bid, txt in blocks)
     user_msg = (
-        "请分析下面这篇论文的分段文字，输出导读与术语表 JSON"
+        "请分析下面这份文献的分段文字，输出导读与术语表 JSON"
         "（source_block_ids 用 [block_id]）：\n\n"
         f"{labeled}"
     )
@@ -104,7 +105,7 @@ def answer_question(blocks: list[tuple[str, str]], question: str) -> dict:
     回答必须按 block_id 引用出处；文本不足时由提示词要求 LLM 诚实说明。
     """
     labeled = "\n\n".join(f"[{bid}] {txt}" for bid, txt in blocks)
-    user_msg = f"论文分段文字：\n\n{labeled}\n\n问题：{question}"
+    user_msg = f"文献分段文字：\n\n{labeled}\n\n问题：{question}"
     content = _chat(
         [
             {"role": "system", "content": _QA_SYSTEM_PROMPT},

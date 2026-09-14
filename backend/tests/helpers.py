@@ -28,16 +28,25 @@ def upload_pdf(
     path: Path,
     tier: str = "fast",
     headers: dict[str, str] | None = None,
+    source_lang: str | None = None,
+    target_lang: str | None = None,
 ) -> dict:
     """通过上传接口建任务（202 即成功），返回任务卡。
 
     鉴权测试里必须传 `headers=auth_headers(token)`（这些测试没有"默认已登录"覆盖）。
+    `source_lang`/`target_lang` 不传就交给后端默认（en → zh）；传 `zh/zh` 表示
+    "中文文献：不翻译，直接进理解层"。
     """
+    data = {"tier": tier}
+    if source_lang is not None:
+        data["source_lang"] = source_lang
+    if target_lang is not None:
+        data["target_lang"] = target_lang
     with path.open("rb") as handle:
         resp = client.post(
             "/api/tasks/upload",
             files={"file": (path.name, handle, "application/pdf")},
-            data={"tier": tier},
+            data=data,
             headers=headers or {},
         )
     assert resp.status_code == 202, resp.text

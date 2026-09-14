@@ -34,7 +34,7 @@ class ResultEngine:
 
 
 def _patch_engine(monkeypatch, engine) -> None:
-    monkeypatch.setattr("app.worker.get_engine", lambda tier=None: engine)
+    monkeypatch.setattr("app.worker.get_engine", lambda *a, **kw: engine)
 
 
 def _wait_terminal(client: TestClient, task_id: int, timeout: float = 5.0) -> str:
