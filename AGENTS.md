@@ -4,7 +4,7 @@
 
 ## 项目一句话
 
-文档翻译智能体——Agent 是大脑，程序是手脚。用户上传英文材料，获得"像原文档的中文版"（纯中文/双语对照）。当前进度：**阶段 1（最小翻译链路）已完成并验收；阶段 2（Web 端闭环 MVP）进行中**——在翻译链路上做 Web 界面（上传/进度/预览/下载/历史）+ 档位选择。详见 README「开发路线」。
+文献理解智能体——Agent 是大脑，程序是手脚。**对象是文献本身，不限于外文**：外文文献译成中文并保留原排版（纯中文 / 双语对照）；**中文文献不翻译**，直接抽文字层进理解层（结构化导读 / 术语表 / 带出处的问答），**每条结论都点得回原文那一句**。当前进度：阶段 0/1/2 已完成并验收，Web MVP 功能完成（上传 / 进度 / 预览 / 下载 / 历史 + 档位 + 账号体系 + 任务生命周期 + 诚实进度 + 同源部署 + 中文文献支持）。详见 README「开发路线」。
 
 ## 分工与协作（按任务，不固定模块归属）
 
@@ -54,9 +54,9 @@ backend/
 ├── app/storage.py    # 磁盘治理：uploads / outputs/{task_id} / backups 三个目录的唯一约定 + 删文件与孤儿目录回收
 ├── app/progress.py   # 诚实进度：解析引擎日志里的 tqdm 进度条（页进度/速率/预计剩余），解析不出返回 None（绝不编进度）
 ├── app/webapp.py     # 同源部署：把 frontend/dist 挂到 "/"（SPA 回退 + 入口文件不缓存 + 局域网地址提示），缺产物自动跳过
-├── app/llm.py        # DeepSeek 客户端：extract_understanding（导读/术语）+ answer_question（问答）
+├── app/llm.py        # DeepSeek 客户端：extract_understanding（导读/术语）+ answer_question（问答）；**导读对超长文献均匀抽样、JSON 被截断时按字段抢救**
 ├── app/models.py     # SQLAlchemy：tasks（含 user_id 归属）、task_history、task_blocks、task_understanding、users、auth_sessions、auth_tickets
-├── app/config.py     # 配置：DATABASE_URL；CORS 白名单；问答阈值；账号开关（session_days / legacy_owner / demo_autologin / 登录失败上限）
+├── app/config.py     # 配置：DATABASE_URL；CORS 白名单；问答阈值；**导读输入预算与输出上限（DOCWISE_UNDERSTANDING_MAX_CHARS / _MAX_TOKENS）**；账号开关（session_days / legacy_owner / demo_autologin / 登录失败上限）
 ├── app/db.py         # 引擎与会话；SQLite PRAGMA（WAL+busy_timeout）；ensure_fts 建 FTS5（trigram）检索表 + 触发器
 ├── app/logging_setup.py # 日志：data/logs/docwise.log 轮转 + 控制台（写不了文件自动降级）
 ├── app/worker.py     # 单进程 worker：扫表恢复/行锁认领/线程池跑引擎/取消信号表/事件总线；心跳 + 空闲扫表兜底 + 单任务异常不杀循环
@@ -83,7 +83,7 @@ backend/
 - 诚实进度的测试见 `test_progress.py`：解析样本取自**真实 engine.log**；其中一个用例让假引擎往 `engine.log` 写 tqdm 进度，并断言"进度在引擎还在跑的时候就落库了"（不是等结束才一次性写）。
 - 同源部署的测试见 `test_same_origin.py`：断言 `/api`、`/files` 下的未知路径仍是 **JSON 404**（没被 SPA 回退成 HTML）、只有 `Accept: text/html` 才回退壳、入口文件带 `no-cache`、**产物缺失时不挂载也不报错**，以及一条结构性断言"挂载点之后不许再有 `/api`、`/files` 路由"（防有人把路由写回 `main.py` 末尾挂载之后）。
 - 前端 `bun dev` 能跑、页面正常；界面改动请在 PR 里贴截图。
-- **前端渲染检查（必须有）**：`cd frontend && bun run test`（vitest + happy-dom，13 个用例）。加这个是因为真出过事故——模板里把函数当值插值（少写一对括号），Vue 会 `String(fn)` 把**整个函数源码印在页面上**，而 `vite build` 一声不吭，最后是用户截图发现的。所以：
+- **前端渲染检查（必须有）**：`cd frontend && bun run test`（vitest + happy-dom，16 个用例）。加这个是因为真出过事故——模板里把函数当值插值（少写一对括号），Vue 会 `String(fn)` 把**整个函数源码印在页面上**，而 `vite build` 一声不吭，最后是用户截图发现的。所以：
   - `tests/app.smoke.test.js` 会真的挂载 `App.vue`、走一遍"打开一篇正在翻译的论文"，断言页面文本**不含任何源码痕迹**（`function `、`=>`、`{{` 等），并断言进度区显示的是人话；
   - `tests/progressText.test.js` 单测进度文案逻辑（`src/progressText.js`）；
   - **模板里要渲染的值一律用 `computed` 或 `ref`**（别用普通函数），这样"少写括号"也不会出事；
