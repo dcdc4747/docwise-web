@@ -20,6 +20,7 @@ import {
   formatDuration,
   stageTextFor,
 } from './progressText'
+import { blockLabel, findBlockByText } from './blockLabel'
 import {
   zhCN,
   dateZhCN,
@@ -839,6 +840,96 @@ function openTrace(point) {
   traceVisible.value = true
 }
 
+/* ===== 出处人话化（形态硬约定：出处永远显示「第 X 页 · 第 Y 段」） =====
+   - 块编号对用户是乱码，只留在 title 里供排查；
+   - 段号按页内重算（块编号里的 b 是全文档全局序号）；
+   - 解析不出 → 显示"位置待定"，**绝不裸露编号、也不假装**。 */
+const blockOrder = computed(() => Object.keys(blocksById.value))
+
+function labelOf(blockId) {
+  return blockLabel(blockId, blockOrder.value)
+}
+
+const traceSourceLabel = computed(() => {
+  const ids = (tracePoint.value && tracePoint.value.source) || []
+  const labels = ids.map((id) => labelOf(id)).filter(Boolean)
+  return labels.length ? labels.join('、') : '位置待定'
+})
+
+/** 导读字段有没有真出处（LLM 返回的 source_block_ids）；没有的那条要置灰不可点。 */
+function guideHasSource(key) {
+  const field = (understandingGuide.value || {})[key]
+  return Array.isArray(field?.source_block_ids) && field.source_block_ids.length > 0
+}
+
+/** 点导读要点：有出处才跳，没出处就别装成能点（降级态）。 */
+function openGuideTrace(key) {
+  if (!guideHasSource(key)) return
+  const field = understandingGuide.value[key]
+  openTrace({
+    label: guideFieldLabel[key],
+    text: field.text,
+    source: field.source_block_ids,
+  })
+}
+
+/* ===== 术语定位（术语表没有出处字段 → 只能"命中后回填"，不许预填坐标） ===== */
+const termLocateState = ref({})
+
+function termLocateLabel(term) {
+  return termLocateState.value[term?.term] || '在原文中定位'
+}
+
+async function locateTerm(term) {
+  const key = term?.term
+  if (!key || !currentTask.value) return
+  if (!Object.keys(blocksById.value).length) {
+    await loadBlocks(currentTask.value.id)
+  }
+  const blocks = Object.values(blocksById.value)
+  const hit = findBlockByText(key, blocks) || findBlockByText(term.cn, blocks)
+  if (!hit) {
+    termLocateState.value = { ...termLocateState.value, [key]: '没找到，可能在图/表里' }
+    return
+  }
+  const label = labelOf(hit.block_id)
+  termLocateState.value = {
+    ...termLocateState.value,
+    [key]: label ? `已定位 · ${label}` : '已定位（位置待定）',
+  }
+  openTrace({ label: key, text: term.definition, source: [hit.block_id] })
+}
+
+/* ===== 问答快捷提问（形态：chips 只放**导读与术语都没答**的问题，不重复） ===== */
+const askChips = [
+  '这项研究有什么局限？',
+  '论文提到的未来工作是什么？',
+  '研究用了哪些数据或样本？',
+  '主要结果是什么？',
+  '这些结论有多可靠？',
+]
+
+function askPreset(question) {
+  askQuestion.value = question
+  return submitAsk()
+}
+
+/* ===== L1 完成横幅（翻译完成后不静默消失；最多保留一条，可关掉） ===== */
+const dismissedBannerId = ref(null)
+
+const completedBannerTask = computed(() => {
+  const done = tasks.value.find((task) => task.status === 'completed' && task.finished_at)
+  if (!done || done.id === dismissedBannerId.value) return null
+  const finishedAt = new Date(done.finished_at).getTime()
+  if (!Number.isFinite(finishedAt)) return null
+  const fresh = Date.now() - finishedAt < 10 * 60 * 1000
+  return fresh ? done : null
+})
+
+function dismissBanner(task) {
+  dismissedBannerId.value = task.id
+}
+
 function sourceBlockText() {
   const ids = (tracePoint.value && tracePoint.value.source) || []
   const id = ids[0]
@@ -1215,17 +1306,17 @@ onUnmounted(stopProgress)
                             v-for="key in guideFields"
                             :key="key"
                             class="guide-point"
-                            @click="
-                              openTrace({
-                                label: guideFieldLabel[key],
-                                text: (understandingGuide[key] || {}).text,
-                                source: (understandingGuide[key] || {}).source_block_ids,
-                              })
-                            "
+                            :class="{ 'guide-point--dead': !guideHasSource(key) }"
+                            @click="openGuideTrace(key)"
                           >
                             <b>{{ guideFieldLabel[key] }}</b>
                             <span class="g-t">{{ (understandingGuide[key] || {}).text }}</span>
-                            <span class="g-src">溯源 ▸</span>
+                            <span v-if="guideHasSource(key)" class="g-src">
+                              看原文 · {{ labelOf((understandingGuide[key] || {}).source_block_ids[0]) || '位置待定' }} ▸
+                            </span>
+                            <span v-else class="g-src g-src--dead">
+                              无单一段落出处（这条由全文综合）
+                            </span>
                           </div>
                         </div>
                       </n-spin>
@@ -1259,6 +1350,15 @@ onUnmounted(stopProgress)
                             <b class="t-term">{{ t.term }}</b>
                             <span class="t-cn">{{ t.cn }}</span>
                             <span class="t-def">{{ t.definition }}</span>
+                            <div class="t-ops">
+                              <n-button
+                                size="tiny"
+                                quaternary
+                                @click="locateTerm(t)"
+                              >
+                                {{ termLocateLabel(t) }}
+                              </n-button>
+                            </div>
                           </div>
                         </div>
                       </n-spin>
@@ -1266,6 +1366,18 @@ onUnmounted(stopProgress)
 
                     <n-tab-pane name="ask" tab="问答">
                       <div class="ask-panel">
+                        <div class="ask-chips">
+                          <n-button
+                            v-for="chip in askChips"
+                            :key="chip"
+                            size="tiny"
+                            quaternary
+                            :disabled="askLoading"
+                            @click="askPreset(chip)"
+                          >
+                            {{ chip }}
+                          </n-button>
+                        </div>
                         <div class="ask-input-row">
                           <n-input
                             v-model:value="askQuestion"
@@ -1322,6 +1434,7 @@ onUnmounted(stopProgress)
                                 size="small"
                                 type="info"
                                 class="ask-src-tag"
+                                :title="'原文块 ' + id"
                                 @click="
                                   openTrace({
                                     label: '问答出处',
@@ -1330,7 +1443,7 @@ onUnmounted(stopProgress)
                                   })
                                 "
                               >
-                                {{ id }} ▸
+                                {{ labelOf(id) || '出处未能定位' }} ▸
                               </n-tag>
                             </div>
                             <div v-else class="ask-sources-label">（回答未给出处）</div>
@@ -1349,7 +1462,7 @@ onUnmounted(stopProgress)
                       <div class="trace-head">
                         <n-text strong>{{ (tracePoint && tracePoint.label) || '溯源' }}</n-text>
                         <n-text depth="3" class="trace-src">
-                          来源块：{{ ((tracePoint && tracePoint.source) || []).join(', ') || '未知' }}
+                          出处：{{ traceSourceLabel }}
                         </n-text>
                       </div>
                     </template>
@@ -1371,6 +1484,31 @@ onUnmounted(stopProgress)
                 </n-drawer>
               </div>
             </n-card>
+          </section>
+
+          <!-- 形态：翻译完成后不静默消失——变绿给下一步（最多一条，可关掉） -->
+          <section v-if="view === 'library' && completedBannerTask" class="page-section">
+            <n-alert type="success" :show-icon="true" class="complete-banner">
+              <template #header>
+                翻译完成 · {{ completedBannerTask.filename }}
+              </template>
+              <n-space size="small" align="center">
+                <n-button
+                  size="small"
+                  type="primary"
+                  @click="openWorkbench(completedBannerTask)"
+                >
+                  开始阅读
+                </n-button>
+                <n-button
+                  size="small"
+                  quaternary
+                  @click="dismissBanner(completedBannerTask)"
+                >
+                  关闭
+                </n-button>
+              </n-space>
+            </n-alert>
           </section>
 
           <section v-if="view === 'library'" class="page-section">

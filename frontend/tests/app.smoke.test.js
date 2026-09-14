@@ -259,4 +259,61 @@ describe('App.vue 页面渲染', () => {
       expect(wrapper.text()).not.toContain(leak)
     }
   })
+
+  it('出处一律说人话：显示「第 X 页 · 第 Y 段」而不是块编号，且段号按页内重算', async () => {
+    localStorage.setItem('docwise_token', 'test-token')
+    const base = stubFetch()
+    const done = {
+      ...TASK,
+      status: 'completed',
+      progress: 1,
+      stage: null,
+      eta_seconds: null,
+      finished_at: '2026-09-10T12:05:00',
+    }
+    const detail = {
+      ...TASK_DETAIL,
+      ...done,
+      files_ready: { mono: true, dual: false },
+      engine_progress: null,
+      blocks: [
+        { block_id: 'p0_b0', text: 'first', translated: '第一块', status: 'success', error: null },
+        { block_id: 'p0_b1', text: 'second', translated: '第二块', status: 'success', error: null },
+        // 全局块序是 2，但它是**第 2 页的第 1 段**——直接把 b 当段号就会显示"第 3 段"
+        { block_id: 'p1_b2', text: 'third', translated: '第三块', status: 'success', error: null },
+      ],
+    }
+    const answer = { answer: '按原文所述，这条结论有两条局限。', source_block_ids: ['p1_b2'], mode: 'full' }
+    globalThis.fetch = vi.fn(async (input, init = {}) => {
+      const url = typeof input === 'string' ? input : String(input?.url ?? input)
+      const json = (data) => ({ ok: true, status: 200, json: async () => data })
+      if (url.includes('/ask')) return json(answer)
+      if (url.match(/\/api\/tasks\/7\/?$/)) return json(detail)
+      if (url.includes('/api/tasks')) return json([done])
+      return base(input, init)
+    })
+
+    wrapper = mountApp()
+    await flushPromises()
+    const openButton = wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('继续读'))
+    await openButton.trigger('click')
+    await flushPromises()
+
+    // 快捷提问 chips 应该只放"导读与术语都没答"的问题
+    expect(wrapper.text()).toContain('这项研究有什么局限？')
+    const chip = wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('这项研究有什么局限？'))
+    await chip.trigger('click')
+    await flushPromises()
+
+    const text = wrapper.text()
+    expect(text).toContain('第 2 页 · 第 1 段')
+    expect(text).not.toContain('p1_b2') // 块编号只留给排查，不出现在界面上
+    for (const leak of SOURCE_LEAKS) {
+      expect(text).not.toContain(leak)
+    }
+  })
 })

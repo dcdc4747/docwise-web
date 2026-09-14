@@ -813,3 +813,18 @@ body {
 .task-row-name { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .task-row-meta { display: flex; gap: 10px; flex-wrap: wrap; font-size: 12px; color: #6b7280; }
 .task-row-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: auto; }
+
+/* ===================== 形态：出处这条线的降级态与新增控件 ===================== */
+/* 无单一段落出处的导读要点：置灰、不给箭头、光标不变手——死链不许做成活链样式 */
+.guide-point--dead { opacity: 0.62; cursor: default; }
+.guide-point--dead .g-src--dead { color: #9aa1ad; }
+.g-src--dead { cursor: default; }
+
+/* 问答快捷 chips（只放导读与术语都没答的问题） */
+.ask-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+
+/* 术语「在原文中定位」按钮 */
+.t-ops { margin-top: 4px; }
+
+/* L1 完成横幅 */
+.complete-banner { border-width: 1px; }
