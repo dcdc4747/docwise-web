@@ -883,6 +883,19 @@ const paragraphRows = computed(() =>
   buildParagraphRows(blockOrder.value.map((id) => blocksById.value[id]).filter(Boolean)),
 )
 
+/**
+ * 这批块里到底有没有译文？
+ *
+ * 真接口冒烟 + 查库发现（2026-09-14）：**全库 1510 个块的 `translated` 一律为空**——
+ * 引擎包装脚本只写 `{block_id, text}`，翻译结果只在 PDF 产物里。
+ * 所以左栏选「纯中文」时其实是回退显示原文。界面不能装作有译文：没有就直说。
+ */
+const hasBlockTranslations = computed(() =>
+  paragraphRows.value.some(
+    (row) => row.kind === 'block' && (row.block.translated || '').trim().length > 0,
+  ),
+)
+
 /** 划词提问：选区落在哪一段 → 锚到那个块；提问内容里就带着选中的那句话。 */
 const askAnchor = ref(null)
 
@@ -1446,6 +1459,16 @@ onUnmounted(stopProgress)
                         @mouseup="onDocMouseUp"
                         @scroll="onPaneScroll"
                       >
+                        <!-- 诚实降级：没有块级译文就说没有，别让「纯中文」显示着英文 -->
+                        <n-alert
+                          v-if="!isNativeTask && !hasBlockTranslations"
+                          type="warning"
+                          :show-icon="true"
+                          class="no-translation-msg"
+                        >
+                          这篇文献暂无「块级」译文（译文在 PDF 产物里，段落视图拿不到），
+                          下面显示的是原文；问答与检索同样基于原文。
+                        </n-alert>
                         <div v-if="resumeHint" class="resume-hint">
                           <span>{{ resumeHint }}</span>
                           <n-button size="tiny" quaternary @click="resumeHint = ''">
