@@ -30,6 +30,12 @@ class Settings(BaseSettings):
     # 论文问答"全量入上下文"的字符数阈值：译文总字符数超过它时，
     # 降级为 FTS5 词法检索兜底（控制在上下文窗口与单问成本内）。
     docwise_ask_full_context_max_chars: int = 300_000
+    # 导读/术语送进 LLM 的字符数预算：超了就按"均匀抽样"压缩（首尾都留）。
+    # 坑：56 页中文文献抽出 1489 块，整篇喂进去后输出被截断、导读失败。
+    # 修法三件一起：抽样 + 输出限额 + 截断抢救。
+    docwise_understanding_max_chars: int = 60_000
+    # 导读/术语单次回复的最大 token：给小了会在 terms 中途被截断（上面那个坑的直接原因）
+    docwise_understanding_max_tokens: int = 4000
 
     # ---- 账号体系 ----
     # 会话有效期（天）：登录签发的令牌多久过期（访问时滑动续期）
