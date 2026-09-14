@@ -831,6 +831,15 @@ body {
 }
 .ask-anchor-text { font-size: 12px; color: #3f4652; }
 
+/* 阅读位置记忆：跳回上次位置时给一句提示（不假装记得——没记录时按钮就叫「开始阅读」） */
+.resume-hint {
+  position: sticky; top: 0; z-index: 2;
+  display: flex; align-items: center; gap: 10px; justify-content: space-between;
+  margin: -8px 0 12px; padding: 6px 10px;
+  background: #f2fbf5; border: 1px solid #cde9d8; border-radius: 8px;
+  font-size: 12px; color: #15803d;
+}
+
 /* 术语「在原文中定位」按钮 */
 .t-ops { margin-top: 4px; }
 

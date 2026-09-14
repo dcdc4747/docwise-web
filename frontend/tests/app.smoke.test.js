@@ -213,8 +213,8 @@ describe('App.vue 页面渲染', () => {
     await flushPromises()
     const openButton = wrapper
       .findAll('button')
-      .find((b) => b.text().includes('继续读'))
-    expect(openButton, '历史列表里没找到"继续读"按钮').toBeTruthy()
+      .find((b) => b.text().includes('开始阅读'))
+    expect(openButton, '历史列表里没找到"开始阅读"按钮').toBeTruthy()
     await openButton.trigger('click')
     await flushPromises()
 
@@ -270,6 +270,8 @@ describe('App.vue 页面渲染', () => {
       stage: null,
       eta_seconds: null,
       finished_at: '2026-09-10T12:05:00',
+      // 阅读位置记忆：有记录 → 按钮叫「继续读」、卡片显示读到哪一页
+      last_read_page: 2,
     }
     const detail = {
       ...TASK_DETAIL,
@@ -295,9 +297,14 @@ describe('App.vue 页面渲染', () => {
 
     wrapper = mountApp()
     await flushPromises()
+
+    // 阅读位置记忆（要在 L1 库页上断言——点进去以后卡片就藏起来了）：
+    // 有记录 → 显示读到哪一页、按钮叫「继续读」；没记录才叫「开始阅读」
+    expect(wrapper.text()).toContain('上次读到第 2 页')
     const openButton = wrapper
       .findAll('button')
       .find((b) => b.text().includes('继续读'))
+    expect(openButton, '有阅读记录时按钮应该是「继续读」').toBeTruthy()
     await openButton.trigger('click')
     await flushPromises()
 

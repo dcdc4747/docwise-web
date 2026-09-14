@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { apiUrl } from './api'
 import {
   authFetch,
@@ -908,8 +908,7 @@ function onDocMouseUp() {
   askQuestion.value = text.length > 80 ? `${text.slice(0, 80)}…` : text
 }
 
-/** 点出处：滚到那一段 + 高亮脉冲；这一段没渲染出来才退回抽屉（诚实降级，不假装跳成功）。 */
-function focusBlock(blockId, meta = {}) {
+/** 点出处：滚到那一段 + 高亮脉冲；这一段没渲染出来才退回抽屉（诚实降级，不假装跳成功）。 */function focusBlock(blockId, meta = {}) {
   const node =
     typeof document !== 'undefined' ? document.getElementById(`block-${blockId}`) : null
   if (!node) {
@@ -926,6 +925,62 @@ function focusBlock(blockId, meta = {}) {
   }
   return true
 }
+
+/* ===== 阅读位置记忆（形态：卡片显示「上次读到第 X 页」，进来跳回原处） =====
+   没记录就显示「开始阅读」而不是「继续读」——不假装记得。
+   位置是体验数据：写失败静默忽略，绝不因为它影响阅读。 */
+const resumeHint = ref('')
+let positionSent = { page: 0, at: 0 }
+let resumedForTask = null
+
+async function saveReadingPosition(page) {
+  const task = currentTask.value
+  if (!task || !page) return
+  const now = Date.now()
+  if (page === positionSent.page && now - positionSent.at < 5000) return
+  positionSent = { page, at: now }
+  try {
+    await authFetch(`/api/tasks/${task.id}/reading-position`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ page }),
+    })
+  } catch {
+    /* 位置没记上不影响阅读，下次滚动还会再试 */
+  }
+}
+
+/** 滚动时把"当前页"记下来：取最后一个已经滚过顶部的页分隔条所在的页。 */
+function onPaneScroll(event) {
+  const pane = event.target
+  const separators = pane.querySelectorAll('.page-sep[data-page]')
+  let current = 1
+  separators.forEach((separator) => {
+    if (separator.offsetTop <= pane.scrollTop + 12) {
+      current = Number(separator.dataset.page) || current
+    }
+  })
+  saveReadingPosition(current)
+}
+
+async function applyResumePosition() {
+  const page = currentTask.value?.last_read_page
+  if (!page || page <= 1 || docMode.value !== 'paragraph') return
+  await nextTick()
+  const target =
+    typeof document !== 'undefined' ? document.getElementById(`page-${page}`) : null
+  if (!target) return
+  if (target.scrollIntoView) target.scrollIntoView({ block: 'start' })
+  resumeHint.value = `已回到上次读到的地方（第 ${page} 页）`
+}
+
+watch([currentTask, paragraphRows], () => {
+  const task = currentTask.value
+  if (!task || view.value !== 'reader') return
+  if (resumedForTask === task.id) return
+  resumedForTask = task.id
+  applyResumePosition()
+})
 
 /* ===== 术语定位（术语表没有出处字段 → 只能"命中后回填"，不许预填坐标） ===== */
 const termLocateState = ref({})
@@ -1337,7 +1392,14 @@ onUnmounted(stopProgress)
                         v-else
                         class="paragraph-pane"
                         @mouseup="onDocMouseUp"
+                        @scroll="onPaneScroll"
                       >
+                        <div v-if="resumeHint" class="resume-hint">
+                          <span>{{ resumeHint }}</span>
+                          <n-button size="tiny" quaternary @click="resumeHint = ''">
+                            知道了
+                          </n-button>
+                        </div>
                         <div v-if="askAnchor" class="sel-chip">
                           <span class="sel-chip-note">{{ askAnchorLabel }}</span>
                           <n-button size="tiny" type="primary" @click="workbenchTab = 'ask'">
@@ -1350,7 +1412,12 @@ onUnmounted(stopProgress)
                           class="result-empty"
                         />
                         <template v-for="(row, rowIndex) in paragraphRows" :key="rowIndex">
-                          <div v-if="row.kind === 'page'" class="page-sep">
+                          <div
+                            v-if="row.kind === 'page'"
+                            :id="`page-${row.page + 1}`"
+                            class="page-sep"
+                            :data-page="row.page + 1"
+                          >
                             —— {{ row.label }} ——
                           </div>
                           <div
@@ -1667,6 +1734,9 @@ onUnmounted(stopProgress)
                       </div>
                       <div class="task-row-meta">
                         <span>{{ formatTime(task.created_at) }}</span>
+                        <span v-if="task.last_read_page">
+                          上次读到第 {{ task.last_read_page }} 页
+                        </span>
                         <span v-if="rowProgressText(task)">
                           {{ rowProgressText(task) }}
                         </span>
@@ -1679,7 +1749,7 @@ onUnmounted(stopProgress)
                         ghost
                         @click="openWorkbench(task)"
                       >
-                        {{ task.status === 'completed' ? '继续读' : '查看进度' }}
+                        {{ task.status === 'completed' ? (task.last_read_page ? '继续读' : '开始阅读') : '查看进度' }}
                       </n-button>
                       <n-button
                         v-if="['pending', 'in_progress'].includes(task.status)"

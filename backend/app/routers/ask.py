@@ -182,9 +182,12 @@ def ask_paper(
             "source_block_ids": [],
             "mode": "fts",
         }
-    # 锚点必须真的进上下文：用户明确指着这一段问，检索没召回就补进来（否则"锚点"只是一句空话）
+    # 锚点必须真的进上下文：用户明确指着这一段问，检索没召回就补进来
+    # （否则"锚点"只是一句空话）
     hit_ids = {block_id for block_id, _ in hits}
-    anchor_rows = [row for row in items if row[0] in focus_ids and row[0] not in hit_ids]
+    anchor_rows = [
+        row for row in items if row[0] in focus_ids and row[0] not in hit_ids
+    ]
     hits = anchor_rows + hits
     result = answer_question(hits, question, **focus_kwargs)
     return {
