@@ -823,6 +823,14 @@ body {
 /* 问答快捷 chips（只放导读与术语都没答的问题） */
 .ask-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
 
+/* 锚点提示（划词提问时）：锚点与出处同一坐标系，让用户看得见这次带上了哪一段 */
+.ask-anchor {
+  display: flex; align-items: center; gap: 8px; justify-content: space-between;
+  padding: 5px 8px; margin-bottom: 8px;
+  background: #f1f4ff; border: 1px solid rgba(79, 110, 247, 0.35); border-radius: 8px;
+}
+.ask-anchor-text { font-size: 12px; color: #3f4652; }
+
 /* 术语「在原文中定位」按钮 */
 .t-ops { margin-top: 4px; }
 

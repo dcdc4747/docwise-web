@@ -173,3 +173,48 @@ def test_ask_missing_task_404() -> None:
         res = client.post("/api/tasks/9999/ask", json={"question": "hi"})
 
     assert res.status_code == 404
+
+
+def test_ask_passes_focus_block_ids_to_llm(monkeypatch) -> None:
+    """提问锚点：划词选中的段落要**真的传到模型**（形态：提问锚点与出处同一坐标系）。
+
+    同时锁一件事：**不属于本任务的块编号会被丢掉**——块编号跨任务会重名，
+    不校验就会拿别篇文献的段当锚点（这一坑在检索里踩过一次）。
+    """
+    task_id = _make_task_with_blocks([B1, B2])
+    captured: dict = {}
+
+    def fake(items, question, focus_block_ids=None) -> dict:
+        captured["focus"] = list(focus_block_ids or [])
+        return {"answer": "这一段说的是实验方法。", "source_block_ids": ["b1"]}
+
+    monkeypatch.setattr("app.routers.ask.answer_question", fake)
+    with TestClient(app) as client:
+        res = client.post(
+            f"/api/tasks/{task_id}/ask",
+            json={
+                "question": "这句话什么意思？",
+                "focus_block_ids": ["b1", "p9_b9"],
+            },
+        )
+
+    assert res.status_code == 200
+    assert captured["focus"] == ["b1"]
+    assert res.json()["source_block_ids"] == ["b1"]
+
+
+def test_answer_question_prompt_carries_anchor(monkeypatch) -> None:
+    """锚点要写进给模型的提示词里（否则"锚定"只是前端自嗨）。"""
+    from app import llm
+
+    sent: dict = {}
+
+    def fake_chat(messages, max_tokens=None, temperature=None) -> str:
+        sent["user"] = messages[-1]["content"]
+        return '{"answer": "答", "source_block_ids": ["b1"]}'
+
+    monkeypatch.setattr(llm, "_chat", fake_chat)
+    llm.answer_question([("b1", "原文一"), ("b2", "原文二")], "这句什么意思？", ["b2"])
+
+    assert "【提问锚点】" in sent["user"]
+    assert "b2" in sent["user"]

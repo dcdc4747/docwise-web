@@ -208,13 +208,29 @@ def extract_understanding(blocks: list[tuple[str, str]]) -> dict:
     return _extract_json(content)
 
 
-def answer_question(blocks: list[tuple[str, str]], question: str) -> dict:
+def answer_question(
+    blocks: list[tuple[str, str]],
+    question: str,
+    focus_block_ids: list[str] | None = None,
+) -> dict:
     """基于 (block_id, text) 片段回答论文问题，返回 {answer, source_block_ids}。
 
     回答必须按 block_id 引用出处；文本不足时由提示词要求 LLM 诚实说明。
+
+    focus_block_ids：用户在阅读区**划词提问**时选中的段落（提问锚点）。
+    锚点与出处是同一个坐标系——带上它，模型才知道问题里的"这句话 / 这段"指哪一段，
+    回答的出处也才能回到同一段（这是本产品对外那句"每条结论点得回原文那一句"的支撑）。
     """
     labeled = "\n\n".join(f"[{bid}] {txt}" for bid, txt in blocks)
-    user_msg = f"文献分段文字：\n\n{labeled}\n\n问题：{question}"
+    focus = [str(item) for item in (focus_block_ids or []) if str(item)]
+    focus_hint = ""
+    if focus:
+        focus_hint = (
+            "\n\n【提问锚点】用户是在下面这些段落里划词提问的，"
+            f"问题里的「这句话 / 这段」指的就是它们：{', '.join(focus)}。"
+            "请优先依据这些段落回答，并让出处包含它们；确实不相关时再引用其他段落。"
+        )
+    user_msg = f"文献分段文字：\n\n{labeled}{focus_hint}\n\n问题：{question}"
     content = _chat(
         [
             {"role": "system", "content": _QA_SYSTEM_PROMPT},
