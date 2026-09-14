@@ -161,6 +161,14 @@ describe('App.vue 页面渲染', () => {
     wrapper = mountApp()
     await flushPromises()
 
+    // 形态：有论文时上传卡默认收起，走标题行的「＋ 上传 PDF」展开
+    const uploadToggle = wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('＋ 上传 PDF'))
+    expect(uploadToggle, '库页标题行没有「＋ 上传 PDF」按钮').toBeTruthy()
+    await uploadToggle.trigger('click')
+    await flushPromises()
+
     expect(wrapper.text()).toContain('文献语言')
     expect(wrapper.text()).toContain('中文文献')
     expect(wrapper.text()).toContain('翻译档位')

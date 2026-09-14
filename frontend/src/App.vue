@@ -64,6 +64,8 @@ const currentTask = ref(null)
  * 注意：回 L1 时**不清 currentTask**——后台翻译的 SSE 还要继续推，进度条在 L1 的任务条上继续走。
  */
 const view = ref('library')
+/** L1 上传卡的显隐：有论文时默认收起（标题行的「＋ 上传 PDF」按需展开）——形态：库页主角是论文卡片 */
+const showUpload = ref(false)
 function backToLibrary() {
   view.value = 'library'
 }
@@ -1186,7 +1188,11 @@ onUnmounted(stopProgress)
           </section>
 
           <section class="page-section">
-            <n-card title="上传文献 PDF" class="upload-card" v-if="view === 'library'">
+            <n-card
+              title="上传文献 PDF"
+              class="upload-card"
+              v-if="view === 'library' && (showUpload || !tasks.length)"
+            >
               <div class="tier-picker">
                 <div class="tier-picker-head">
                   <n-text strong>文献语言</n-text>
@@ -1771,15 +1777,24 @@ onUnmounted(stopProgress)
           <section v-if="view === 'library'" class="page-section">
             <n-card class="history-card">
               <template #header>
-                <div class="history-head">
-                  <span class="history-title">最近在读</span>
-                  <n-text depth="3" class="history-sub">
-                    点开任意一篇，接着读原文 / 双语稿 / 导读 / 术语表，也可以继续提问
+                <div class="library-head">
+                  <span class="library-title">我的论文（{{ tasks.length }} 篇）</span>
+                  <n-text depth="3" class="library-sub">
+                    点开任意一篇继续读；进度、读到哪一页都标在卡片上
                   </n-text>
                 </div>
               </template>
               <template #header-extra>
-                <n-button size="small" quaternary @click="loadTasks">刷新</n-button>
+                <n-space size="small" align="center">
+                  <n-button
+                    size="small"
+                    type="primary"
+                    @click="showUpload = !showUpload"
+                  >
+                    {{ showUpload ? '收起上传' : '＋ 上传 PDF' }}
+                  </n-button>
+                  <n-button size="small" quaternary @click="loadTasks">刷新</n-button>
+                </n-space>
               </template>
               <n-spin :show="historyLoading">
                 <n-empty
