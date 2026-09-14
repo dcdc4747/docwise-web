@@ -130,7 +130,7 @@ def main(argv: list[str] | None = None) -> int:
         description="中文（不翻译）文献取字：抽文字块 + 出原稿"
     )
     parser.add_argument("--input", required=True, help="源 PDF 路径")
-    parser.add_argument("--output", required=True, help="结果目录（写产物与 result.json）")
+    parser.add_argument("--output", required=True, help="结果目录")
     # 允许父进程多传参数（与外部翻译引擎的调用形式保持一致），不认识的忽略
     args, _unknown = parser.parse_known_args(argv)
 

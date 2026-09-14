@@ -17,7 +17,7 @@ import time
 from pathlib import Path
 from uuid import uuid4
 
-BACKEND = Path(__file__).resolve().parents[1]  # backend/（本脚本在 backend/scripts/ 下）
+BACKEND = Path(__file__).resolve().parents[1]  # backend/（脚本在 backend/scripts/）
 sys.path.insert(0, str(BACKEND))
 
 TMP = Path(tempfile.gettempdir()) / f"docwise_e2e_cn_{uuid4().hex}"
@@ -60,7 +60,8 @@ def main() -> int:
         assert resp.status_code == 202, resp.text
         task = resp.json()
         task_id = task["id"]
-        report["upload"] = {k: task.get(k) for k in ("id", "status", "source_lang", "target_lang", "native")}
+        keys = ("id", "status", "source_lang", "target_lang", "native")
+        report["upload"] = {k: task.get(k) for k in keys}
 
         deadline = time.monotonic() + 180
         while time.monotonic() < deadline:
@@ -75,7 +76,11 @@ def main() -> int:
         blocks = detail.get("blocks") or []
         report["blocks"] = len(blocks)
         report["block_sample"] = [
-            {"block_id": b["block_id"], "text": (b["text"] or "")[:40], "translated": b["translated"]}
+            {
+                "block_id": b["block_id"],
+                "text": (b["text"] or "")[:40],
+                "translated": b["translated"],
+            }
             for b in blocks[:3]
         ]
 
@@ -91,10 +96,13 @@ def main() -> int:
         report["understanding_error"] = uj.get("error")
         guide = uj.get("guide") or {}
         report["guide_keys"] = sorted(guide.keys())
-        report["guide_sample"] = {
-            k: {"text": (v or {}).get("text", "")[:50], "src": (v or {}).get("source_block_ids")}
-            for k, v in list(guide.items())[:2]
-        }
+        def brief(field: dict | None) -> dict:
+            return {
+                "text": (field or {}).get("text", "")[:50],
+                "src": (field or {}).get("source_block_ids"),
+            }
+
+        report["guide_sample"] = {k: brief(v) for k, v in list(guide.items())[:2]}
         report["terms"] = len(uj.get("terms") or [])
 
         # 问答：答案必须带出处，且出处 block_id 必须真的存在于本任务
