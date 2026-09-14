@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { apiUrl } from './api'
 import {
   authFetch,
@@ -48,6 +48,7 @@ import {
   NInput,
   NTabs,
   NTabPane,
+  NDropdown,
 } from 'naive-ui'
 
 const backendStatus = ref('checking')
@@ -56,6 +57,51 @@ const taskCount = ref(null)
 const uploading = ref(false)
 const uploadError = ref('')
 const currentTask = ref(null)
+/**
+ * 形态：L1 库页（我的论文）/ L2 阅读工作区，两级结构。
+ * 打开任意一篇（上传完成或历史"继续读"）都进 L2；点「← 我的论文」回 L1。
+ * 注意：回 L1 时**不清 currentTask**——后台翻译的 SSE 还要继续推，进度条在 L1 的任务条上继续走。
+ */
+const view = ref('library')
+function backToLibrary() {
+  view.value = 'library'
+}
+watch(currentTask, (task) => {
+  if (task) view.value = 'reader'
+})
+
+/**
+ * 阅读工作区的「⋯」菜单。
+ * 形态约定：单层级、项数≤7、**任意两项的动作名不许共享动词**（所以是"重试翻译"而不是"重新翻译"×2）。
+ */
+const readerMenuOptions = computed(() => {
+  const task = currentTask.value
+  if (!task) return []
+  const items = [{ label: '文档信息', key: 'info' }]
+  if (['pending', 'in_progress'].includes(task.status)) {
+    items.push({ label: '取消翻译', key: 'cancel' })
+  }
+  if (RETRYABLE_STATES.includes(task.status)) {
+    items.push({ label: '重试翻译', key: 'retry' })
+  }
+  items.push({ type: 'divider', key: 'divider-1' })
+  items.push({ label: '删除…', key: 'delete' })
+  return items
+})
+
+function onReaderMenuSelect(key) {
+  const task = currentTask.value
+  if (!task) return
+  if (key === 'info') {
+    openTaskDetail(task)
+  } else if (key === 'cancel') {
+    cancelTask(task)
+  } else if (key === 'retry') {
+    retryTask(task)
+  } else if (key === 'delete') {
+    deleteConfirmId.value = task.id
+  }
+}
 const uploadRef = ref(null)
 const previewMode = ref('mono')
 const previewSrc = ref('')
@@ -88,7 +134,7 @@ const demoAutologin = ref(false)
 const showAdmin = ref(false)
 
 // ---- 阅读工作台（理解层：导读 / 术语表 / 点溯源）----
-const workbenchTab = ref('bilingual')
+const workbenchTab = ref('ask')
 const understandingLoading = ref(false)
 const understandingStatus = ref('pending')
 const understandingGuide = ref(null)
@@ -143,9 +189,9 @@ const guideFieldLabel = {
 }
 
 const tierOptions = [
-  { value: 'fast', label: '快', desc: '速度优先' },
-  { value: 'medium', label: '中', desc: '质量与速度平衡' },
-  { value: 'precise', label: '慢', desc: '质量优先' },
+  { value: 'fast', label: '快档', desc: '最快，先看个大概' },
+  { value: 'medium', label: '中档', desc: '版式更稳，适合正式阅读' },
+  { value: 'precise', label: '慢档', desc: '最准，多一道审校，适合定稿引用' },
 ]
 
 // 文献语言：外文要翻译，中文不用翻译（直接进理解层）
@@ -154,10 +200,11 @@ const langOptions = [
   { value: 'zh', label: '中文文献', desc: '不翻译，直接出导读与出处' },
 ]
 
+// 档位只有一个写法：快/中/慢 + 各自的一句话特征（形态约定：选择处、工具条、卡片一律用这一套）
 const tierTextMap = {
-  fast: '快',
-  medium: '中',
-  precise: '慢',
+  fast: '快档 · 最快',
+  medium: '中档 · 平衡',
+  precise: '慢档 · 最准',
 }
 
 const tasks = ref([])
@@ -508,7 +555,7 @@ async function refreshWorkbench(taskId) {
 async function openWorkbench(task) {
   stopProgress()
   currentTask.value = task
-  workbenchTab.value = 'bilingual'
+  workbenchTab.value = 'ask'
   previewCheckDone.value = false
   previewLoading.value = true
   fileAvailability.value = { mono: false, dual: false }
@@ -558,7 +605,7 @@ async function handleUpload({ file: fileInfo, onFinish, onError }) {
     }
     const task = await res.json()
     currentTask.value = task
-    workbenchTab.value = 'bilingual'
+    workbenchTab.value = 'ask'
     // 中文文献只有一份产物（原稿），预览固定用 mono，避免出现"中英对照"却是同一份文件
     if (task.native) previewMode.value = 'mono'
     engineProgress.value = null
@@ -848,7 +895,8 @@ onUnmounted(stopProgress)
         <main class="page-main">
           <AdminView v-if="showAdmin" />
           <template v-else>
-          <section class="page-hero">
+          <!-- L1 空库态：只有一篇都没有时才出大 hero（有历史后收成标题行） -->
+          <section v-if="view === 'library' && !tasks.length && !historyLoading" class="page-hero">
             <h1>把英文文献读懂</h1>
             <p class="tagline">翻译只是起点，理解才是价值</p>
             <p class="description">
@@ -863,7 +911,7 @@ onUnmounted(stopProgress)
           </section>
 
           <section class="page-section">
-            <n-card title="上传文献 PDF" class="upload-card">
+            <n-card title="上传文献 PDF" class="upload-card" v-if="view === 'library'">
               <div class="tier-picker">
                 <div class="tier-picker-head">
                   <n-text strong>文献语言</n-text>
@@ -927,10 +975,11 @@ onUnmounted(stopProgress)
           </section>
 
           <!-- 阅读工作台：上传完成后与历史"继续读"共用同一处 -->
-          <section v-if="currentTask" class="page-section">
-            <n-card ref="workbenchRef" class="workbench-card">
+          <section v-if="view === 'reader' && currentTask" class="reader-section">
+            <n-card ref="workbenchRef" class="reader-card">
               <template #header>
                 <div class="workbench-head">
+                  <n-button size="small" quaternary @click="backToLibrary">← 我的论文</n-button>
                   <span class="workbench-name">{{ currentTask.filename }}</span>
                   <n-tag
                     v-if="currentTask.tier"
@@ -991,6 +1040,14 @@ onUnmounted(stopProgress)
                       再想想
                     </n-button>
                   </n-space>
+                  <!-- 形态：次要动作收进「⋯」，菜单单层级、动作名不共享动词 -->
+                  <n-dropdown
+                    trigger="click"
+                    :options="readerMenuOptions"
+                    @select="onReaderMenuSelect"
+                  >
+                    <n-button size="small" quaternary>⋯</n-button>
+                  </n-dropdown>
                 </div>
               </template>
 
@@ -1056,17 +1113,9 @@ onUnmounted(stopProgress)
                   </template>
                 </n-alert>
 
-                <div
-                  v-if="currentTask.status === 'completed'"
-                  class="result-panel"
-                >
-                  <n-tabs
-                    v-model:value="workbenchTab"
-                    type="line"
-                    size="small"
-                    @update:value="switchWorkbenchTab"
-                  >
-                    <n-tab-pane name="bilingual" :tab="bilingualTabLabel">
+                <div v-if="currentTask.status === 'completed'" class="reader-body">
+                  <!-- 左：文档区（本批仍是现有 iframe 预览；pdf.js 与段落视图放下一批） -->
+                  <div class="reader-doc">
                       <div class="result-toolbar">
                         <n-radio-group
                           v-if="!isNativeTask"
@@ -1131,7 +1180,16 @@ onUnmounted(stopProgress)
                           title="译文预览"
                         />
                       </n-spin>
-                    </n-tab-pane>
+                  </div>
+
+                  <!-- 右：助手区（问答 / 导读 / 术语 三个副页签） -->
+                  <div class="reader-assist">
+                    <n-tabs
+                      v-model:value="workbenchTab"
+                      type="line"
+                      size="small"
+                      @update:value="switchWorkbenchTab"
+                    >
 
                     <n-tab-pane name="guide" tab="导读">
                       <n-spin :show="understandingLoading" size="small">
@@ -1282,6 +1340,7 @@ onUnmounted(stopProgress)
                     </n-tab-pane>
                   </n-tabs>
                 </div>
+                </div>
 
                 <!-- 点溯源底部抽屉 -->
                 <n-drawer v-model:show="traceVisible" placement="bottom" :height="'46%'">
@@ -1314,7 +1373,7 @@ onUnmounted(stopProgress)
             </n-card>
           </section>
 
-          <section class="page-section">
+          <section v-if="view === 'library'" class="page-section">
             <n-card class="history-card">
               <template #header>
                 <div class="history-head">
@@ -1426,7 +1485,7 @@ onUnmounted(stopProgress)
             </n-card>
           </section>
 
-          <section class="page-section">
+          <section v-if="view === 'library' && !tasks.length" class="page-section">
             <n-grid :cols="3" :x-gap="16" responsive="screen" item-responsive>
               <n-gi span="3 s:1 m:1" v-for="feature in [
                 { title: '双语对照稿', desc: '保留原论文的结构与排版，可在线预览、可下载。' },
@@ -1440,7 +1499,11 @@ onUnmounted(stopProgress)
             </n-grid>
           </section>
 
-          <section class="page-section status-row">
+          <!-- 形态：健康状态正常时不出现，只在异常时提醒 -->
+          <section
+            v-if="view === 'library' && backendStatus !== 'ok'"
+            class="page-section status-row"
+          >
             <span>后端状态：</span>
             <n-tag :type="statusMeta[backendStatus].type" :bordered="false">
               {{ statusMeta[backendStatus].text }}
