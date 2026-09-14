@@ -792,10 +792,108 @@ body {
   }
 }
 
-/* ===================== 形态：L1 库页 = 标题行（篇数 + 上传入口） ===================== */
-.library-head { display: flex; flex-direction: column; gap: 2px; }
-.library-title { font-size: 18px; font-weight: 600; color: #1f2329; }
-.library-sub { font-size: 12px; }
+/* ============================================================================
+   设计系统（照 frontend/prototype/product-form.html 的 A 方案整体搬过来）
+   命名空间 .dw —— 挂在 <main class="page-main dw"> 上，避免与旧样式打架。
+   要点：主色只留一处强调、卡片 12px 圆角 + 1px 描边 + 几乎无阴影、大量留白。
+   ============================================================================ */
+.dw {
+  --accent: #4f6ef7;
+  --accent-soft: rgba(79, 110, 247, 0.12);
+  --accent-line: rgba(79, 110, 247, 0.45);
+  --bg: #f7f8fa;
+  --surface: #ffffff;
+  --ink: #1f2329;
+  --muted: #6b7280;
+  --line: #e5e7eb;
+  --radius: 12px;
+  --warn: #d97706;
+  --danger: #dc2626;
+  background: var(--bg);
+}
+
+.dw .lib-wrap { max-width: 1080px; margin: 0 auto; padding: 24px 24px 48px; }
+.dw .spacer { flex: 1; }
+
+/* 标题行：篇数 + 上传入口 */
+.dw .title-row { display: flex; align-items: center; gap: 12px; margin: 4px 0 16px; }
+.dw .title-row h2 { margin: 0; font-size: 20px; }
+
+/* 卡片 / 按钮 / 胶囊 */
+.dw .card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 20px;
+}
+.dw .btn {
+  font: inherit; padding: 6px 14px; border-radius: 8px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+}
+.dw .btn:hover { border-color: #cbd0da; }
+.dw .btn:disabled { opacity: 0.6; cursor: default; }
+.dw .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.dw .btn.ghost { border-color: transparent; color: var(--muted); }
+.dw .btn.ghost:hover { background: #f1f3f7; }
+.dw .btn.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
+.dw .btn.sm { padding: 3px 10px; font-size: 12px; }
+.dw .chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 10px; border-radius: 999px; font-size: 12px;
+  background: #f1f3f7; color: var(--muted);
+}
+.dw .chip.ok { background: #e8f6ee; color: #15803d; }
+.dw .chip.fail { background: #fdeaea; color: var(--danger); }
+.dw .chip.warn { background: #fdf3e3; color: var(--warn); }
+
+/* 论文卡片网格 */
+.dw .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+@media (max-width: 1100px) { .dw .grid3 { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 760px) { .dw .grid3 { grid-template-columns: 1fr; } }
+.dw .paper-card { display: flex; flex-direction: column; gap: 10px; }
+.dw .paper-card .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.dw .paper-card .fname { font-weight: 600; }
+.dw .paper-card .meta { display: flex; gap: 10px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
+.dw .paper-card .lastpos { font-size: 12px; color: var(--accent); }
+.dw .paper-card .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: auto; }
+.dw .alert-line { grid-column: 1 / -1; color: var(--danger); font-size: 13px; }
+
+/* 空库 hero */
+.dw .hero { text-align: center; padding: 40px 0 28px; }
+.dw .hero h1 { margin: 0 0 6px; font-size: 30px; letter-spacing: 0.3px; }
+.dw .hero .tagline { margin: 0 0 10px; color: #3f4652; font-weight: 600; }
+.dw .hero p { margin: 0 auto 16px; max-width: 620px; color: var(--muted); }
+.dw .pills { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+.dw .pill {
+  font-size: 12px; padding: 6px 14px; border-radius: 12px;
+  background: #fff; color: var(--accent); border: 1px solid var(--accent-line);
+}
+
+/* 上传区（沿用 Naive 的 upload 行为，外观按原型） */
+.dw .upload-card { display: grid; grid-template-columns: 1.35fr 1fr; gap: 24px; }
+@media (max-width: 860px) { .dw .upload-card { grid-template-columns: 1fr; } }
+.dw .n-upload-dragger {
+  border: 1.5px dashed #c7cdda !important;
+  border-radius: 10px !important;
+  background: #fbfcfe !important;
+  padding: 36px 16px !important;
+}
+.dw .n-upload-dragger:hover { border-color: var(--accent-line) !important; }
+.dw .upload-hint { color: var(--ink); font-weight: 600; margin-bottom: 4px; }
+.dw .upload-sub { font-size: 12px; color: var(--muted); }
+.dw .tier-picker-head { margin-bottom: 8px; }
+.dw .tier-picker-sub { font-size: 12px; }
+
+/* 完成横幅（原型里是一条绿色任务条） */
+.dw .taskbar-ok {
+  display: flex; align-items: center; gap: 12px; padding: 10px 20px;
+  margin-bottom: 14px; border-color: #cde9d8 !important; background: #f2fbf5 !important;
+}
+.dw .taskbar-ok .ok-text { color: #15803d; font-weight: 600; }
+
+/* 相邻的 lib-wrap 之间不再重复上边距（hero → 上传 → 列表是同一条列） */
+.dw .lib-wrap + .lib-wrap { padding-top: 0; }
+.dw .banner-wrap { padding-bottom: 0; }
 
 /* ===================== 形态：L2 阅读工作区（左文档 / 右助手 两栏） ===================== */
 .reader-section { max-width: 1440px; margin: 0 auto; padding: 16px 20px 32px; }
