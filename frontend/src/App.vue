@@ -215,6 +215,13 @@ const tierTextMap = {
   precise: '慢档 · 最准',
 }
 
+/** L1 卡片上的状态胶囊配色（照原型：已完成=绿、失败=红、已取消=橙、其余=灰） */
+const statusChipMap = {
+  completed: 'ok',
+  failed: 'fail',
+  cancelled: 'warn',
+}
+
 const tasks = ref([])
 const historyLoading = ref(false)
 const historyError = ref('')
@@ -1169,30 +1176,34 @@ onUnmounted(stopProgress)
       </n-layout-header>
 
       <n-layout-content content-style="padding: 0">
-        <main class="page-main">
+        <main class="page-main dw">
           <AdminView v-if="showAdmin" />
           <template v-else>
           <!-- L1 空库态：只有一篇都没有时才出大 hero（有历史后收成标题行） -->
-          <section v-if="view === 'library' && !tasks.length && !historyLoading" class="page-hero">
-            <h1>把英文文献读懂</h1>
-            <p class="tagline">翻译只是起点，理解才是价值</p>
-            <p class="description">
-              上传英文文献 PDF，得到双语对照稿、结构化导读与统一术语表；
-              还能就论文提问，每条答案都标明来自哪一段原文。
-            </p>
-            <div class="tech-tags">
-              <n-tag round type="info">结构化导读</n-tag>
-              <n-tag round type="info">统一术语表</n-tag>
-              <n-tag round type="success">带出处问答</n-tag>
+          <section
+            v-if="view === 'library' && !tasks.length && !historyLoading"
+            class="lib-wrap"
+          >
+            <div class="hero">
+              <h1>把文献读懂</h1>
+              <p class="tagline">翻译只是起点，理解才是价值</p>
+              <p>
+                上传文献 PDF，得到双语对照稿、结构化导读与统一术语表；
+                还能就文献提问，每条答案都标明来自哪一段原文。
+              </p>
+              <div class="pills">
+                <span class="pill">结构化导读</span>
+                <span class="pill">统一术语表</span>
+                <span class="pill">带出处问答</span>
+              </div>
             </div>
           </section>
 
-          <section class="page-section">
-            <n-card
-              title="上传文献 PDF"
-              class="upload-card"
-              v-if="view === 'library' && (showUpload || !tasks.length)"
-            >
+          <section
+            class="lib-wrap"
+            v-if="view === 'library' && (showUpload || !tasks.length)"
+          >
+            <div class="card upload-card">
               <div class="tier-picker">
                 <div class="tier-picker-head">
                   <n-text strong>文献语言</n-text>
@@ -1252,7 +1263,7 @@ onUnmounted(stopProgress)
               >
                 {{ uploadError }}
               </n-alert>
-            </n-card>
+            </div>
           </section>
 
           <!-- 阅读工作台：上传完成后与历史"继续读"共用同一处 -->
@@ -1750,53 +1761,33 @@ onUnmounted(stopProgress)
           </section>
 
           <!-- 形态：翻译完成后不静默消失——变绿给下一步（最多一条，可关掉） -->
-          <section v-if="view === 'library' && completedBannerTask" class="page-section">
-            <n-alert type="success" :show-icon="true" class="complete-banner">
-              <template #header>
-                翻译完成 · {{ completedBannerTask.filename }}
-              </template>
-              <n-space size="small" align="center">
-                <n-button
-                  size="small"
-                  type="primary"
-                  @click="openWorkbench(completedBannerTask)"
-                >
-                  开始阅读
-                </n-button>
-                <n-button
-                  size="small"
-                  quaternary
-                  @click="dismissBanner(completedBannerTask)"
-                >
-                  关闭
-                </n-button>
-              </n-space>
-            </n-alert>
+          <section
+            v-if="view === 'library' && completedBannerTask"
+            class="lib-wrap banner-wrap"
+          >
+            <div class="card taskbar-ok">
+              <span class="ok-text">翻译完成</span>
+              <span class="tiny muted">{{ completedBannerTask.filename }}</span>
+              <span class="spacer"></span>
+              <button class="btn primary sm" @click="openWorkbench(completedBannerTask)">
+                开始阅读
+              </button>
+              <button class="btn ghost sm" @click="dismissBanner(completedBannerTask)">
+                关闭
+              </button>
+            </div>
           </section>
 
-          <section v-if="view === 'library'" class="page-section">
-            <n-card class="history-card">
-              <template #header>
-                <div class="library-head">
-                  <span class="library-title">我的论文（{{ tasks.length }} 篇）</span>
-                  <n-text depth="3" class="library-sub">
-                    点开任意一篇继续读；进度、读到哪一页都标在卡片上
-                  </n-text>
-                </div>
-              </template>
-              <template #header-extra>
-                <n-space size="small" align="center">
-                  <n-button
-                    size="small"
-                    type="primary"
-                    @click="showUpload = !showUpload"
-                  >
-                    {{ showUpload ? '收起上传' : '＋ 上传 PDF' }}
-                  </n-button>
-                  <n-button size="small" quaternary @click="loadTasks">刷新</n-button>
-                </n-space>
-              </template>
-              <n-spin :show="historyLoading">
+          <section v-if="view === 'library'" class="lib-wrap">
+            <div class="title-row">
+              <h2>我的论文（{{ tasks.length }} 篇）</h2>
+              <span class="spacer"></span>
+              <button class="btn primary" @click="showUpload = !showUpload">
+                {{ showUpload ? '收起上传' : '＋ 上传 PDF' }}
+              </button>
+              <button class="btn ghost" @click="loadTasks">刷新</button>
+            </div>
+            <n-spin :show="historyLoading">
                 <n-empty
                   v-if="!historyLoading && !historyError && tasks.length === 0"
                   description="还没有论文，上传 PDF 后会出现在这里"
@@ -1805,97 +1796,70 @@ onUnmounted(stopProgress)
                 <n-alert v-else-if="historyError" type="error" :show-icon="true">
                   {{ historyError }}
                 </n-alert>
-                <div v-else-if="tasks.length" class="task-list">
-                  <n-alert
-                    v-if="taskActionError"
-                    type="error"
-                    :show-icon="true"
-                    class="task-action-error"
-                  >
-                    {{ taskActionError }}
-                  </n-alert>
-                  <div v-for="task in tasks" :key="task.id" class="task-row">
-                    <div class="task-row-info">
-                      <div class="task-row-name">
-                        <n-text strong>{{ task.filename }}</n-text>
-                        <n-tag
-                          :type="statusTypeMap[task.status] || 'default'"
-                          size="small"
-                          :bordered="false"
-                        >
-                          {{ statusTextMap[task.status] || task.status }}
-                        </n-tag>
-                        <n-tag v-if="task.native" size="small" type="info" :bordered="false">
-                          中文文献
-                        </n-tag>
-                        <n-tag v-else-if="task.tier" size="small" :bordered="false">
-                          {{ tierTextMap[task.tier] || task.tier }}
-                        </n-tag>
-                      </div>
-                      <div class="task-row-meta">
-                        <span>{{ formatTime(task.created_at) }}</span>
-                        <span v-if="task.last_read_page">
-                          上次读到第 {{ task.last_read_page }} 页
-                        </span>
-                        <span v-if="rowProgressText(task)">
-                          {{ rowProgressText(task) }}
-                        </span>
-                      </div>
+                <div v-else-if="tasks.length" class="grid3">
+                  <div v-if="taskActionError" class="alert-line">{{ taskActionError }}</div>
+                  <div v-for="task in tasks" :key="task.id" class="card paper-card">
+                    <div class="row">
+                      <span class="fname">{{ task.filename }}</span>
+                      <span class="chip" :class="statusChipMap[task.status] || ''">
+                        {{ statusTextMap[task.status] || task.status }}
+                      </span>
+                      <span v-if="task.native" class="chip">中文文献</span>
+                      <span v-else-if="task.tier" class="chip">
+                        {{ tierTextMap[task.tier] || task.tier }}
+                      </span>
                     </div>
-                    <n-space size="small" class="task-row-actions">
-                      <n-button
-                        size="small"
-                        type="primary"
-                        ghost
-                        @click="openWorkbench(task)"
-                      >
+                    <div class="meta">
+                      <span>{{ formatTime(task.created_at) }}</span>
+                      <span v-if="rowProgressText(task)">{{ rowProgressText(task) }}</span>
+                    </div>
+                    <div v-if="task.last_read_page" class="lastpos">
+                      上次读到第 {{ task.last_read_page }} 页
+                    </div>
+                    <div class="actions">
+                      <button class="btn primary sm" @click="openWorkbench(task)">
                         {{ task.status === 'completed' ? (task.last_read_page ? '继续读' : '开始阅读') : '查看进度' }}
-                      </n-button>
-                      <n-button
+                      </button>
+                      <button
                         v-if="['pending', 'in_progress'].includes(task.status)"
-                        size="small"
-                        :loading="taskActionBusy"
+                        class="btn sm"
+                        :disabled="taskActionBusy"
                         @click="cancelTask(task)"
                       >
                         取消
-                      </n-button>
-                      <n-button
+                      </button>
+                      <button
                         v-if="RETRYABLE_STATES.includes(task.status)"
-                        size="small"
-                        :loading="taskActionBusy"
+                        class="btn sm"
+                        :disabled="taskActionBusy"
                         @click="retryTask(task)"
                       >
                         重试
-                      </n-button>
-                      <n-button size="small" quaternary @click="openTaskDetail(task)">
-                        详情
-                      </n-button>
+                      </button>
+                      <button class="btn ghost sm" @click="openTaskDetail(task)">详情</button>
                       <template v-if="deleteConfirmId === task.id">
-                        <n-button
-                          size="small"
-                          type="error"
-                          :loading="taskActionBusy"
+                        <button
+                          class="btn danger sm"
+                          :disabled="taskActionBusy"
                           @click="deleteTask(task)"
                         >
                           确认删除
-                        </n-button>
-                        <n-button size="small" quaternary @click="deleteConfirmId = null">
-                          取消
-                        </n-button>
+                        </button>
+                        <button class="btn ghost sm" @click="deleteConfirmId = null">
+                          再想想
+                        </button>
                       </template>
-                      <n-button
+                      <button
                         v-else
-                        size="small"
-                        quaternary
+                        class="btn ghost sm"
                         @click="deleteConfirmId = task.id"
                       >
                         删除
-                      </n-button>
-                    </n-space>
+                      </button>
+                    </div>
                   </div>
                 </div>
               </n-spin>
-            </n-card>
           </section>
 
           <section v-if="view === 'library' && !tasks.length" class="page-section">
