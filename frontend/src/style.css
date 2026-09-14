@@ -792,6 +792,11 @@ body {
   }
 }
 
+/* ===================== 形态：L1 库页 = 标题行（篇数 + 上传入口） ===================== */
+.library-head { display: flex; flex-direction: column; gap: 2px; }
+.library-title { font-size: 18px; font-weight: 600; color: #1f2329; }
+.library-sub { font-size: 12px; }
+
 /* ===================== 形态：L2 阅读工作区（左文档 / 右助手 两栏） ===================== */
 .reader-section { max-width: 1440px; margin: 0 auto; padding: 16px 20px 32px; }
 .reader-card { display: flex; flex-direction: column; }
