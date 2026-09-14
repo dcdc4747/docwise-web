@@ -166,7 +166,12 @@ async function submitAsk() {
     const res = await authFetch(`/api/tasks/${currentTask.value.id}/ask`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ question: q }),
+      body: JSON.stringify({
+        question: q,
+        // 形态：提问锚点与出处是同一个坐标系——把划词选中的那段带给后端，
+        // 模型才知道问题里的「这句话」指哪一段（后端会按本任务的块编号校验）
+        focus_block_ids: askAnchor.value?.blockId ? [askAnchor.value.blockId] : [],
+      }),
     })
     if (!res.ok) {
       const body = await res.json().catch(() => ({}))
@@ -1464,6 +1469,14 @@ onUnmounted(stopProgress)
 
                     <n-tab-pane name="ask" tab="问答">
                       <div class="ask-panel">
+                        <div v-if="askAnchor" class="ask-anchor">
+                          <span class="ask-anchor-text">
+                            {{ askAnchorLabel }} —— 这次提问会带上你选中的那段
+                          </span>
+                          <n-button size="tiny" quaternary @click="askAnchor = null">
+                            取消锚定
+                          </n-button>
+                        </div>
                         <div class="ask-chips">
                           <n-button
                             v-for="chip in askChips"
