@@ -33,13 +33,17 @@ from ..deps import (
     get_user_for_files,
     load_owned_task,
 )
-from ..engine import TaskState, Tier
+from ..engine import TaskState, Tier, is_native_pair
 from ..llm import extract_understanding
 from ..models import AuthTicket, Task, TaskBlock, TaskHistory, TaskUnderstanding, User
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
+
+# 当前支持的语言标记（归一化后校验）。
+# zh → zh 表示"中文文献：不翻译，直接进理解层"（走取字引擎，见 engine/registry.py）。
+ALLOWED_LANGS = {"en", "zh"}
 
 # 终态：到了这里就没有"取消 / 重试"的余地了（failed/cancelled 可以重试）
 TERMINAL_STATES = {
@@ -128,6 +132,11 @@ def _serialize_task(task: Task, blocks: list[TaskBlock] | None = None) -> dict:
         "status": _status_value(task.status),
         "progress": task.progress,
         "tier": task.tier,
+        # 语言对 + "不翻译"标记：让前端知道该显示双语对照还是只显示原文，
+        # 而不是让前端再实现一遍中文判断（口径只留一处）
+        "source_lang": task.source_lang,
+        "target_lang": task.target_lang,
+        "native": is_native_pair(task.source_lang, task.target_lang),
         "created_at": task.created_at.isoformat() if task.created_at else None,
         # 诚实进度：阶段 + 已耗时 + 引擎自报剩余（都不编造，没有就是 null）
         "stage": task.stage,
@@ -437,6 +446,17 @@ async def create_task_upload(
         tier_value = Tier(tier).value
     except ValueError:
         raise HTTPException(status_code=400, detail=f"未知档位：{tier}") from None
+
+    # 语言对：zh→zh 表示"中文文献，不翻译，直接进理解层"（走取字引擎）。
+    # 归一化后再校验，避免 "ZH " 这种写法把中文文献误判成翻译任务。
+    source_lang = (source_lang or "").strip().lower() or "en"
+    target_lang = (target_lang or "").strip().lower() or "zh"
+    if source_lang not in ALLOWED_LANGS or target_lang not in ALLOWED_LANGS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"暂不支持的语言对：{source_lang} → {target_lang}"
+            f"（当前支持 {'/'.join(sorted(ALLOWED_LANGS))}）",
+        )
 
     upload_dir = storage.uploads_dir()
     dest = upload_dir / f"{uuid4().hex}_{filename}"

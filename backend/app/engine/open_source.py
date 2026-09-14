@@ -73,7 +73,6 @@ class OpenSourceEngine(TranslationEngine):
         out_dir = request.output_dir or self._temp_output_dir()
         out_dir.mkdir(parents=True, exist_ok=True)
         result_file = out_dir / "result.json"
-        log_file = out_dir / "engine.log"
         # 上一轮留下的 result.json 必须先清掉，否则会把旧结果当成本轮结果
         result_file.unlink(missing_ok=True)
 
@@ -87,33 +86,11 @@ class OpenSourceEngine(TranslationEngine):
             "--service", service,
             "--thread", "2",
         ]
-        # 输出重定向到文件（不走管道：管道写满会互相卡死，日志也留得住）
-        # PYTHONIOENCODING：Windows 下子进程默认按 GBK 写日志，读回来就是乱码，
-        # 强制 UTF-8 才能用它排查问题（对非 Python 引擎无副作用）。
-        child_env = os.environ.copy()
-        child_env["PYTHONIOENCODING"] = "utf-8"
-        child_env["PYTHONUTF8"] = "1"
-        # PYTHONUNBUFFERED：**关键**。子进程的 stderr 重定向到文件时是块缓冲的，
-        # 而进度条本来就"停在原地"（tqdm 用 `\r` 重绘、不换行），于是进度会攒在缓冲里、
-        # 直到进程快结束才一次性落盘。实测过一次：引擎其实 1 秒 1 页地在报进度，
-        # 我们却只能读到 20 秒前的 `2/10`，前端看着就是"进度条卡死、然后突然完成"。
-        child_env["PYTHONUNBUFFERED"] = "1"
-        with log_file.open("w", encoding="utf-8", errors="replace") as handle:
-            proc = subprocess.Popen(
-                cmd, env=child_env, stdout=handle, stderr=subprocess.STDOUT
-            )
-            outcome = self._wait_for_exit(proc, cancel)
+        outcome, proc, log_file = self._run_engine_command(cmd, out_dir, cancel)
 
         if outcome == "cancelled":
             logger.info("引擎子进程已终止（用户取消）：%s", request.source_path)
-            return TranslationResult(
-                task_id=str(request.source_path),
-                translated_path=None,
-                blocks=[],
-                status=TaskState.CANCELLED,
-                progress=0.0,
-                error="已取消",
-            )
+            return self._cancelled(request)
         if outcome == "timeout":
             return self._failed(
                 request,
@@ -121,6 +98,42 @@ class OpenSourceEngine(TranslationEngine):
                 f"日志尾部：{self._log_tail(log_file)}",
             )
 
+        return self._collect_result(request, result_file, log_file, proc)
+
+    def _run_engine_command(
+        self, cmd: list[str], out_dir: Path, cancel: CancelToken | None
+    ) -> tuple[str, subprocess.Popen, Path]:
+        """起引擎子进程并等它结束，返回 (outcome, proc, log_file)。
+
+        快档/中档/取字（NativeEngine）三条路共用同一套子进程纪律：
+        - 输出重定向到文件（不走管道：管道写满会互相卡死，日志也留得住）；
+        - PYTHONIOENCODING/PYTHONUTF8：Windows 下子进程默认按 GBK 写日志，
+          读回来就是乱码，强制 UTF-8 才能用它排查问题；
+        - PYTHONUNBUFFERED：**关键**。子进程 stderr 重定向到文件时是块缓冲的，
+          而 tqdm 进度条"停在原地"重绘（用 `\\r` 不换行），进度会攒在缓冲里、
+          直到进程快结束才一次性落盘——实测过一次，引擎其实 1 秒 1 页地在报进度，
+          我们却只能读到 20 秒前的 `2/10`，前端看着就是"进度条卡死、然后突然完成"。
+        """
+        log_file = out_dir / "engine.log"
+        child_env = os.environ.copy()
+        child_env["PYTHONIOENCODING"] = "utf-8"
+        child_env["PYTHONUTF8"] = "1"
+        child_env["PYTHONUNBUFFERED"] = "1"
+        with log_file.open("w", encoding="utf-8", errors="replace") as handle:
+            proc = subprocess.Popen(
+                cmd, env=child_env, stdout=handle, stderr=subprocess.STDOUT
+            )
+            outcome = self._wait_for_exit(proc, cancel)
+        return outcome, proc, log_file
+
+    def _collect_result(
+        self,
+        request: TranslateRequest,
+        result_file: Path,
+        log_file: Path,
+        proc: subprocess.Popen,
+    ) -> TranslationResult:
+        """把引擎写下的 result.json 解析成 TranslationResult（三种引擎同一套解析）。"""
         if not result_file.exists():
             return self._failed(
                 request,
@@ -153,6 +166,17 @@ class OpenSourceEngine(TranslationEngine):
             status=TaskState.COMPLETED if completed else TaskState.FAILED,
             progress=1.0 if completed else 0.0,
             error=payload.get("error"),
+        )
+
+    @staticmethod
+    def _cancelled(request: TranslateRequest) -> TranslationResult:
+        return TranslationResult(
+            task_id=str(request.source_path),
+            translated_path=None,
+            blocks=[],
+            status=TaskState.CANCELLED,
+            progress=0.0,
+            error="已取消",
         )
 
     def _failed(self, request: TranslateRequest, error: str) -> TranslationResult:

@@ -63,6 +63,21 @@ const fileAvailability = ref({ mono: false, dual: false })
 const previewCheckDone = ref(false)
 const previewLoading = ref(true)
 const selectedTier = ref('fast')
+// 文献语言：对象是"文献本身"，中文文献也支持——中文不翻译，直接抽字出导读与出处
+const selectedLang = ref('en')
+// 当前任务是不是"不需要翻译"的中文文献（后端按语言对判定，前端不重复实现一遍口径）
+const isNativeTask = computed(() => currentTask.value?.native === true)
+// 中文文献没有"双语稿"这一说，产物就是原文本身
+const bilingualTabLabel = computed(() => (isNativeTask.value ? '原文' : '双语稿'))
+const previewEmptyText = computed(() => {
+  if (isNativeTask.value) return '该任务暂无可预览的原文'
+  return previewMode.value === 'dual' ? '该任务暂无双语稿可预览' : '该任务暂无中文稿可预览'
+})
+const uploadHint = computed(() =>
+  selectedLang.value === 'zh'
+    ? '上传后自动抽取文字并生成导读；完成后可读原文、导读、术语表与带出处的问答'
+    : '上传后自动开始翻译；完成后可读双语稿、导读与术语表'
+)
 const workbenchError = ref('')
 
 // ---- 账号（B 批）：登录态、管理后台入口、演示一键登录开关 ----
@@ -131,6 +146,12 @@ const tierOptions = [
   { value: 'fast', label: '快', desc: '速度优先' },
   { value: 'medium', label: '中', desc: '质量与速度平衡' },
   { value: 'precise', label: '慢', desc: '质量优先' },
+]
+
+// 文献语言：外文要翻译，中文不用翻译（直接进理解层）
+const langOptions = [
+  { value: 'en', label: '外文文献', desc: '译成中文，出双语对照稿' },
+  { value: 'zh', label: '中文文献', desc: '不翻译，直接出导读与出处' },
 ]
 
 const tierTextMap = {
@@ -525,6 +546,9 @@ async function handleUpload({ file: fileInfo, onFinish, onError }) {
   const form = new FormData()
   form.append('file', fileInfo.file)
   form.append('tier', selectedTier.value)
+  // 语言对：zh → zh 表示"中文文献，不翻译"（后端据此走取字引擎，见 engine/registry.py）
+  form.append('source_lang', selectedLang.value)
+  form.append('target_lang', 'zh')
 
   try {
     const res = await authFetch('/api/tasks/upload', { method: 'POST', body: form })
@@ -535,6 +559,8 @@ async function handleUpload({ file: fileInfo, onFinish, onError }) {
     const task = await res.json()
     currentTask.value = task
     workbenchTab.value = 'bilingual'
+    // 中文文献只有一份产物（原稿），预览固定用 mono，避免出现"中英对照"却是同一份文件
+    if (task.native) previewMode.value = 'mono'
     engineProgress.value = null
     rememberElapsed(task)
     startElapsedTimer()
@@ -837,8 +863,26 @@ onUnmounted(stopProgress)
           </section>
 
           <section class="page-section">
-            <n-card title="上传英文文献 PDF" class="upload-card">
+            <n-card title="上传文献 PDF" class="upload-card">
               <div class="tier-picker">
+                <div class="tier-picker-head">
+                  <n-text strong>文献语言</n-text>
+                  <n-text depth="3" class="tier-picker-sub">
+                    中文文献不翻译，直接抽字出导读、术语与带出处的问答
+                  </n-text>
+                </div>
+                <n-radio-group v-model:value="selectedLang" :disabled="uploading">
+                  <n-radio-button
+                    v-for="lang in langOptions"
+                    :key="lang.value"
+                    :value="lang.value"
+                  >
+                    {{ lang.label }} · {{ lang.desc }}
+                  </n-radio-button>
+                </n-radio-group>
+              </div>
+
+              <div v-if="selectedLang !== 'zh'" class="tier-picker">
                 <div class="tier-picker-head">
                   <n-text strong>翻译档位</n-text>
                   <n-text depth="3" class="tier-picker-sub">
@@ -867,9 +911,7 @@ onUnmounted(stopProgress)
               >
                 <n-upload-dragger>
                   <div class="upload-hint">点击或拖拽 PDF 到此处</div>
-                  <div class="upload-sub">
-                    上传后自动开始翻译；完成后可读双语稿、导读与术语表
-                  </div>
+                  <div class="upload-sub">{{ uploadHint }}</div>
                 </n-upload-dragger>
               </n-upload>
 
@@ -1024,9 +1066,10 @@ onUnmounted(stopProgress)
                     size="small"
                     @update:value="switchWorkbenchTab"
                   >
-                    <n-tab-pane name="bilingual" tab="双语稿">
+                    <n-tab-pane name="bilingual" :tab="bilingualTabLabel">
                       <div class="result-toolbar">
                         <n-radio-group
+                          v-if="!isNativeTask"
                           v-model:value="previewMode"
                           size="small"
                           @update:value="refreshPreviewUrl"
@@ -1044,15 +1087,19 @@ onUnmounted(stopProgress)
                             中英对照
                           </n-radio-button>
                         </n-radio-group>
+                        <n-text v-else depth="3" class="tier-picker-sub">
+                          中文文献不翻译，这里就是原文
+                        </n-text>
                         <n-space size="small">
                           <n-button
                             size="small"
                             :disabled="previewCheckDone && !fileAvailability.mono"
                             @click="downloadFile('mono')"
                           >
-                            下载纯中文 PDF
+                            {{ isNativeTask ? '下载原稿 PDF' : '下载纯中文 PDF' }}
                           </n-button>
                           <n-button
+                            v-if="!isNativeTask"
                             size="small"
                             :disabled="previewCheckDone && !fileAvailability.dual"
                             @click="downloadFile('dual')"
@@ -1072,11 +1119,7 @@ onUnmounted(stopProgress)
                       </n-alert>
                       <n-empty
                         v-if="previewCheckDone && !fileAvailability[previewMode]"
-                        :description="
-                          previewMode === 'dual'
-                            ? '该任务暂无双语稿可预览'
-                            : '该任务暂无中文稿可预览'
-                        "
+                        :description="previewEmptyText"
                         class="result-empty"
                       />
                       <n-spin v-else :show="previewLoading" size="small">
@@ -1277,7 +1320,7 @@ onUnmounted(stopProgress)
                 <div class="history-head">
                   <span class="history-title">最近在读</span>
                   <n-text depth="3" class="history-sub">
-                    点开任意一篇，接着读双语稿 / 导读 / 术语表，也可以继续提问
+                    点开任意一篇，接着读原文 / 双语稿 / 导读 / 术语表，也可以继续提问
                   </n-text>
                 </div>
               </template>
@@ -1313,7 +1356,10 @@ onUnmounted(stopProgress)
                         >
                           {{ statusTextMap[task.status] || task.status }}
                         </n-tag>
-                        <n-tag v-if="task.tier" size="small" :bordered="false">
+                        <n-tag v-if="task.native" size="small" type="info" :bordered="false">
+                          中文文献
+                        </n-tag>
+                        <n-tag v-else-if="task.tier" size="small" :bordered="false">
                           {{ tierTextMap[task.tier] || task.tier }}
                         </n-tag>
                       </div>
