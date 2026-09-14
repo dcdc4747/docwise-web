@@ -225,10 +225,17 @@ def answer_question(
     focus = [str(item) for item in (focus_block_ids or []) if str(item)]
     focus_hint = ""
     if focus:
+        # 关键：**把锚点那段的原文贴出来**，而不是只给块编号。
+        # 实测（2026-09-14 真接口冒烟）：只给编号时，问"这一段在讲什么？"模型会回
+        # "文本中没有提供具体问题内容，无法作答"——它认不出 [p0_b1] 就是"这一段"。
+        anchored = [(bid, txt) for bid, txt in blocks if bid in set(focus)]
+        quoted = "\n".join(f"[{bid}] {txt}" for bid, txt in anchored)
         focus_hint = (
-            "\n\n【提问锚点】用户是在下面这些段落里划词提问的，"
-            f"问题里的「这句话 / 这段」指的就是它们：{', '.join(focus)}。"
-            "请优先依据这些段落回答，并让出处包含它们；确实不相关时再引用其他段落。"
+            "\n\n【提问锚点】用户是在下面这一段（或几段）里划词提问的，"
+            "问题里的「这句话 / 这段」指的就是它：\n"
+            f"{quoted}\n"
+            "请直接针对上面这段内容回答（即使问题很短、很含糊，也要按这段来答），"
+            "并让出处包含该段的块标记；确实与它无关时再引用其他段落。"
         )
     user_msg = f"文献分段文字：\n\n{labeled}{focus_hint}\n\n问题：{question}"
     content = _chat(
