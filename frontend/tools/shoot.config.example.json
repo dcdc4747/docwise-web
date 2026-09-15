@@ -1,0 +1,95 @@
+{
+  "_readme": [
+    "shoot.mjs 的示例配置（本文件是合法 JSON，可直接被 node tools/shoot.mjs 读取）。",
+    "用法: node tools/shoot.mjs tools/shoot.config.example.json [outDir]",
+    "以 _ 开头的键都是纯注释，脚本会忽略它们。",
+    "所有键除 base 与 shots 外都可省略；省略时用脚本内置默认值（见下面各行的 _note）。",
+    "跑之前先起后端（同源托管 frontend/dist）：cd backend && .venv/Scripts/python -m uvicorn app.main:app --port 8000"
+  ],
+
+  "base": "http://127.0.0.1:8000/",
+  "_base_note": "可选。shot 没写 url 时用它；配了 auth 时也用它作为「先落令牌」的种子页（必须是目标应用的源）。",
+
+  "outDir": "D:/tmp/docwise-shots",
+  "_outDir_note": "可选。PNG 输出目录；相对路径按当前工作目录解析。命令行第二个参数会覆盖它。省略时默认写到 <系统临时目录>/docwise-shots（不往仓库里丢文件）。目录不存在会自动创建。",
+
+  "chrome": "C:/Program Files/Google/Chrome/Application/chrome.exe",
+  "_chrome_note": "可选。不填则依次找 Chrome，找不到再退到 Edge（C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe）。填了但文件不存在会直接报错。",
+
+  "width": 1600,
+  "height": 1000,
+  "deviceScaleFactor": 1,
+  "_viewport_note": "可选，默认 1600x1000 @1x。shot 里可以逐张覆盖（手机端用 414x896）。同时决定 Chrome 的 --window-size 与每张截图的 Emulation.setDeviceMetricsOverride。",
+
+  "auth": {
+    "loginUrl": "http://127.0.0.1:8000/api/auth/login",
+    "username": "demo",
+    "password": "docwise2026",
+    "tokenKey": "docwise_token"
+  },
+  "_auth_note": [
+    "可选。整块省略 = 匿名截图，不做任何登录动作。",
+    "流程：先用 Node 全局 fetch 以 JSON POST {username, password} 到 loginUrl（发生在启动 Chrome 之前），",
+    "从响应 JSON 里取 token；然后每个 shot 都先导航一次把 localStorage[tokenKey] 写进去，再导航到目标 url 截图。",
+    "tokenKey 默认 docwise_token —— 必须和前端 auth.js 里存令牌用的键名一致，否则界面仍然认为未登录。",
+    "存进去的是**裸令牌字符串**（src/auth.js 的 getToken 直接读原值，不做 JSON.parse）；写完全是会回读校验的，不一致就报错。",
+    "想看空库态：先注册一个没有任务的新账号（POST /api/auth/register），再用那对账号密码跑一份单独配置。"
+  ],
+
+  "shots": [
+    {
+      "name": "01-library-history",
+      "url": "http://127.0.0.1:8000/",
+      "_note": "name 决定文件名 <outDir>/<name>.png；省略则用 shot-01、shot-02…… url 省略则用顶层 base。",
+      "steps": [
+        { "waitFor": "!!document.querySelector('.paper-card')", "timeout": 10000 },
+        { "wait": 600 }
+      ]
+    },
+    {
+      "name": "02-reading-workspace",
+      "url": "http://127.0.0.1:8000/",
+      "steps": [
+        { "waitFor": "!!document.querySelector('.paper-card')", "timeout": 10000 },
+        { "eval": "document.querySelector('.paper-card .actions .btn.primary').click()" },
+        { "waitFor": "!!document.querySelector('.reader-body')", "timeout": 10000 },
+        { "eval": "[...document.querySelectorAll('.assist .tabs button')].find(b => b.textContent.includes('导读')).click()" },
+        { "wait": 2500 }
+      ]
+    },
+    {
+      "name": "03-more-menu",
+      "url": "http://127.0.0.1:8000/",
+      "steps": [
+        { "waitFor": "!!document.querySelector('.paper-card')", "timeout": 10000 },
+        { "eval": "document.querySelector('.paper-card .actions .btn.primary').click()" },
+        { "waitFor": "!!document.querySelector('.reader-body')", "timeout": 10000 },
+        { "wait": 800 },
+        { "eval": "document.querySelectorAll('.reader-top .menu-wrap')[2].querySelector('button').click()" },
+        { "wait": 400 }
+      ]
+    },
+    {
+      "name": "04-mobile",
+      "url": "http://127.0.0.1:8000/",
+      "width": 414,
+      "height": 896,
+      "_note": "窄屏（<1024px）会自动切成 .mobile-reader + 底部抽屉；桌面那条 .reader-top 不再渲染。",
+      "steps": [
+        { "waitFor": "!!document.querySelector('.paper-card')", "timeout": 10000 },
+        { "eval": "document.querySelector('.paper-card .actions .btn.primary').click()" },
+        { "waitFor": "!!document.querySelector('.mobile-reader')", "timeout": 10000 },
+        { "wait": 1500 }
+      ]
+    }
+  ],
+
+  "_steps_note": [
+    "steps 是数组，每个元素必须且只能包含下列四种之一（写多或写错都会报错并退出码 1）：",
+    "  { \"wait\": 1200 }                                   —— 睡 1200 毫秒。",
+    "  { \"waitFor\": \"<js 表达式>\", \"timeout\": 8000 }      —— 每 150ms 求值一次，直到结果为真；超时抛错（错误里带 shot 名与表达式）。timeout 默认 8000。",
+    "  { \"eval\": \"<js 表达式>\" }                           —— 跑一下，忽略返回值（表达式抛错只在 stderr 告警，不中断）。",
+    "  { \"click\": \"<css 选择器>\" }                         —— querySelector 后 .click()；找不到元素直接抛错（带 shot 名、步骤序号与选择器）。",
+    "每个 shot 的顺序固定为：设置视口 → （有 auth 时）落令牌 → 导航到 url → 跑 steps → 截图，全部跑完打印一行 saved <name>.png <width>x<height>。"
+  ]
+}
