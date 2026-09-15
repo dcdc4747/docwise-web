@@ -16,7 +16,17 @@
 - **出处硬约定**：一律显示「第 X 页 · 第 Y 段」（`src/blockLabel.js`；段号按页内重算，**绝不裸露块编号**）；
   点出处要滚到那一段并高亮脉冲；无出处的要点置灰不可点（死链不许做成活链样式）；术语定位**命中后回填**，未命中直说。
 - **提问锚点**：段落精读里划词 → 提问请求带 `focus_block_ids`（后端只收本任务真实存在的块编号）。
-- **手机（<1024px）**：段落视图全宽 + 助手变底部抽屉三档（peek / 半屏 / 近全屏），点出处自动降 peek。
+- **手机（<1024px）**：段落视图全宽 + 助手变底部抽屉三档（peek / 半屏 / 近全屏），点出处自动降 peek；
+  **窄屏只渲染 `.ptop` 一条顶栏**（← / 文件名 / 原版·段落 / ⤓ / ⋯），桌面那条 `.reader-top` 整条不渲染——
+  两条顶栏叠起来会白吃掉首屏一百多像素（照原型比对时抓出来的偏差）。
+- **照原型搬的规矩（别只搬配色）**：原型是**设计权威**（与 `docs/产品形态说明.md` 冲突时以原型为准）。
+  搬法是三步：① 原型 `<style>` 整段搬进 `src/style.css` 的 `.dw` 命名空间（**不许污染登录页 / 管理后台**）；
+  ② 模板**照抄结构层级与类名**；③ 原型末尾那段命令式 JS 重写成 `ref` / `computed` / `watch`
+  （不在 Vue 里再搞一套 `querySelector` 改 DOM）。原型里的 `.proto-bar`（屏切换导航）与 `.phone`（手机外框）
+  是**原型自己的示意外壳，不属于产品界面**。旧结构类名（`reader-card` / `workbench-head` / `reader-doc` /
+  `reader-assist` / `ask-panel` …）一律不许留——`frontend/tests/app.smoke.test.js` 里有黑名单，结构退化会红。
+- 验收基准是**逐屏与原型截图并排比对**，不是口头说「对上了」；取图用 `frontend/tools/shoot.mjs`
+  （零依赖 CDP 截图驱动，配置样例见 `frontend/tools/shoot.config.example.json`）。
 - 完整形态定义见 `docs/产品形态说明.md`；可点原型见 `frontend/prototype/product-form.html`。
 
 ## 分工与协作（按任务，不固定模块归属）
@@ -96,8 +106,8 @@ backend/
 - 诚实进度的测试见 `test_progress.py`：解析样本取自**真实 engine.log**；其中一个用例让假引擎往 `engine.log` 写 tqdm 进度，并断言"进度在引擎还在跑的时候就落库了"（不是等结束才一次性写）。
 - 同源部署的测试见 `test_same_origin.py`：断言 `/api`、`/files` 下的未知路径仍是 **JSON 404**（没被 SPA 回退成 HTML）、只有 `Accept: text/html` 才回退壳、入口文件带 `no-cache`、**产物缺失时不挂载也不报错**，以及一条结构性断言"挂载点之后不许再有 `/api`、`/files` 路由"（防有人把路由写回 `main.py` 末尾挂载之后）。
 - 前端 `bun dev` 能跑、页面正常；界面改动请在 PR 里贴截图。
-- **前端渲染检查（必须有）**：`cd frontend && bun run test`（vitest + happy-dom，16 个用例）。加这个是因为真出过事故——模板里把函数当值插值（少写一对括号），Vue 会 `String(fn)` 把**整个函数源码印在页面上**，而 `vite build` 一声不吭，最后是用户截图发现的。所以：
-  - `tests/app.smoke.test.js` 会真的挂载 `App.vue`、走一遍"打开一篇正在翻译的论文"，断言页面文本**不含任何源码痕迹**（`function `、`=>`、`{{` 等），并断言进度区显示的是人话；
+- **前端渲染检查（必须有）**：`cd frontend && bun run test`（vitest + happy-dom，47 个用例：progressText 17 + blockLabel 12 + App.vue 渲染冒烟 18）。加这个是因为真出过事故——模板里把函数当值插值（少写一对括号），Vue 会 `String(fn)` 把**整个函数源码印在页面上**，而 `vite build` 一声不吭，最后是用户截图发现的。所以：
+  - `tests/app.smoke.test.js` 会真的挂载 `App.vue`、走一遍"打开一篇正在翻译的论文"，断言页面文本**不含任何源码痕迹**（`function `、`=>`、`{{` 等），并断言进度区显示的是人话；**同时直接锁原型的结构类名、断言旧结构类名一个都不出现**（`FORBIDDEN_LEGACY`）；
   - `tests/progressText.test.js` 单测进度文案逻辑（`src/progressText.js`）；
   - **模板里要渲染的值一律用 `computed` 或 `ref`**（别用普通函数），这样"少写括号"也不会出事；
   - 新增界面功能请顺手补一个用例，别让这类问题再靠用户的眼睛来发现。
