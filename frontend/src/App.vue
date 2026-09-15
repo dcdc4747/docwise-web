@@ -29,6 +29,7 @@ import {
 } from './auth'
 import LoginView from './components/LoginView.vue'
 import AdminView from './components/AdminView.vue'
+import PdfPane from './components/PdfPane.vue'
 import {
   enginePageText,
   etaTextFor,
@@ -248,9 +249,8 @@ const assistTabs = [
 ]
 
 const blocks = ref([])
-const previewSrc = ref('')
-/** PDF 预览要落在第几页（1 起；0/1 = 不拼 #page）。点出处跳页、以及从段落精读切过来时用。 */
-const pdfPage = ref(0)
+/** 从段落精读切到 PDF 时要落在第几页（1 起；0/1 = 从头）。 */
+const pdfStartPage = ref(0)
 /** 段落精读里"当前读到第几页"（滚动时更新）——切到 PDF 模式要接着读，不能每次都回第 1 页。 */
 const currentPage = ref(1)
 const fileAvailability = ref({ mono: false, dual: false })
@@ -425,11 +425,6 @@ const docModeLabel = computed(
   () => docModeOptions.value.find((item) => item.value === docMode.value)?.label || '段落精读',
 )
 
-const previewEmptyText = computed(() => {
-  if (isNativeTask.value) return '该任务暂无可预览的原文'
-  return docMode.value === 'dual' ? '该任务暂无双语稿可预览' : '该任务暂无可预览的译稿'
-})
-
 const docEmptyText = computed(() => {
   const task = currentTask.value
   if (!task) return ''
@@ -489,14 +484,14 @@ function scrollWithinPane(el) {
 }
 
 /**
- * 点出处 → 尽力定位到原文那一段。
+ * 点出处 → 定位到原文那一段。
  *
- * 两条路（PDF 模式与段落精读是两套渲染，能力边界不一样，界面上不许含糊）：
+ * 两条路（段落精读与 PDF 是两套渲染，但**都要真的落到那一段上**）：
  * ① **段落精读**：我们自己的 DOM → 滚入视口中部 + 高亮脉冲一次（形态硬约束④）。
- * ② **原版 / 纯中文 / 双语 PDF**：左栏是 `<iframe>`，里面是浏览器自带的阅读器（PDFium），
- *    拿不到 DOM、画不了高亮——但**页码能跳**（Chrome / Edge / Firefox 的内置阅读器都认
- *    URL 上的 `#page=N`）。所以这里跳页并**明说只到页级**，绝不假装做了段落高亮。
- * 定位不到就明说（原型 .honest 那条：宁可不给，也不假高亮）。
+ * ② **原版 / 纯中文 / 双语 PDF**：交给 `<PdfPane>`（pdf.js 渲染 + 文字层索引）——
+ *    按块文本在文字层里找，找到就滚过去 + 画高亮框，还会在文字层里如实回报"对没对上"。
+ *    对不上时它只翻到那一页、**一个高亮框都不画**，由 `onPdfLocate` 把话说清楚
+ *    （纯中文稿里是中文译文、块里存的是原文，本来就对不上——宁可不给，也不假高亮）。
  */
 async function traceTo(blockId, { silent = false } = {}) {
   if (!blockId) return false
@@ -511,9 +506,7 @@ async function traceTo(blockId, { silent = false } = {}) {
       return false
     }
     honestNote.value = ''
-    pdfPage.value = page
-    await refreshPreviewUrl()
-    setNote(`已跳到第 ${page} 页——PDF 预览只能定位到页；要看那一段被高亮，切「段落精读」。`)
+    await locateBlockInPdf(blockId)
     return true
   }
 
@@ -871,14 +864,34 @@ function stepFont(delta) {
   pdocScale.value = Math.min(1.4, Math.max(0.85, next))
 }
 
-/** 手机顶栏那颗「原版 / 段落」：在段落视图与原版 PDF 之间来回切（产物没就绪就直说）。 */
+/**
+ * 手机顶栏那颗「原版 / 段落」：在段落视图与**某一份 PDF** 之间来回切。
+ *
+ * 按钮上写的必须是它真打开的那一份——外文文献的产物是纯中文稿 / 双语稿，
+ * 写「原版」会让人以为看到的是英文原稿（我们并不存那一份），所以按实际产物命名；
+ * 默认挑双语稿（原页 + 译页都在），中文文献则挑原稿。
+ */
+const pdfQuickMode = computed(() => {
+  const rest = docModeOptions.value.filter((item) => item.value !== 'paragraph')
+  if (!rest.length) return null
+  if (isNativeTask.value) return rest[0]
+  return rest.find((item) => item.value === 'dual') || rest[0]
+})
+
+const pdfQuickLabel = computed(() => {
+  const target = pdfQuickMode.value
+  if (!target) return ''
+  if (target.value === 'dual') return '双语稿'
+  return isNativeTask.value ? '原稿' : '纯中文稿'
+})
+
 const mobileOriginalTitle = computed(() =>
-  docMode.value === 'paragraph' ? '看原版 PDF' : '回到段落视图',
+  docMode.value === 'paragraph' ? `看 ${pdfQuickLabel.value} 的 PDF` : '回到段落视图',
 )
 
 function toggleMobileOriginal() {
   if (docMode.value === 'paragraph') {
-    const target = docModeOptions.value.find((item) => item.value !== 'paragraph')
+    const target = pdfQuickMode.value
     if (!target) {
       setNote(isNativeTask.value ? '这篇没有可预览的原稿 PDF。' : '这份产物还没就绪——翻译完成后才有可预览的 PDF。')
       return
@@ -1062,7 +1075,6 @@ async function refreshWorkbench(taskId) {
   if (!docModeOptions.value.some((item) => item.value === docMode.value)) {
     docMode.value = 'paragraph'
   }
-  await refreshPreviewUrl()
   if (data.understanding_status === 'ready') loadUnderstanding(taskId)
   return data
 }
@@ -1084,8 +1096,9 @@ function resetWorkbench() {
   searchOpen.value = false
   searchTerm.value = ''
   menuNote.value = ''
-  previewSrc.value = ''
-  pdfPage.value = 0
+  pdfStartPage.value = 0
+  locateText.value = ''
+  pendingBlockId.value = ''
   currentPage.value = 1
   fileAvailability.value = { mono: false, dual: false }
   sheetState.value = 'peek'
@@ -1272,25 +1285,56 @@ function stopProgress() {
 }
 
 // ---- 预览 / 下载 ----
+//
+// 左栏三个 PDF 模式（原版 / 纯中文 / 双语）都由 `<PdfPane>` 用 pdf.js 渲染，
+// **不再是 iframe**：iframe 里是浏览器自带的阅读器，拿不到文字位置，
+// "点出处跳到那一段"和"点 PDF 里的段落提问"就做不到。
+// 这里只负责把"要定位哪一段"传下去、把结果说成人话。
 
-async function refreshPreviewUrl() {
-  const task = currentTask.value
-  if (!task || docMode.value === 'paragraph' || !fileAvailability.value[docMode.value]) {
-    previewSrc.value = ''
+/** 要 PDF 去定位的原文（块里的 text）。 */
+const locateText = ref('')
+/** 每次请求定位都 +1：同一个块再点一次也要重新定位。 */
+const locateKey = ref(0)
+/** 正在定位的那个块编号（算"对不上时至少翻到第几页"用）。 */
+const pendingBlockId = ref('')
+
+const pdfFallbackPage = computed(() => {
+  const parsed = parseBlockId(pendingBlockId.value)
+  return parsed ? parsed.page + 1 : 0
+})
+
+/** 点出处时把块文本交出去定位。块还没加载就先加载（术语定位也是这个套路）。 */
+async function locateBlockInPdf(blockId) {
+  if (!currentTask.value) return
+  if (!blocks.value.length) await loadBlocks(currentTask.value.id)
+  const block = blocks.value.find((item) => item.block_id === blockId)
+  pendingBlockId.value = blockId
+  locateText.value = block ? block.text || '' : ''
+  locateKey.value += 1
+}
+
+/** PdfPane 的定位结果：找得到就说找到了，找不到**如实说**（宁可不给，也不假高亮）。 */
+function onPdfLocate(result) {
+  const label = labelOf(pendingBlockId.value) || '这一段'
+  if (result.found) {
+    honestNote.value = ''
+    setNote(`已在 PDF 里定位到 ${label}——高亮在左栏。`)
     return
   }
-  try {
-    const url = await urlWithTicket(
-      `/api/tasks/${task.id}/files/${docMode.value}`,
-      task.id,
-      'files',
-    )
-    // PDF 模式下点出处只能跳到页（#page=N 是浏览器内置阅读器认的参数）；
-    // 段落级高亮做不到——iframe 里那个阅读器不给我们 DOM
-    previewSrc.value = pdfPage.value >= 1 ? `${url}#page=${pdfPage.value}` : url
-  } catch {
-    previewSrc.value = ''
-  }
+  honestNote.value =
+    '这段没能在这份 PDF 的文字层里对上——只翻到了它所在的页，没有假高亮。' +
+    '（纯中文稿里是中文译文、块里存的是原文，本来就对不上；要看那一段被高亮，切「段落精读」。）'
+  setNote(result.page ? `只翻到了第 ${result.page} 页：${label} 在这份 PDF 里没对上。` : `${label} 没能定位到。`)
+}
+
+/** PdfPane 里点了一段 → 带着这一段去提问（能对上块就用块编号当锚点）。 */
+function onPdfAsk({ text, context }) {
+  const block = findBlockByText(context || text, blocks.value) || findBlockByText(text, blocks.value)
+  askAnchor.value = block ? { blockId: block.block_id, text } : null
+  askQuestion.value = `就这段提问：${text}`
+  assistTab.value = 'ask'
+  if (isNarrow.value && sheetState.value === 'peek') sheetState.value = 'half'
+  submitAsk()
 }
 
 async function setDocMode(mode) {
@@ -1300,14 +1344,25 @@ async function setDocMode(mode) {
     setNote('这份产物还没就绪——翻译完成后才有可预览的 PDF。')
     return
   }
-  // 段落精读 → PDF：**接着读**（把当前页带过去），别每次都回到第 1 页
-  if (docMode.value === 'paragraph' && mode !== 'paragraph') {
-    pdfPage.value = Math.max(1, currentPage.value)
-  }
-  if (mode === 'paragraph') pdfPage.value = 0
   docMode.value = mode
-  await refreshPreviewUrl()
+  if (mode !== 'paragraph') {
+    // 段落精读 → PDF：**接着读**（把当前页带过去），别每次都回到第 1 页
+    pendingBlockId.value = firstBlockIdOnPage(currentPage.value)
+    locateText.value = ''
+    pdfStartPage.value = Math.max(1, currentPage.value)
+  }
 }
+
+/** 第 N 页（人从 1 数）的第一个块编号——用它把"第几页"翻译成 PdfPane 认得的东西。 */
+function firstBlockIdOnPage(page) {
+  if (!page) return ''
+  const hit = blocks.value.find((block) => {
+    const parsed = parseBlockId(block.block_id)
+    return parsed && parsed.page + 1 === page
+  })
+  return hit ? hit.block_id : ''
+}
+
 
 /** 下载入口只有一个名字（「下载译稿 ▾」），具体下哪份在里面选。 */
 const downloadOptions = computed(() => {
@@ -1948,10 +2003,20 @@ function openDeletePanel() {
               </template>
             </div>
 
-            <!-- 左栏 · 原版 PDF（浏览器自带阅读器，拿不到 DOM，所以只做预览与下载） -->
+            <!-- 左栏 · 原版 / 纯中文 / 双语 PDF：pdf.js 渲染（有文字层，所以能定位、能点段落提问） -->
             <div v-else-if="!isNarrow" class="doc-pane pdf-mode">
-              <div v-if="!previewSrc" class="card doc-note">{{ previewEmptyText }}</div>
-              <iframe v-else :key="previewSrc" class="pdf-preview" :src="previewSrc" title="译稿预览" />
+              <PdfPane
+                :task-id="currentTask.id"
+                :variant="docMode"
+                :doc-page-count="docPageCount"
+                :start-page="pdfStartPage"
+                :locate-text="locateText"
+                :locate-key="locateKey"
+                :fallback-page="pdfFallbackPage"
+                @locate="onPdfLocate"
+                @ask="onPdfAsk"
+                @page-change="(n) => (currentPage = n)"
+              />
             </div>
 
             <!-- 手机 · 顶栏是 .ptop（原型手机屏就是这么一根），不是桌面那条 reader-top -->
@@ -1962,7 +2027,7 @@ function openDeletePanel() {
                 <span class="fname">{{ currentTask.filename }}</span>
                 <span class="spacer" />
                 <button class="btn ghost sm ptop-icon" :title="mobileOriginalTitle" @click="toggleMobileOriginal">
-                  {{ docMode === 'paragraph' ? '原版' : '段落' }}
+                  {{ docMode === 'paragraph' ? pdfQuickLabel : '段落' }}
                 </button>
                 <!-- 下载入口只有一个名字（「下载译稿 ▾」），手机上不例外 -->
                 <div class="menu-wrap">
@@ -2053,10 +2118,20 @@ function openDeletePanel() {
                   </template>
                 </template>
               </div>
-              <!-- 手机上的「原版」：还是那个 iframe，换的是容器 -->
+              <!-- 手机上的「原版」：同一套 pdf.js 视图，换的是容器 -->
               <div v-else class="pdoc-pdf">
-                <div v-if="!previewSrc" class="card doc-note">{{ previewEmptyText }}</div>
-                <iframe v-else :key="previewSrc" class="pdf-preview" :src="previewSrc" title="译稿预览" />
+                <PdfPane
+                  :task-id="currentTask.id"
+                  :variant="docMode"
+                  :doc-page-count="docPageCount"
+                  :start-page="pdfStartPage"
+                  :locate-text="locateText"
+                  :locate-key="locateKey"
+                  :fallback-page="pdfFallbackPage"
+                  @locate="onPdfLocate"
+                  @ask="onPdfAsk"
+                  @page-change="(n) => (currentPage = n)"
+                />
               </div>
             </div>
 

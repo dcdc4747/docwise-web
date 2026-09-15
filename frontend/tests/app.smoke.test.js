@@ -14,6 +14,86 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import App from '../src/App.vue'
 
+/**
+ * pdf.js 在 happy-dom 里画不了 canvas（没有 2d 上下文），所以把加载层换掉，
+ * 换成"能拿到文字层"的假文档——**定位与命中这一层才是要测的东西**，
+ * 而它们全都建立在文字层坐标上，跟真不真画没关系。
+ *
+ * 假文档按取回来的字节打标签（mono / dual）：纯中文稿里**故意不含**块文本，
+ * 用来验证"对不上时只翻页、不假高亮"这条硬约束。
+ */
+const FAKE_PAGES = {
+  dual: [
+    {
+      n: 1,
+      items: [{ str: 'first block', x: 10, y: 100, w: 66 }],
+    },
+    {
+      n: 2,
+      items: [
+        { str: 'third block', x: 10, y: 100, w: 66 },
+        { str: 'second block', x: 10, y: 80, w: 72 },
+      ],
+    },
+  ],
+  mono: [
+    {
+      n: 1,
+      items: [{ str: '这是中文译稿的一段，和块里的英文原文对不上', x: 10, y: 100, w: 300 }],
+    },
+  ],
+}
+
+function fakeDocument(tag) {
+  const pages = FAKE_PAGES[tag] || FAKE_PAGES.dual
+  return {
+    numPages: pages.length,
+    destroy() {},
+    async getPage(n) {
+      const page = pages.find((p) => p.n === n) || pages[0]
+      return {
+        getViewport: ({ scale }) => ({ width: 600 * scale, height: 800 * scale, scale, transform: [] }),
+        async getTextContent() {
+          return {
+            items: page.items.map((it) => ({
+              str: it.str,
+              // pdf.js 的文本矩阵：[a,b,c,d,e,f]，e=x、f=基线 y
+              transform: [10, 0, 0, 10, it.x, it.y],
+              width: it.w,
+              height: 10,
+            })),
+          }
+        },
+        async render() {
+          return { promise: Promise.resolve() }
+        },
+        cleanup() {},
+      }
+    },
+  }
+}
+
+vi.mock('../src/pdfLoader', () => {
+  const pdfjs = { Util: { transform: (_viewport, item) => item } }
+  return {
+    loadPdfjs: async () => pdfjs,
+    itemBox: (lib, viewport, item) => {
+      const m = item.transform
+      return {
+        text: item.str,
+        x: m[4],
+        y: m[5],
+        w: (item.width || 0) * (viewport.scale || 1),
+        h: Math.hypot(m[2], m[3]) || 10,
+      }
+    },
+    openPdfDocument: async ({ getBytes }) => {
+      const bytes = await getBytes()
+      return { doc: fakeDocument(new TextDecoder().decode(bytes)), pdfjs }
+    },
+  }
+})
+
 const HEALTH = {
   status: 'ok',
   service: 'docwise-web',
@@ -93,6 +173,15 @@ function stubFetch(options = {}) {
     if (url.includes('/api/health')) return jsonOf(HEALTH)
     if (url.includes('/api/auth/me')) return jsonOf(USER)
     if (url.includes('/api/auth/ticket') && method === 'POST') return jsonOf({ ticket: 't' })
+    // PDF 字节：pdf.js 那条路是"取回 ArrayBuffer 一次性喂进去"（不走 ?ticket=，票据会中途过期）
+    if (/\/files\/(mono|dual)/.test(url)) {
+      const tag = url.includes('/dual') ? 'dual' : 'mono'
+      return {
+        ok: true,
+        status: 200,
+        arrayBuffer: async () => new TextEncoder().encode(tag).buffer,
+      }
+    }
     if (url.includes('/understanding')) return jsonOf(understanding)
     if (url.includes('/ask')) return jsonOf(ask)
     if (url.includes('/reading-position')) return jsonOf({ last_read_page: 1 })
@@ -532,9 +621,9 @@ describe('App.vue 页面渲染', () => {
     }
   })
 
-  it('PDF 模式里点出处：iframe 跳到 #page=N 并如实说只到页级（不假装做了段落高亮）', async () => {
+  it('PDF 模式：点出处 → 在 PDF 文字层里定位到那一段并高亮；点 PDF 的段落 → 就这段提问', async () => {
     const { task, detail } = completedFixture()
-    const answer = { answer: '按原文所述。', source_block_ids: ['p0_b0'], mode: 'full' }
+    const answer = { answer: '按原文所述。', source_block_ids: ['p1_b2'], mode: 'full' }
     globalThis.fetch = stubFetch({ tasks: [task], detail, ask: answer })
     wrapper = mountApp()
     await flushPromises()
@@ -552,22 +641,63 @@ describe('App.vue 页面渲染', () => {
     await dual.trigger('click')
     await flushPromises()
 
-    // 切过去要**接着读**：刚在段落精读的第 2 页（last_read_page），PDF 也开在第 2 页
-    const iframe = () => wrapper.find('.doc-pane iframe.pdf-preview').attributes('src')
-    expect(iframe()).toContain('#page=2')
+    // 左栏是 pdf.js 的视图（有文字层），不再是 iframe
+    expect(wrapper.find('.doc-pane .pdf-pane').exists()).toBe(true)
+    expect(wrapper.find('.doc-pane iframe').exists()).toBe(false)
+    expect(wrapper.findAll('.pdf-page').length).toBe(2)
 
-    // 点一条出处（p0_b0 = 第 1 页）→ 不许把用户踢回段落精读，也不许假装打了高亮
+    // 点一条出处（p1_b2 的块文本是 third block，在第 2 页）→ 高亮框画出来
+    await buttonByText(wrapper, '局限与不足').trigger('click')
+    await flushPromises()
+    await wrapper.find('.assist .srcs .src-tag').trigger('click')
+    await flushPromises()
+    expect(wrapper.findAll('.pdf-hl').length).toBe(1)
+    expect(wrapper.text()).toContain('已在 PDF 里定位到 第 2 页 · 第 1 段')
+
+    // 点 PDF 里的某一行 → 浮出「就这段提问」→ 带着这一段去提问
+    const pageTwo = wrapper.find('.pdf-page[data-page="2"]')
+    await pageTwo.trigger('click', { clientX: 15, clientY: 95 })
+    const chip = wrapper.find('.pdf-chip')
+    expect(chip.exists()).toBe(true)
+    expect(chip.text()).toBe('就这段提问')
+    await chip.trigger('click')
+    await flushPromises()
+
+    const turn = wrapper.findAll('.assist .turn').at(-1)
+    expect(turn.find('.bubble-q').text()).toBe('就这段提问：third block')
+    // 能对上块就用块编号当锚点（提问锚点与出处同一坐标系）
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/ask'),
+      expect.objectContaining({ body: expect.stringContaining('"focus_block_ids":["p1_b2"]') }),
+    )
+  })
+
+  it('纯中文稿对不上块文本时：只翻页，绝不假高亮（如实说为什么）', async () => {
+    const { task, detail } = completedFixture()
+    // 出处指向第 2 页的块；纯中文稿里是中文译文，块里存的是英文原文 → 本来就对不上
+    const answer = { answer: '按原文所述。', source_block_ids: ['p1_b2'], mode: 'full' }
+    globalThis.fetch = stubFetch({ tasks: [task], detail, ask: answer })
+    wrapper = mountApp()
+    await flushPromises()
+    await buttonByText(wrapper, '继续读').trigger('click')
+    await flushPromises()
+
+    const modeWrap = wrapper
+      .findAll('.reader-top .menu-wrap')
+      .find((m) => m.text().includes('段落精读'))
+    await modeWrap.find('.chip').trigger('click')
+    await modeWrap.findAll('.menu button').find((b) => b.text().includes('纯中文')).trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('.pdf-pane').exists()).toBe(true)
     await buttonByText(wrapper, '局限与不足').trigger('click')
     await flushPromises()
     await wrapper.find('.assist .srcs .src-tag').trigger('click')
     await flushPromises()
 
-    expect(wrapper.find('.doc-pane iframe.pdf-preview').exists()).toBe(true)
-    expect(iframe()).toContain('#page=1')
-    // 只能定位到页，界面上必须说出来（硬约束④：做不到就别装）
-    expect(wrapper.text()).toContain('只能定位到页')
-    // 段落精读那套 DOM 不在，也就没有哪个段落能被假装高亮
-    expect(wrapper.find('.doc-pane p#p0_b0').exists()).toBe(false)
+    // 一个高亮框都不许画
+    expect(wrapper.findAll('.pdf-hl').length).toBe(0)
+    expect(wrapper.find('.assist .honest').text()).toContain('没能在这份 PDF 的文字层里对上')
   })
 
   it('导读：有出处的写完坐标可点，无出处的置灰不可点并说明为什么（死链不许做成活链样式）', async () => {
@@ -829,11 +959,14 @@ describe('App.vue 页面渲染', () => {
       .find((m) => m.find('button').text() === '⤓')
     expect(mobileDl.findAll('.menu button').map((b) => b.text())).toEqual(['下载双语稿', '下载纯中文稿'])
 
-    // 手机上的「原版」真的能看图：切到 iframe（同一个产物，不是另做一套渲染），再切回段落视图
-    await wrapper.findAll('.ptop button').find((b) => b.text() === '原版').trigger('click')
+    // 手机上的「原版」真的能看图：切到 pdf.js 视图（同一份产物，不是另做一套渲染），再切回段落视图
+    // 按钮名写的是它真打开的那一份（外文文献默认双语稿；写「原版」会让人以为看到英文原稿）
+    const toPdf = wrapper.findAll('.ptop button').find((b) => b.text() === '双语稿')
+    expect(toPdf, '手机顶栏没有"看 PDF"的入口').toBeTruthy()
+    await toPdf.trigger('click')
     await flushPromises()
     expect(wrapper.find('.mobile-reader .pdoc').exists()).toBe(false)
-    expect(wrapper.find('.mobile-reader .pdoc-pdf iframe.pdf-preview').exists()).toBe(true)
+    expect(wrapper.find('.mobile-reader .pdoc-pdf .pdf-pane').exists()).toBe(true)
     await wrapper.findAll('.ptop button').find((b) => b.text() === '段落').trigger('click')
     await flushPromises()
     expect(wrapper.find('.mobile-reader .pdoc').exists()).toBe(true)
