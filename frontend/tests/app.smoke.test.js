@@ -654,14 +654,20 @@ describe('App.vue 页面渲染', () => {
     expect(wrapper.findAll('.pdf-hl').length).toBe(1)
     expect(wrapper.text()).toContain('已在 PDF 里定位到 第 2 页 · 第 1 段')
 
-    // 点 PDF 里的某一行 → 浮出「就这段提问」→ 带着这一段去提问
-    const pageTwo = wrapper.find('.pdf-page[data-page="2"]')
-    await pageTwo.trigger('click', { clientX: 15, clientY: 95 })
+    // 点 PDF 里的某一行：那一行**当场点亮**（选中态留着），并浮出「就这段提问」
+    const hit = wrapper.find('.pdf-page[data-page="2"] .pdf-hit[data-line="0"]')
+    expect(hit.exists()).toBe(true)
+    await hit.trigger('click')
+    expect(wrapper.find('.pdf-sel').exists()).toBe(true)
     const chip = wrapper.find('.pdf-chip')
     expect(chip.exists()).toBe(true)
     expect(chip.text()).toBe('就这段提问')
     await chip.trigger('click')
     await flushPromises()
+
+    // 问过之后：浮标收起来，但**高亮留着**——让用户看得见自己问的是哪一段
+    expect(wrapper.find('.pdf-chip').exists()).toBe(false)
+    expect(wrapper.find('.pdf-sel').exists()).toBe(true)
 
     const turn = wrapper.findAll('.assist .turn').at(-1)
     expect(turn.find('.bubble-q').text()).toBe('就这段提问：third block')
@@ -670,6 +676,32 @@ describe('App.vue 页面渲染', () => {
       expect.stringContaining('/ask'),
       expect.objectContaining({ body: expect.stringContaining('"focus_block_ids":["p1_b2"]') }),
     )
+  })
+
+  it('段落精读：点正文那一段本身就亮，不是只有「看原文」才亮；再点一次取消', async () => {
+    const { task, detail } = completedFixture()
+    globalThis.fetch = stubFetch({ tasks: [task], detail })
+    wrapper = mountApp()
+    await flushPromises()
+    await buttonByText(wrapper, '继续读').trigger('click')
+    await flushPromises()
+
+    const para = () => wrapper.find('.doc-pane p#p0_b0')
+    expect(para().classes()).not.toContain('sel')
+
+    await para().trigger('click')
+    expect(para().classes()).toContain('sel')
+    expect(wrapper.find('.doc-pane .selchip').exists()).toBe(true)
+
+    // 同一段再点一次 = 取消选中
+    await para().trigger('click')
+    expect(para().classes()).not.toContain('sel')
+    expect(wrapper.find('.doc-pane .selchip').exists()).toBe(false)
+
+    // 点另一段：选中态跟着换过去，不会两段同时亮
+    await wrapper.find('.doc-pane p#p0_b1').trigger('click')
+    expect(wrapper.find('.doc-pane p#p0_b1').classes()).toContain('sel')
+    expect(para().classes()).not.toContain('sel')
   })
 
   it('纯中文稿对不上块文本时：只翻页，绝不假高亮（如实说为什么）', async () => {

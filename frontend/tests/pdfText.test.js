@@ -13,7 +13,6 @@ import {
   contextAround,
   findInPage,
   findTextInPages,
-  hitLine,
   pdfNormalize,
   squash,
 } from '../src/pdfText'
@@ -112,19 +111,6 @@ describe('pdfText：按文本找位置', () => {
       'aw firms are rapidly integrating artificial intelligence (ai) into workflows, as evi-',
     )
   })})
-
-describe('pdfText：点一下落在哪一行', () => {
-  const lines = buildLines([box('first', 10, 100), box('second', 10, 80)])
-
-  it('落在行框里就命中那一行', () => {
-    expect(hitLine(lines, 20, 96)).toBe(0)
-    expect(hitLine(lines, 20, 76)).toBe(1)
-  })
-
-  it('点在行外返回 -1（别把空白处的点击当成某一段）', () => {
-    expect(hitLine(lines, 400, 96)).toBe(-1)
-  })
-})
 
 describe('pdfText：单页索引', () => {
   it('owners 记录每个字符属于哪一行', () => {
