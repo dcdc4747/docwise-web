@@ -534,9 +534,43 @@ async function traceTo(blockId, { silent = false } = {}) {
   return true
 }
 
-// ---- 划词浮标（桌面才是句子级；手机热区收窄到段号，不与系统手势抢）----
+/** 划词浮标 / 点段落选中（桌面才是句子级；手机热区收窄到段号，不与系统手势抢） */
 
 const selChip = ref(null)
+/** 段落精读里"点中的那一段"（选中态一直留着，点别处才灭）——和 PDF 那边的选中一个道理。 */
+const pickedBlockId = ref('')
+
+/**
+ * 点某一段的正文：**这一段当场点亮**（.sel），并在它上方浮出「就这句提问」。
+ *
+ * 与划词的关系：选中了文字就按划词走（句子级锚点），没选中就是"点了这一段"。
+ * 两条路都会把锚点块放进 `selChip.blockId`，所以提问时带的是同一个坐标系。
+ */
+function onBlockClick(row, event) {
+  const selection = typeof window !== 'undefined' && window.getSelection ? window.getSelection() : null
+  const selected = (selection && selection.toString ? selection.toString() : '').trim()
+  if (selected) return // 划词优先，交给 onDocMouseUp 处理
+  const el = event && event.currentTarget
+  const pageEl = el && el.closest ? el.closest('.page') : null
+  if (!el || !pageEl) return
+  // 同一段再点一次 = 取消选中
+  if (pickedBlockId.value === row.block.block_id) {
+    pickedBlockId.value = ''
+    selChip.value = null
+    return
+  }
+  const rect = el.getBoundingClientRect()
+  const pageRect = pageEl.getBoundingClientRect()
+  const text = (row.source || row.main || '').trim()
+  pickedBlockId.value = row.block.block_id
+  selChip.value = {
+    pageKey: pageEl.dataset.pageKey || '',
+    blockId: row.block.block_id,
+    text: text.slice(0, 200),
+    left: Math.max(0, rect.left - pageRect.left),
+    top: Math.max(0, rect.top - pageRect.top - 30),
+  }
+}
 
 function onDocMouseUp(event, pageEl) {
   const selection = typeof window !== 'undefined' && window.getSelection ? window.getSelection() : null
@@ -568,6 +602,7 @@ function onDocMouseUp(event, pageEl) {
   // 浮标默认放选区**上方**（放下方会盖住正要读的下一行）；贴顶时退回下方
   let top = rect.top - pageRect.top - 30
   if (top < 4) top = rect.bottom - pageRect.top + 10
+  pickedBlockId.value = '' // 划词是句子级，跟"点中的那一段"不是一回事
   selChip.value = {
     pageKey: pageEl.dataset.pageKey || '',
     blockId: holder && holder.dataset ? holder.dataset.blockId || '' : '',
@@ -587,7 +622,6 @@ function askSelectedSentence() {
   assistTab.value = 'ask'
   submitAsk()
 }
-
 // ============================================================ 理解层（导读 / 术语）
 
 const understandingLoading = ref(false)
@@ -1086,6 +1120,7 @@ function resetWorkbench() {
   askLoading.value = false
   askAnchor.value = null
   selChip.value = null
+  pickedBlockId.value = ''
   blocks.value = []
   engineProgress.value = null
   flashId.value = ''
@@ -1983,7 +2018,12 @@ function openDeletePanel() {
                       :ref="(el) => setBlockEl(row.block.block_id, el)"
                       :data-block-id="row.block.block_id"
                       :title="'原文块 ' + row.block.block_id"
-                      :class="{ anchor: flashId === row.block.block_id, flash: flashId === row.block.block_id }"
+                      :class="{
+                        anchor: flashId === row.block.block_id,
+                        flash: flashId === row.block.block_id,
+                        sel: pickedBlockId === row.block.block_id,
+                      }"
+                      @click="onBlockClick(row, $event)"
                     >
                       <span v-if="hasBlockTranslations" class="en">{{ row.source }}</span>
                       {{ row.main }}

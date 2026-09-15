@@ -133,15 +133,3 @@ export function contextAround(index, from, to, pad = 1) {
   const lines = index.lines.slice(Math.max(0, from - pad), Math.min(index.lines.length, to + pad + 1))
   return lines.map((line) => line.norm).join(' ')
 }
-
-/** 点一下落在哪一行上（坐标是缩放系数为 1 的视口坐标）。命中不到返回 -1。 */
-export function hitLine(lines, x, y) {
-  for (let i = 0; i < (lines || []).length; i += 1) {
-    const rect = lines[i].rect
-    // 上下各放宽 2 个点：行高很窄时点边上也该算中
-    if (x >= rect.x - 2 && x <= rect.x + rect.w + 2 && y >= rect.y - 2 && y <= rect.y + rect.h + 2) {
-      return i
-    }
-  }
-  return -1
-}

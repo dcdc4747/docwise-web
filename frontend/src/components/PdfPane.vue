@@ -16,7 +16,7 @@
  */
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 
-import { buildLines, buildPageIndex, contextAround, findTextInPages, hitLine } from '../pdfText'
+import { buildLines, buildPageIndex, contextAround, findTextInPages } from '../pdfText'
 import { itemBox, openPdfDocument } from '../pdfLoader'
 import { authFetch } from '../auth'
 
@@ -98,7 +98,8 @@ const hlBoxes = computed(() => {
 
 const chipBox = computed(() => {
   const item = picked.value
-  if (!item) return null
+  // 已经就这段问过了：高亮留着（让用户看得见自己问的是哪一段），浮标收起来
+  if (!item || item.asked) return null
   const k = displayScale.value
   return {
     page: item.page,
@@ -107,6 +108,32 @@ const chipBox = computed(() => {
       top: `${Math.max(0, item.rect.y * k - 30)}px`,
     },
   }
+})
+
+/** 每页的文字行框（透明热区）：hover 会亮、点击能选中——**点哪儿哪儿有反应**。 */
+function pageLines(n) {
+  const index = indexes.value.find((item) => item.page === n)
+  return index ? index.lines : []
+}
+
+function lineBox(line) {
+  const k = displayScale.value
+  return {
+    left: `${line.rect.x * k}px`,
+    top: `${line.rect.y * k}px`,
+    width: `${Math.max(4, line.rect.w * k)}px`,
+    height: `${Math.max(4, line.rect.h * k)}px`,
+  }
+}
+
+/** 选中的那一行（点了就亮，点到别处才灭——不是"点完就没"）。 */
+const pickedBox = computed(() => {
+  const item = picked.value
+  if (!item) return null
+  const index = indexes.value.find((entry) => entry.page === item.page)
+  const line = index && index.lines[item.line]
+  if (!line) return null
+  return { page: item.page, style: lineBox(line) }
 })
 
 function pageStyle(page) {
@@ -291,22 +318,37 @@ async function locate() {
   emit('locate', { found: false, page: targetPage.value || 0 })
 }
 
-/** 点页面：命中某一行 → 浮出「就这段提问」。 */
+/**
+ * 点页面：命中的那一行**当场点亮**（选中态一直留着，点到别处才灭），
+ * 并在它上方浮出「就这段提问」——点哪儿哪儿有反应，不是点完什么都没发生。
+ */
 function onPaneClick(event) {
   const target = event.target
   const holder = target && target.closest ? target.closest('.pdf-page') : null
   if (!holder) return
-  const page = Number(holder.dataset.page)
-  const index = indexes.value.find((item) => item.page === page)
-  if (!index) return
-  const rect = holder.getBoundingClientRect()
-  const k = displayScale.value || 1
-  const line = hitLine(index.lines, (event.clientX - rect.left) / k, (event.clientY - rect.top) / k)
-  if (line < 0) {
+  const hitEl = target.closest ? target.closest('[data-line]') : null
+  if (!hitEl) {
     picked.value = null
     return
   }
-  picked.value = { page, line, rect: index.lines[line].rect }
+  const page = Number(holder.dataset.page)
+  const line = Number(hitEl.dataset.line)
+  const index = indexes.value.find((item) => item.page === page)
+  if (!index || !index.lines[line]) {
+    picked.value = null
+    return
+  }
+  // 同一行再点一次 = 取消选中
+  if (picked.value && picked.value.page === page && picked.value.line === line) {
+    picked.value = null
+    return
+  }
+  picked.value = { page, line, rect: index.lines[line].rect, asked: false }
+}
+
+/** Esc 取消选中（和常见阅读器一致）。 */
+function onKeydown(event) {
+  if (event.key === 'Escape') picked.value = null
 }
 
 function askPicked() {
@@ -316,7 +358,8 @@ function askPicked() {
   if (!index) return
   const text = index.lines[item.line].norm
   emit('ask', { text, context: contextAround(index, item.line, item.line) })
-  picked.value = null
+  // 高亮留着、浮标收起来：让用户看得见"我刚问的是这一段"
+  picked.value = { ...item, asked: true }
 }
 
 /** 缩放变了要重画：**先取消在跑的那次渲染**（否则旧尺寸会覆盖新尺寸），再重新观察一遍。 */
@@ -352,8 +395,11 @@ if (typeof window !== 'undefined' && typeof ResizeObserver !== 'undefined') {
   resizeObserver = new ResizeObserver(onResize)
 }
 
+if (typeof window !== 'undefined') window.addEventListener('keydown', onKeydown)
+
 onBeforeUnmount(() => {
   loadToken += 1
+  if (typeof window !== 'undefined') window.removeEventListener('keydown', onKeydown)
   if (observer) observer.disconnect()
   if (resizeObserver) resizeObserver.disconnect()
   if (resizeTimer) clearTimeout(resizeTimer)
@@ -380,11 +426,24 @@ watch(paneEl, (el) => {
         :style="pageStyle(page)"
       >
         <canvas :data-page="page.n" />
+        <!-- 文字行热区：透明、可 hover、可点（点哪儿哪儿亮） -->
+        <span
+          v-for="(line, i) in pageLines(page.n)"
+          :key="'hit-' + i"
+          class="pdf-hit"
+          :data-line="i"
+          :style="lineBox(line)"
+        />
         <span
           v-for="(box, i) in hlBoxes[page.n] || []"
           :key="'hl-' + i"
           class="pdf-hl"
           :style="box"
+        />
+        <span
+          v-if="pickedBox && pickedBox.page === page.n"
+          class="pdf-sel"
+          :style="pickedBox.style"
         />
         <button
           v-if="chipBox && chipBox.page === page.n"
