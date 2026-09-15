@@ -532,6 +532,44 @@ describe('App.vue 页面渲染', () => {
     }
   })
 
+  it('PDF 模式里点出处：iframe 跳到 #page=N 并如实说只到页级（不假装做了段落高亮）', async () => {
+    const { task, detail } = completedFixture()
+    const answer = { answer: '按原文所述。', source_block_ids: ['p0_b0'], mode: 'full' }
+    globalThis.fetch = stubFetch({ tasks: [task], detail, ask: answer })
+    wrapper = mountApp()
+    await flushPromises()
+    await buttonByText(wrapper, '继续读').trigger('click')
+    await flushPromises()
+
+    // 切到「双语 PDF」（渲染方式菜单：.reader-top 里那颗 chip，不是 .btn）
+    const modeWrap = wrapper
+      .findAll('.reader-top .menu-wrap')
+      .find((m) => m.text().includes('段落精读'))
+    expect(modeWrap, 'reader-top 里没有渲染方式菜单').toBeTruthy()
+    await modeWrap.find('.chip').trigger('click')
+    const dual = modeWrap.findAll('.menu button').find((b) => b.text().includes('双语'))
+    expect(dual, '渲染方式菜单里没有双语 PDF').toBeTruthy()
+    await dual.trigger('click')
+    await flushPromises()
+
+    // 切过去要**接着读**：刚在段落精读的第 2 页（last_read_page），PDF 也开在第 2 页
+    const iframe = () => wrapper.find('.doc-pane iframe.pdf-preview').attributes('src')
+    expect(iframe()).toContain('#page=2')
+
+    // 点一条出处（p0_b0 = 第 1 页）→ 不许把用户踢回段落精读，也不许假装打了高亮
+    await buttonByText(wrapper, '局限与不足').trigger('click')
+    await flushPromises()
+    await wrapper.find('.assist .srcs .src-tag').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('.doc-pane iframe.pdf-preview').exists()).toBe(true)
+    expect(iframe()).toContain('#page=1')
+    // 只能定位到页，界面上必须说出来（硬约束④：做不到就别装）
+    expect(wrapper.text()).toContain('只能定位到页')
+    // 段落精读那套 DOM 不在，也就没有哪个段落能被假装高亮
+    expect(wrapper.find('.doc-pane p#p0_b0').exists()).toBe(false)
+  })
+
   it('导读：有出处的写完坐标可点，无出处的置灰不可点并说明为什么（死链不许做成活链样式）', async () => {
     const { task, detail } = completedFixture()
     const understanding = {

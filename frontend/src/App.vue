@@ -249,6 +249,10 @@ const assistTabs = [
 
 const blocks = ref([])
 const previewSrc = ref('')
+/** PDF 预览要落在第几页（1 起；0/1 = 不拼 #page）。点出处跳页、以及从段落精读切过来时用。 */
+const pdfPage = ref(0)
+/** 段落精读里"当前读到第几页"（滚动时更新）——切到 PDF 模式要接着读，不能每次都回第 1 页。 */
+const currentPage = ref(1)
 const fileAvailability = ref({ mono: false, dual: false })
 const taskDetailError = ref('')
 const taskDetailLoading = ref(false)
@@ -485,12 +489,34 @@ function scrollWithinPane(el) {
 }
 
 /**
- * 点出处 → 滚到那一段 + 高亮脉冲一次。
+ * 点出处 → 尽力定位到原文那一段。
+ *
+ * 两条路（PDF 模式与段落精读是两套渲染，能力边界不一样，界面上不许含糊）：
+ * ① **段落精读**：我们自己的 DOM → 滚入视口中部 + 高亮脉冲一次（形态硬约束④）。
+ * ② **原版 / 纯中文 / 双语 PDF**：左栏是 `<iframe>`，里面是浏览器自带的阅读器（PDFium），
+ *    拿不到 DOM、画不了高亮——但**页码能跳**（Chrome / Edge / Firefox 的内置阅读器都认
+ *    URL 上的 `#page=N`）。所以这里跳页并**明说只到页级**，绝不假装做了段落高亮。
  * 定位不到就明说（原型 .honest 那条：宁可不给，也不假高亮）。
  */
 async function traceTo(blockId, { silent = false } = {}) {
   if (!blockId) return false
-  if (!isNarrow.value && docMode.value !== 'paragraph') docMode.value = 'paragraph'
+  const parsed = parseBlockId(blockId)
+  const page = parsed ? parsed.page + 1 : 0
+
+  if (docMode.value !== 'paragraph') {
+    if (!page) {
+      if (!silent) {
+        honestNote.value = '这段没能定位到页码（编号里没有可用的页序）——宁可不给，也不假跳转。'
+      }
+      return false
+    }
+    honestNote.value = ''
+    pdfPage.value = page
+    await refreshPreviewUrl()
+    setNote(`已跳到第 ${page} 页——PDF 预览只能定位到页；要看那一段被高亮，切「段落精读」。`)
+    return true
+  }
+
   await nextTick()
   const el = blockEls.get(blockId)
   if (!el) {
@@ -907,6 +933,7 @@ function onPaneScroll(event) {
     const offset = el.getBoundingClientRect().top - pane.getBoundingClientRect().top
     if (offset <= 16) current = Math.max(current, page + 1)
   })
+  currentPage.value = current
   saveReadingPosition(current)
 }
 
@@ -917,6 +944,7 @@ async function applyResumePosition() {
   await nextTick()
   const el = pageEls.get(page - 1)
   if (!el) return false
+  currentPage.value = page
   scrollWithinPane(el)
   return true
 }
@@ -1057,6 +1085,8 @@ function resetWorkbench() {
   searchTerm.value = ''
   menuNote.value = ''
   previewSrc.value = ''
+  pdfPage.value = 0
+  currentPage.value = 1
   fileAvailability.value = { mono: false, dual: false }
   sheetState.value = 'peek'
 }
@@ -1250,11 +1280,14 @@ async function refreshPreviewUrl() {
     return
   }
   try {
-    previewSrc.value = await urlWithTicket(
+    const url = await urlWithTicket(
       `/api/tasks/${task.id}/files/${docMode.value}`,
       task.id,
       'files',
     )
+    // PDF 模式下点出处只能跳到页（#page=N 是浏览器内置阅读器认的参数）；
+    // 段落级高亮做不到——iframe 里那个阅读器不给我们 DOM
+    previewSrc.value = pdfPage.value >= 1 ? `${url}#page=${pdfPage.value}` : url
   } catch {
     previewSrc.value = ''
   }
@@ -1267,6 +1300,11 @@ async function setDocMode(mode) {
     setNote('这份产物还没就绪——翻译完成后才有可预览的 PDF。')
     return
   }
+  // 段落精读 → PDF：**接着读**（把当前页带过去），别每次都回到第 1 页
+  if (docMode.value === 'paragraph' && mode !== 'paragraph') {
+    pdfPage.value = Math.max(1, currentPage.value)
+  }
+  if (mode === 'paragraph') pdfPage.value = 0
   docMode.value = mode
   await refreshPreviewUrl()
 }
