@@ -75,12 +75,20 @@ def test_cancel_kills_running_engine_subprocess(monkeypatch) -> None:
             break
         time.sleep(0.05)
     cancel.cancel()
+    cancel_requested = time.monotonic()
     thread.join(timeout=30)
+    # 单独量"从发出取消信号 → 引擎子进程真的停下来"的耗时：
+    # 比赛材料里引用的数字必须是这个（而不是整个用例的耗时），且任何队友跑一次就能复现
+    cancel_latency = time.monotonic() - cancel_requested
     elapsed = time.monotonic() - started
+    print(
+        f"\n[取消实测] 发出取消信号 → 引擎停止：{cancel_latency:.2f}s"
+        f"（含等引擎启动共 {elapsed:.2f}s）"
+    )
 
     assert not thread.is_alive(), "取消后子进程没有停下来"
     # 产品要求：点"取消"要秒级见效，不能等引擎自己跑完（一篇论文十几分钟）
-    assert elapsed < 8, f"取消响应太慢：{elapsed:.1f}s"
+    assert cancel_latency < 3, f"取消响应太慢：{cancel_latency:.2f}s"
     assert result and result[0].status == TaskState.CANCELLED
     assert result[0].error == "已取消"
 
