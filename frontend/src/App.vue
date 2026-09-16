@@ -540,8 +540,7 @@ const selChip = ref(null)
 /** 段落精读里"点中的那一段"（选中态一直留着，点别处才灭）——和 PDF 那边的选中一个道理。 */
 const pickedBlockId = ref('')
 
-/**
- * 点某一段的正文：**这一段当场点亮**（.sel），并在它上方浮出「就这句提问」。
+/** 点某一段的正文：**这一段当场点亮**（.sel），并在它上方浮出「就这句提问」。
  *
  * 与划词的关系：选中了文字就按划词走（句子级锚点），没选中就是"点了这一段"。
  * 两条路都会把锚点块放进 `selChip.blockId`，所以提问时带的是同一个坐标系。
@@ -1592,13 +1591,22 @@ function pickTierForRetranslate(tier) {
 onMounted(async () => {
   syncNarrow()
   window.addEventListener('resize', syncNarrow)
+  window.addEventListener('keydown', onGlobalKeydown)
   setUnauthorizedHandler(handleUnauthorized)
   await checkBackend()
   await restoreSession()
 })
 
+/** Esc 取消段落精读里的选中（和 PDF 视图一个手感）。 */
+function onGlobalKeydown(event) {
+  if (event.key !== 'Escape') return
+  selChip.value = null
+  pickedBlockId.value = ''
+}
+
 onUnmounted(() => {
   window.removeEventListener('resize', syncNarrow)
+  window.removeEventListener('keydown', onGlobalKeydown)
   stopProgress()
   if (activeTimer) clearInterval(activeTimer)
   if (noteTimer) clearTimeout(noteTimer)

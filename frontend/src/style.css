@@ -751,6 +751,11 @@ body {
 .dw .pdf-chip::before { content: "💬"; font-size: 10px; }
 .dw .pdf-chip:hover { background: #000; }
 
+/* ⑯ 段落精读里那一段也是可点的（点了就选中 + 浮出「就这句提问」）——
+   给一点点悬停反馈，否则"这里能点"只有点下去才知道；PDF 那边是同一套手感 */
+.dw .page .cols p { cursor: pointer; border-radius: 3px; }
+.dw .page .cols p:not(.sel):hover { background: rgba(79, 110, 247, 0.06); }
+
 /* ⑤ 响应式：原型只给 1600px 桌面一版。这里按 docs/产品形态说明.md 的断点规则补齐，
    ≥1280 与原型一致（不改变任何 >=1280 时的取值） */
 @media (max-width: 1280px) {
