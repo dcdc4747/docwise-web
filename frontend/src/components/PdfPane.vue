@@ -16,7 +16,11 @@
  */
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 
-import { buildLines, buildPageIndex, contextAround, findTextInPages } from '../pdfText'
+import {
+  buildLines,
+  buildPageIndex,
+  findTextInPages,
+} from '../pdfText'
 import { itemBox, openPdfDocument } from '../pdfLoader'
 import { authFetch } from '../auth'
 
@@ -34,6 +38,8 @@ const props = defineProps({
   startPage: { type: Number, default: 0 },
   /** 这份文献原文一共几页（块里推出来的）。用来判断双语稿是不是"原页+译页"交替。 */
   docPageCount: { type: Number, default: 0 },
+  /** 这篇有没有双语稿——纯中文稿定位要靠它当"几何参照"（见 locateViaReference）。 */
+  hasDual: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['ask', 'page-change', 'locate'])
@@ -54,6 +60,9 @@ let observer = null
 let resizeObserver = null
 let resizeTimer = null
 let loadToken = 0
+/** 纯中文稿定位失败时，用双语稿当"几何参照"（惰性打开，拿到就复用）。 */
+let reference = null
+let referenceLoading = null
 /**
  * 渲染串行化：同一个 canvas 上并发跑两次 page.render() 会直接抛
  * 「Cannot use the same canvas during multiple render() operations」
@@ -110,30 +119,27 @@ const chipBox = computed(() => {
   }
 })
 
-/** 每页的文字行框（透明热区）：hover 会亮、点击能选中——**点哪儿哪儿有反应**。 */
-function pageLines(n) {
+/** 每页的文字**段**框：热区按段给，所以鼠标扫过去亮的是"这一段"，不是一行。 */
+function pageParagraphs(n) {
   const index = indexes.value.find((item) => item.page === n)
-  return index ? index.lines : []
+  return index ? index.paragraphs : []
 }
 
-function lineBox(line) {
+function boxStyle(rect) {
   const k = displayScale.value
   return {
-    left: `${line.rect.x * k}px`,
-    top: `${line.rect.y * k}px`,
-    width: `${Math.max(4, line.rect.w * k)}px`,
-    height: `${Math.max(4, line.rect.h * k)}px`,
+    left: `${rect.x * k}px`,
+    top: `${rect.y * k}px`,
+    width: `${Math.max(4, rect.w * k)}px`,
+    height: `${Math.max(4, rect.h * k)}px`,
   }
 }
 
-/** 选中的那一行（点了就亮，点到别处才灭——不是"点完就没"）。 */
+/** 选中的那一段（点了就亮，点到别处才灭——不是"点完就没"）。 */
 const pickedBox = computed(() => {
   const item = picked.value
   if (!item) return null
-  const index = indexes.value.find((entry) => entry.page === item.page)
-  const line = index && index.lines[item.line]
-  if (!line) return null
-  return { page: item.page, style: lineBox(line) }
+  return { page: item.page, style: boxStyle(item.rect) }
 })
 
 function pageStyle(page) {
@@ -288,7 +294,9 @@ function scrollToPage(n, { center = false } = {}) {
   emit('page-change', n)
 }
 
-/** 定位到某段原文：找到就滚过去 + 画高亮；找不到就只翻到页并如实回报。 */
+/**
+ * 定位到某段原文：找到就滚过去 + 画高亮；找不到就走"几何参照"，再不行只翻到页并如实回报。
+ */
 async function locate() {
   const needle = props.locateText
   await nextTick()
@@ -298,52 +306,146 @@ async function locate() {
   }
   const hit = findTextInPages(indexes.value, needle)
   if (hit) {
-    hl.value = { page: hit.page, rects: hit.rects }
-    picked.value = null
-    await nextTick()
-    scrollToPage(hit.page, { center: true })
-    // 再滚一次到高亮那一行（页内位置），滚完才画得准
-    const pane = paneEl.value
-    const el = pane && pane.querySelector(`.pdf-page[data-page="${hit.page}"]`)
-    if (pane && el && hit.rects.length) {
-      const k = displayScale.value
-      const top = el.offsetTop - pane.offsetTop + hit.rects[0].y * k - 120
-      pane.scrollTo({ top: Math.max(0, top), behavior: 'smooth' })
-    }
-    emit('locate', { found: true, page: hit.page, exact: hit.exact })
+    await applyHighlight(hit.page, hit.rects)
+    emit('locate', { found: true, page: hit.page, exact: hit.exact, translated: false })
     return
   }
+
+  // 纯中文稿：块里是英文、这一份是中文，直接搜必然搜不到——
+  // 用双语稿的"原页 → 译页"几何关系把这一段的中文找出来（见 locateViaReference）
+  const viaRef = await locateViaReference(needle)
+  if (viaRef) {
+    await applyHighlight(viaRef.page, viaRef.rects)
+    emit('locate', { found: true, page: viaRef.page, exact: false, translated: true })
+    return
+  }
+
   hl.value = null
   if (targetPage.value) scrollToPage(targetPage.value)
   emit('locate', { found: false, page: targetPage.value || 0 })
 }
 
+async function applyHighlight(page, rects) {
+  hl.value = { page, rects }
+  picked.value = null
+  await nextTick()
+  scrollToPage(page, { center: true })
+  const pane = paneEl.value
+  const el = pane && pane.querySelector(`.pdf-page[data-page="${page}"]`)
+  if (pane && el && rects.length) {
+    const k = displayScale.value
+    const top = el.offsetTop - pane.offsetTop + rects[0].y * k - 120
+    pane.scrollTo({ top: Math.max(0, top), behavior: 'smooth' })
+  }
+}
+
 /**
- * 点页面：命中的那一行**当场点亮**（选中态一直留着，点到别处才灭），
+ * **纯中文稿的段落定位**（不靠引擎返工）。
+ *
+ * 双语稿是"原页 + 译页"交替的**版式保持**产物，所以：
+ *   ① 在双语稿里搜到这段**英文原文** → 它在原页 P 上的 y 区间；
+ *   ② 双语稿的译页 Q 上、与这段 y 区间**上下重叠**的那几行，就是它的中文译文；
+ *   ③ 纯中文稿（只由译页组成）第 Q/2 页、同样 y 区间的那几行，是同一段。
+ * 实测（4 份真产物）②③ 两处取到的中文行**完全一致**，所以这条路站得住。
+ *
+ * 只读双语稿、只取几何，**不改后端、不改引擎**；拿不准时宁可不给（返回 null）。
+ */
+async function locateViaReference(needle) {
+  if (props.variant !== 'mono' || !props.hasDual) return null
+  const reference = await ensureReference()
+  if (!reference || !reference.indexes.length) return null
+  const hit = findTextInPages(reference.indexes, needle)
+  if (!hit) return null
+
+  const refPage = reference.indexes.find((item) => item.page === hit.page)
+  if (!refPage || !hit.paragraphs.length) return null
+  const y0 = Math.min(...hit.paragraphs.map((p) => p.rect.y))
+  const y1 = Math.max(...hit.paragraphs.map((p) => p.rect.y + p.rect.h))
+
+  // 交替双语稿：奇数页原页、偶数页译页；左右并排的双语稿则同页（页数不会翻倍）
+  const interleaved =
+    reference.pageCount >= 2 * (props.docPageCount || reference.pageCount / 2) - 1 &&
+    reference.pageCount > props.docPageCount
+  const refTransPage = interleaved ? (hit.page % 2 === 1 ? hit.page + 1 : hit.page) : hit.page
+  const monoPage = interleaved ? Math.ceil(refTransPage / 2) : hit.page
+  if (!monoPage || monoPage > pageCount.value) return null
+
+  const monoIndex = indexes.value.find((item) => item.page === monoPage)
+  if (!monoIndex) return null
+  // 在纯中文稿的同一 y 区间上取中文段（**用本页自己的几何**，不照抄参照页的坐标）
+  const scope = monoIndex.paragraphs.filter((p) => p.rect.y < y1 && p.rect.y + p.rect.h > y0)
+  if (!scope.length) return null
+  // 兜底校验：这段真得有字（别把空白区当成命中）
+  if (!scope.some((p) => p.text && p.text.trim())) return null
+  return { page: monoPage, rects: scope.map((p) => p.rect) }
+}
+
+/** 惰性打开双语稿当参照（只在纯中文稿定位失败时用一次，之后复用）。 */
+async function ensureReference() {
+  if (reference) return reference
+  if (referenceLoading) return referenceLoading
+  referenceLoading = (async () => {
+    try {
+      const { doc } = await openPdfDocument({
+        getBytes: async () => {
+          const res = await authFetch(`/api/tasks/${props.taskId}/files/dual`)
+          if (!res.ok) throw new Error('读不到双语稿')
+          return new Uint8Array(await res.arrayBuffer())
+        },
+      })
+      const pageCountOfRef = doc.numPages
+      const indexes = []
+      for (let n = 1; n <= pageCountOfRef; n += 1) {
+        const entry = await doc.getPage(n)
+        const viewport = entry.getViewport({ scale: 1 })
+        const content = await entry.getTextContent()
+        const boxes = []
+        for (const item of content.items) {
+          if (!item || !item.str) continue
+          boxes.push(itemBox(pdfjsRef, viewport, item))
+        }
+        entry.cleanup()
+        indexes.push(buildPageIndex(buildLines(boxes), n))
+      }
+      reference = { doc, indexes, pageCount: pageCountOfRef }
+      return reference
+    } catch {
+      reference = null
+      return null
+    } finally {
+      referenceLoading = null
+    }
+  })()
+  return referenceLoading
+}
+
+/**
+ * 点页面：命中的那**一段**当场点亮（选中态一直留着，点到别处才灭），
  * 并在它上方浮出「就这段提问」——点哪儿哪儿有反应，不是点完什么都没发生。
  */
 function onPaneClick(event) {
   const target = event.target
   const holder = target && target.closest ? target.closest('.pdf-page') : null
   if (!holder) return
-  const hitEl = target.closest ? target.closest('[data-line]') : null
+  const hitEl = target.closest ? target.closest('[data-para]') : null
   if (!hitEl) {
     picked.value = null
     return
   }
   const page = Number(holder.dataset.page)
-  const line = Number(hitEl.dataset.line)
+  const para = Number(hitEl.dataset.para)
   const index = indexes.value.find((item) => item.page === page)
-  if (!index || !index.lines[line]) {
+  const paragraph = index && index.paragraphs[para]
+  if (!paragraph) {
     picked.value = null
     return
   }
-  // 同一行再点一次 = 取消选中
-  if (picked.value && picked.value.page === page && picked.value.line === line) {
+  // 同一段再点一次 = 取消选中
+  if (picked.value && picked.value.page === page && picked.value.para === para) {
     picked.value = null
     return
   }
-  picked.value = { page, line, rect: index.lines[line].rect, asked: false }
+  picked.value = { page, para, rect: paragraph.rect, text: paragraph.text, asked: false }
 }
 
 /** Esc 取消选中（和常见阅读器一致）。 */
@@ -356,8 +458,8 @@ function askPicked() {
   if (!item) return
   const index = indexes.value.find((entry) => entry.page === item.page)
   if (!index) return
-  const text = index.lines[item.line].norm
-  emit('ask', { text, context: contextAround(index, item.line, item.line) })
+  const text = item.text || index.paragraphs[item.para].text
+  emit('ask', { text, context: text })
   // 高亮留着、浮标收起来：让用户看得见"我刚问的是这一段"
   picked.value = { ...item, asked: true }
 }
@@ -426,13 +528,13 @@ watch(paneEl, (el) => {
         :style="pageStyle(page)"
       >
         <canvas :data-page="page.n" />
-        <!-- 文字行热区：透明、可 hover、可点（点哪儿哪儿亮） -->
+        <!-- 文字段热区：透明、可 hover、可点（点哪儿哪儿亮，亮的是**一整段**） -->
         <span
-          v-for="(line, i) in pageLines(page.n)"
+          v-for="(para, i) in pageParagraphs(page.n)"
           :key="'hit-' + i"
           class="pdf-hit"
-          :data-line="i"
-          :style="lineBox(line)"
+          :data-para="i"
+          :style="boxStyle(para.rect)"
         />
         <span
           v-for="(box, i) in hlBoxes[page.n] || []"

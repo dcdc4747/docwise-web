@@ -1353,12 +1353,16 @@ function onPdfLocate(result) {
   const label = labelOf(pendingBlockId.value) || '这一段'
   if (result.found) {
     honestNote.value = ''
-    setNote(`已在 PDF 里定位到 ${label}——高亮在左栏。`)
+    setNote(
+      result.translated
+        ? `已在 PDF 里定位到 ${label} 的中文译文——高亮在左栏（纯中文稿只有中文，位置是拿双语稿的原页对齐出来的）。`
+        : `已在 PDF 里定位到 ${label}——高亮在左栏。`,
+    )
     return
   }
   honestNote.value =
     '这段没能在这份 PDF 的文字层里对上——只翻到了它所在的页，没有假高亮。' +
-    '（纯中文稿里是中文译文、块里存的是原文，本来就对不上；要看那一段被高亮，切「段落精读」。）'
+    '（图、表、扫描页里的字没有文字层，对不上；要看那一段被高亮，切「段落精读」。）'
   setNote(result.page ? `只翻到了第 ${result.page} 页：${label} 在这份 PDF 里没对上。` : `${label} 没能定位到。`)
 }
 
@@ -2053,6 +2057,7 @@ function openDeletePanel() {
                 :locate-text="locateText"
                 :locate-key="locateKey"
                 :fallback-page="pdfFallbackPage"
+                :has-dual="fileAvailability.dual"
                 @locate="onPdfLocate"
                 @ask="onPdfAsk"
                 @page-change="(n) => (currentPage = n)"
@@ -2168,6 +2173,7 @@ function openDeletePanel() {
                   :locate-text="locateText"
                   :locate-key="locateKey"
                   :fallback-page="pdfFallbackPage"
+                :has-dual="fileAvailability.dual"
                   @locate="onPdfLocate"
                   @ask="onPdfAsk"
                   @page-change="(n) => (currentPage = n)"

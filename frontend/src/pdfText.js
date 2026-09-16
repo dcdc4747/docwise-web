@@ -69,9 +69,8 @@ export function buildLines(boxes) {
 }
 
 /**
- * 把一页的所有行拼成"可搜索文本"，并记住每个字符属于哪一行。
- * 用**去空白**的串来搜：块文本的行断点不一定和渲染后的 PDF 一致，
- * 去掉空白后"跨行/跨条目有没有空格"就不再影响命中（这是实测出来的需要）。
+ * 把一页的所有行拼成"可搜索文本"，并记住每个字符属于哪一行；
+ * 同时按几何关系把行并成**段**（鼠标扫过 PDF 时亮的是"这一段"，不是一行）。
  */
 export function buildPageIndex(lines, pageNumber) {
   let flat = ''
@@ -82,7 +81,13 @@ export function buildPageIndex(lines, pageNumber) {
       owners.push(index)
     }
   })
-  return { page: pageNumber, lines: lines || [], flat, owners }
+  return {
+    page: pageNumber,
+    lines: lines || [],
+    paragraphs: buildParagraphs(lines),
+    flat,
+    owners,
+  }
 }
 
 /** 在一页里搜一段文本（都已去空白）。命中返回它覆盖的行号区间。 */
@@ -112,12 +117,19 @@ export function findTextInPages(indexes, needle, { minPrefix = 16 } = {}) {
     for (const index of indexes || []) {
       const hit = findInPage(index, candidate)
       if (hit) {
-        const lines = index.lines.slice(hit.from, hit.to + 1)
+        // **把"命中了几行"扩成"整段"**：短前缀命中时只覆盖半段，扩完才是这一整段
+        const first = paragraphOf(index.paragraphs, hit.from)
+        const last = paragraphOf(index.paragraphs, hit.to)
+        const from = first >= 0 ? first : 0
+        const to = last >= 0 ? last : index.paragraphs.length - 1
+        const scope = index.paragraphs.slice(from, to + 1)
         return {
           page: index.page,
-          from: hit.from,
-          to: hit.to,
-          rects: lines.map((line) => line.rect),
+          from,
+          to,
+          paragraphs: scope,
+          rects: scope.map((item) => item.rect),
+          text: scope.map((item) => item.text).join(' '),
           matchedChars: candidate.length,
           exact: candidate === full,
         }
@@ -132,4 +144,86 @@ export function contextAround(index, from, to, pad = 1) {
   if (!index || from === null || from === undefined) return ''
   const lines = index.lines.slice(Math.max(0, from - pad), Math.min(index.lines.length, to + pad + 1))
   return lines.map((line) => line.norm).join(' ')
+}
+
+/**
+ * 行 → **段**（论文的一整段，不是一行）。
+ *
+ * 为什么必须合并：鼠标扫过 PDF 时"只亮一行"看着像选错了东西——用户要的是"这一段"。
+ * 合并规则是纯几何的，两条同时成立才算同一段：
+ *   ① **横向重叠**（两行的 x 区间交集 ≥ 较短那行的 30%）——这样双栏排版里
+ *      左右栏同一高度的两行不会被粘成一段；
+ *   ② **纵向相邻**（基线间距 ≤ 1.8 倍行高）——超过就是换段了。
+ * 做法是并查集：先按几何关系合并，再取连通分量，所以**不依赖行的排列顺序**
+ * （双栏 PDF 的文字流顺序本来就不保证是"读完左栏再读右栏"）。
+ */
+export function buildParagraphs(lines, { lineGap = 1.8, overlapRatio = 0.3 } = {}) {
+  const list = lines || []
+  const parent = list.map((_, i) => i)
+  const find = (i) => {
+    let root = i
+    while (parent[root] !== root) root = parent[root]
+    let cur = i
+    while (parent[cur] !== root) {
+      const next = parent[cur]
+      parent[cur] = root
+      cur = next
+    }
+    return root
+  }
+  const union = (a, b) => {
+    const ra = find(a)
+    const rb = find(b)
+    if (ra !== rb) parent[rb] = ra
+  }
+
+  for (let i = 0; i < list.length; i += 1) {
+    for (let j = i + 1; j < list.length; j += 1) {
+      if (sameParagraph(list[i], list[j], lineGap, overlapRatio)) union(i, j)
+    }
+  }
+
+  const groups = new Map()
+  list.forEach((line, i) => {
+    const root = find(i)
+    if (!groups.has(root)) groups.set(root, [])
+    groups.get(root).push(i)
+  })
+
+  const paragraphs = [...groups.values()].map((indexes) => {
+    indexes.sort((a, b) => list[a].rect.y - list[b].rect.y || list[a].rect.x - list[b].rect.x)
+    const rects = indexes.map((i) => list[i].rect)
+    const x = Math.min(...rects.map((r) => r.x))
+    const y = Math.min(...rects.map((r) => r.y))
+    const right = Math.max(...rects.map((r) => r.x + r.w))
+    const bottom = Math.max(...rects.map((r) => r.y + r.h))
+    return {
+      lines: indexes,
+      rect: { x, y, w: Math.max(2, right - x), h: Math.max(2, bottom - y) },
+      text: indexes.map((i) => list[i].norm).join(' '),
+      squash: indexes.map((i) => list[i].squash).join(''),
+    }
+  })
+  // 阅读顺序：先上后下、再左后右
+  paragraphs.sort((a, b) => a.rect.y - b.rect.y || a.rect.x - b.rect.x)
+  return paragraphs
+}
+
+function sameParagraph(a, b, lineGap, overlapRatio) {
+  const overlap = Math.min(a.rect.x + a.rect.w, b.rect.x + b.rect.w) - Math.max(a.rect.x, b.rect.x)
+  const shorter = Math.min(a.rect.w, b.rect.w) || 1
+  if (overlap / shorter < overlapRatio) return false
+  const h = Math.max(a.rect.h, b.rect.h) || 10
+  const baselineA = a.rect.y + a.rect.h
+  const baselineB = b.rect.y + b.rect.h
+  return Math.abs(baselineA - baselineB) <= h * lineGap
+}
+
+/** 某一行落在第几段里（用于把"命中了几行"扩成"整段"）。 */
+export function paragraphOf(paragraphs, lineIndex) {
+  const list = paragraphs || []
+  for (let i = 0; i < list.length; i += 1) {
+    if (list[i].lines.includes(lineIndex)) return i
+  }
+  return -1
 }

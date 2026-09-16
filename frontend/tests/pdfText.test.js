@@ -10,9 +10,11 @@ import { describe, expect, it } from 'vitest'
 import {
   buildLines,
   buildPageIndex,
+  buildParagraphs,
   contextAround,
   findInPage,
   findTextInPages,
+  paragraphOf,
   pdfNormalize,
   squash,
 } from '../src/pdfText'
@@ -64,17 +66,18 @@ describe('pdfText：按文本找位置', () => {
   )
   const pageTwo = buildPageIndex(buildLines([box('Moving beyond', 10, 700)]), 2)
 
-  it('整段能对上（忽略行断点与连字符换行造成的空格差异）', () => {
+  it('整段能对上（忽略行断点与连字符换行造成的空格差异），且高亮按**段**给', () => {
     const hit = findTextInPages(
       [pageOne, pageTwo],
       'aw firms are rapidly integrating artificial intelligence (AI) into workflows',
     )
     expect(hit).not.toBeNull()
     expect(hit.page).toBe(1)
-    // 命中的是前两行
+    // 命中的是**一段**（这一段有 3 行，其中 2 行被命中 → 扩成整段）
     expect(hit.from).toBe(0)
-    expect(hit.to).toBe(1)
-    expect(hit.rects.length).toBe(2)
+    expect(hit.to).toBe(0)
+    expect(hit.rects.length).toBe(1)
+    expect(hit.text).toContain('denced by an article')
     expect(hit.exact).toBe(true)
   })
 
@@ -111,6 +114,65 @@ describe('pdfText：按文本找位置', () => {
       'aw firms are rapidly integrating artificial intelligence (ai) into workflows, as evi-',
     )
   })})
+
+describe('pdfText：行 → 段', () => {
+  it('段内的行并成一段（行距 14.7 / 行高 10.5，取真实产物的数）', () => {
+    const paragraphs = buildParagraphs([
+      { rect: { x: 10, y: 100, w: 200, h: 10 }, norm: 'first line', squash: 'firstline' },
+      { rect: { x: 10, y: 114.7, w: 200, h: 10 }, norm: 'second line', squash: 'secondline' },
+    ])
+    expect(paragraphs.length).toBe(1)
+    expect(paragraphs[0].text).toBe('first line second line')
+  })
+
+  it('段间的行**不**并（真实产物段间距 ≥25.3，是段内的 1.7 倍）', () => {
+    const paragraphs = buildParagraphs([
+      { rect: { x: 10, y: 100, w: 200, h: 10 }, norm: 'tail of paragraph one', squash: 'tailofparagraphone' },
+      { rect: { x: 10, y: 125.3, w: 200, h: 10 }, norm: 'head of paragraph two', squash: 'headofparagraphtwo' },
+    ])
+    expect(paragraphs.length).toBe(2)
+  })
+
+  it('双栏里同一高度、不同栏的两行**不**并成一段（横向不重叠）', () => {
+    const paragraphs = buildParagraphs([
+      { rect: { x: 10, y: 100, w: 200, h: 10 }, norm: 'left column line', squash: 'leftcolumnline' },
+      { rect: { x: 260, y: 100, w: 200, h: 10 }, norm: 'right column line', squash: 'rightcolumnline' },
+    ])
+    expect(paragraphs.length).toBe(2)
+  })
+
+  it('段的框 = 段内所有行的并集；段按阅读顺序（先上后下、再左后右）排', () => {
+    const paragraphs = buildParagraphs([
+      { rect: { x: 260, y: 100, w: 100, h: 10 }, norm: 'right', squash: 'right' },
+      { rect: { x: 10, y: 100, w: 100, h: 10 }, norm: 'left', squash: 'left' },
+      { rect: { x: 10, y: 114.7, w: 100, h: 10 }, norm: 'left2', squash: 'left2' },
+    ])
+    expect(paragraphs.map((p) => p.text)).toEqual(['left left2', 'right'])
+    const box = paragraphs[0].rect
+    expect(box.x).toBe(10)
+    expect(box.w).toBe(100)
+    expect(Math.round(box.h)).toBe(25)
+  })
+
+  it('段落索引：命中几行 → 扩成整段（短前缀只覆盖半段时靠它补全）', () => {
+    const lines = buildLines([
+      box('aw firms are rapidly integrating artificial', 10, 700),
+      box('intelligence (AI) into workflows, as evi-', 10, 685.3),
+      box('denced by an article by Melissa Kock', 10, 670.6),
+      box('A whole different paragraph starts here', 10, 730),
+    ])
+    const paragraphs = buildParagraphs(lines)
+    expect(paragraphs.length).toBe(2)
+    expect(paragraphOf(paragraphs, 0)).toBe(0)
+    expect(paragraphOf(paragraphs, 2)).toBe(0)
+    expect(paragraphOf(paragraphs, 3)).toBe(1)
+    // 只命中第一行，也要把整段（3 行）算进去
+    const index = buildPageIndex(lines, 1)
+    const hit = findTextInPages([index], 'aw firms are rapidly integrating artificial')
+    expect(hit.rects.length).toBe(1)
+    expect(hit.text).toContain('denced by an article')
+  })
+})
 
 describe('pdfText：单页索引', () => {
   it('owners 记录每个字符属于哪一行', () => {
