@@ -219,6 +219,8 @@ async function load() {
   picked.value = null
   pages.value = []
   indexes.value = []
+  // 换了任务/产物，上一种产物当参照的几何关系就不成立了——必须丢掉重来
+  releaseReference()
   try {
     const { doc, pdfjs } = await openPdfDocument({
       getBytes: async () => {
@@ -497,6 +499,19 @@ if (typeof window !== 'undefined' && typeof ResizeObserver !== 'undefined') {
   resizeObserver = new ResizeObserver(onResize)
 }
 
+/** 丢掉参照文档（换任务/换产物/卸载时都要丢，否则会拿着上一篇的几何关系去对齐）。 */
+function releaseReference() {
+  if (reference && reference.doc) {
+    try {
+      reference.doc.destroy()
+    } catch {
+      /* 已经销毁过就算了 */
+    }
+  }
+  reference = null
+  referenceLoading = null
+}
+
 if (typeof window !== 'undefined') window.addEventListener('keydown', onKeydown)
 
 onBeforeUnmount(() => {
@@ -505,6 +520,7 @@ onBeforeUnmount(() => {
   if (observer) observer.disconnect()
   if (resizeObserver) resizeObserver.disconnect()
   if (resizeTimer) clearTimeout(resizeTimer)
+  releaseReference()
   if (pdfDoc) pdfDoc.destroy()
 })
 
