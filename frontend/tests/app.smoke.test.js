@@ -741,16 +741,24 @@ describe('App.vue 页面渲染', () => {
     const answer = { answer: '按原文所述。', source_block_ids: ['p1_b2'], mode: 'full' }
     globalThis.fetch = stubFetch({ tasks: [task], detail, ask: answer })
     // 交替双语稿：1=原页1、2=译页1、3=原页2、4=译页2；纯中文稿 = 只有译页
+    // 纯中文稿那一页上**故意放一段同高度的左栏文字**：只按上下位置对齐的话会把它一起框进来
+    // （真实踩过：右栏段落的高亮框到了左栏大标题上）
     FAKE_PAGES = {
       dual: [
-        { n: 1, items: [{ str: 'first block', x: 10, y: 80, w: 66 }] },
-        { n: 2, items: [{ str: '第一段的中文译文', x: 10, y: 80, w: 120 }] },
-        { n: 3, items: [{ str: 'third block', x: 10, y: 80, w: 66 }] },
-        { n: 4, items: [{ str: '第三段的中文译文', x: 10, y: 80, w: 120 }] },
+        { n: 1, items: [{ str: 'first block', x: 300, y: 80, w: 66 }] },
+        { n: 2, items: [{ str: '第一段的中文译文', x: 300, y: 80, w: 120 }] },
+        { n: 3, items: [{ str: 'third block', x: 300, y: 80, w: 66 }] },
+        { n: 4, items: [{ str: '第三段的中文译文', x: 300, y: 80, w: 120 }] },
       ],
       mono: [
-        { n: 1, items: [{ str: '第一段的中文译文', x: 10, y: 80, w: 120 }] },
-        { n: 2, items: [{ str: '第三段的中文译文', x: 10, y: 80, w: 120 }] },
+        { n: 1, items: [{ str: '第一段的中文译文', x: 300, y: 80, w: 120 }] },
+        {
+          n: 2,
+          items: [
+            { str: '左栏的另一个段落，同高度但不是同一栏', x: 10, y: 80, w: 120 },
+            { str: '第三段的中文译文', x: 300, y: 80, w: 120 },
+          ],
+        },
       ],
     }
 
@@ -774,6 +782,8 @@ describe('App.vue 页面渲染', () => {
     await flushPromises()
 
     expect(wrapper.findAll('.pdf-hl').length).toBe(1)
+    // 而且框的是**右栏那一段**（x=300），不是同高度的左栏那段（x=10）
+    expect(wrapper.find('.pdf-hl').attributes('style')).toContain('left: 300px')
     expect(wrapper.find('.assist .honest').exists()).toBe(false)
     expect(wrapper.text()).toContain('的中文译文')
 

@@ -20,6 +20,8 @@ import {
   buildLines,
   buildPageIndex,
   findTextInPages,
+  overlapsVertically,
+  sameColumn,
 } from '../pdfText'
 import { itemBox, openPdfDocument } from '../pdfLoader'
 import { authFetch } from '../auth'
@@ -361,8 +363,17 @@ async function locateViaReference(needle) {
 
   const refPage = reference.indexes.find((item) => item.page === hit.page)
   if (!refPage || !hit.paragraphs.length) return null
-  const y0 = Math.min(...hit.paragraphs.map((p) => p.rect.y))
-  const y1 = Math.max(...hit.paragraphs.map((p) => p.rect.y + p.rect.h))
+  // 原文段落的框（x 和 y 都要）——只拿 y 去比对会把**另一栏**的同高度段落也框进来
+  const target = hit.paragraphs.reduce((box, item) => {
+    const x = Math.min(box.x, item.rect.x)
+    const y = Math.min(box.y, item.rect.y)
+    return {
+      x,
+      y,
+      w: Math.max(box.x + box.w, item.rect.x + item.rect.w) - x,
+      h: Math.max(box.y + box.h, item.rect.y + item.rect.h) - y,
+    }
+  }, { ...hit.paragraphs[0].rect })
 
   // 交替双语稿：奇数页原页、偶数页译页；左右并排的双语稿则同页（页数不会翻倍）
   const interleaved =
@@ -374,8 +385,10 @@ async function locateViaReference(needle) {
 
   const monoIndex = indexes.value.find((item) => item.page === monoPage)
   if (!monoIndex) return null
-  // 在纯中文稿的同一 y 区间上取中文段（**用本页自己的几何**，不照抄参照页的坐标）
-  const scope = monoIndex.paragraphs.filter((p) => p.rect.y < y1 && p.rect.y + p.rect.h > y0)
+  // 在纯中文稿上取"既在同一栏、上下又有重叠"的段（**用本页自己的几何**，不照抄参照页的坐标）
+  const scope = monoIndex.paragraphs.filter(
+    (p) => overlapsVertically(target, p.rect) && sameColumn(target, p.rect),
+  )
   if (!scope.length) return null
   // 兜底校验：这段真得有字（别把空白区当成命中）
   if (!scope.some((p) => p.text && p.text.trim())) return null
