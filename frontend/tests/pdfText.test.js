@@ -158,7 +158,29 @@ describe('pdfText：行 → 段', () => {
     expect(paragraphs.length).toBe(2)
   })
 
-  it('段的框 = 段内所有行的并集；段按阅读顺序（先上后下、再左后右）排', () => {
+  it('中文期刊排版：段间**没有空行**、只靠首行缩进 —— 也要分成两段', () => {
+    // 真数据：段内行距 16pt、段间行距**也是 16pt**，只有下一行缩进 19.7pt 这一个信号
+    const paragraphs = buildParagraphs([
+      { rect: { x: 87, y: 363, w: 400, h: 10.5 }, norm: '第一段第一行', squash: '第一段第一行' },
+      { rect: { x: 87, y: 379, w: 400, h: 10.5 }, norm: '第一段第二行', squash: '第一段第二行' },
+      { rect: { x: 107, y: 395, w: 380, h: 10.5 }, norm: '第二段第一行', squash: '第二段第一行' },
+      { rect: { x: 87, y: 411, w: 400, h: 10.5 }, norm: '第二段第二行', squash: '第二段第二行' },
+    ])
+    expect(paragraphs.length).toBe(2)
+    expect(paragraphs[0].text).toBe('第一段第一行 第一段第二行')
+    expect(paragraphs[1].text).toBe('第二段第一行 第二段第二行')
+  })
+
+  it('段内不缩进的行照旧并成一段（阈值不会误伤）', () => {
+    const paragraphs = buildParagraphs([
+      { rect: { x: 107, y: 100, w: 380, h: 10.5 }, norm: '首行（缩进）', squash: '首行缩进' },
+      { rect: { x: 87, y: 116, w: 400, h: 10.5 }, norm: '第二行', squash: '第二行' },
+      { rect: { x: 87, y: 132, w: 400, h: 10.5 }, norm: '第三行', squash: '第三行' },
+    ])
+    expect(paragraphs.length).toBe(1)
+  })
+
+  it('段落索引：段的框 = 段内所有行的并集', () => {
     const paragraphs = buildParagraphs([
       { rect: { x: 260, y: 100, w: 100, h: 10 }, norm: 'right', squash: 'right' },
       { rect: { x: 10, y: 100, w: 100, h: 10 }, norm: 'left', squash: 'left' },
