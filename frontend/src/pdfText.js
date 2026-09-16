@@ -204,7 +204,7 @@ export function contextAround(index, from, to, pad = 1) {
  * 做法是并查集：先按几何关系合并，再取连通分量，所以**不依赖行的排列顺序**
  * （双栏 PDF 的文字流顺序本来就不保证是"读完左栏再读右栏"）。
  */
-export function buildParagraphs(lines, { lineGap = 1.8, overlapRatio = 0.3 } = {}) {
+export function buildParagraphs(lines, { lineGap = 1.8, overlapRatio = 0.3, indent = 0.8 } = {}) {
   const list = lines || []
   const parent = list.map((_, i) => i)
   const find = (i) => {
@@ -226,7 +226,7 @@ export function buildParagraphs(lines, { lineGap = 1.8, overlapRatio = 0.3 } = {
 
   for (let i = 0; i < list.length; i += 1) {
     for (let j = i + 1; j < list.length; j += 1) {
-      if (sameParagraph(list[i], list[j], lineGap, overlapRatio)) union(i, j)
+      if (sameParagraph(list[i], list[j], lineGap, overlapRatio, indent)) union(i, j)
     }
   }
 
@@ -279,12 +279,26 @@ export function overlapsVertically(a, b) {
   return overlap1d(a.y, a.y + a.h, b.y, b.y + b.h) > 0
 }
 
-function sameParagraph(a, b, lineGap, overlapRatio) {
+/**
+ * 两行算不算同一段。三条同时成立才算：
+ *   ① **同一栏**（横向重叠 ≥ 较短那行的 30%）——双栏里左右栏同高度的两行不能粘一起；
+ *   ② **纵向相邻**（基线间距 ≤ 1.8 倍行高）；
+ *   ③ **下一行没有首行缩进**（缩进 ≥ 0.8 倍字高就算另起一段）。
+ *
+ * 第③条是拿真数据逼出来的：中文期刊排版里**段与段之间不加空行**，只靠首行缩进两个字区分——
+ * 实测某篇中文文献，段内行距 16pt、段间行距**也是 16pt**，光看行距会把整页正文并成一段
+ * （界面上表现为"鼠标扫过亮了一大片"）。中文缩进是两个字，19.7pt ÷ 10.5pt ≈ 1.9。
+ */
+function sameParagraph(a, b, lineGap, overlapRatio, indent = 0.8) {
   if (!sameColumn(a.rect, b.rect, overlapRatio)) return false
   const h = Math.max(a.rect.h, b.rect.h) || 10
   const baselineA = a.rect.y + a.rect.h
   const baselineB = b.rect.y + b.rect.h
-  return Math.abs(baselineA - baselineB) <= h * lineGap
+  if (Math.abs(baselineA - baselineB) > h * lineGap) return false
+  // 谁在上面谁在下面：下面那行如果相对上面那行缩进了，就是新的一段
+  const [top, bottom] = a.rect.y <= b.rect.y ? [a, b] : [b, a]
+  if (bottom.rect.x - top.rect.x >= h * indent) return false
+  return true
 }
 
 /** 命中点的行文本（给"这段在讲什么"用：命中的那一行 + 上一行 + 下一行）。 */
