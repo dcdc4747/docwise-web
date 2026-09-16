@@ -20,6 +20,7 @@ import {
   buildLines,
   buildPageIndex,
   findTextInPages,
+  mergeLineRects,
   overlapsVertically,
   sameColumn,
 } from '../pdfText'
@@ -362,18 +363,21 @@ async function locateViaReference(needle) {
   if (!hit) return null
 
   const refPage = reference.indexes.find((item) => item.page === hit.page)
-  if (!refPage || !hit.paragraphs.length) return null
-  // 原文段落的框（x 和 y 都要）——只拿 y 去比对会把**另一栏**的同高度段落也框进来
-  const target = hit.paragraphs.reduce((box, item) => {
-    const x = Math.min(box.x, item.rect.x)
-    const y = Math.min(box.y, item.rect.y)
-    return {
-      x,
-      y,
-      w: Math.max(box.x + box.w, item.rect.x + item.rect.w) - x,
-      h: Math.max(box.y + box.h, item.rect.y + item.rect.h) - y,
-    }
-  }, { ...hit.paragraphs[0].rect })
+  if (!refPage || !hit.rects.length) return null
+  // 原文这段文字占了哪一块（x 和 y 都要）——只拿 y 去比对会把**另一栏**的同高度段落也框进来
+  const target = hit.rects.reduce(
+    (box, rect) => {
+      const x = Math.min(box.x, rect.x)
+      const y = Math.min(box.y, rect.y)
+      return {
+        x,
+        y,
+        w: Math.max(box.x + box.w, rect.x + rect.w) - x,
+        h: Math.max(box.y + box.h, rect.y + rect.h) - y,
+      }
+    },
+    { ...hit.rects[0] },
+  )
 
   // 交替双语稿：奇数页原页、偶数页译页；左右并排的双语稿则同页（页数不会翻倍）
   const interleaved =
@@ -385,14 +389,15 @@ async function locateViaReference(needle) {
 
   const monoIndex = indexes.value.find((item) => item.page === monoPage)
   if (!monoIndex) return null
-  // 在纯中文稿上取"既在同一栏、上下又有重叠"的段（**用本页自己的几何**，不照抄参照页的坐标）
-  const scope = monoIndex.paragraphs.filter(
-    (p) => overlapsVertically(target, p.rect) && sameColumn(target, p.rect),
-  )
-  if (!scope.length) return null
-  // 兜底校验：这段真得有字（别把空白区当成命中）
-  if (!scope.some((p) => p.text && p.text.trim())) return null
-  return { page: monoPage, rects: scope.map((p) => p.rect) }
+  // 在纯中文稿上取"既在同一栏、上下又有重叠"的**行**（用本页自己的几何，不照抄参照页的坐标）；
+  // 取行不取段：中文文献的块可能是按行切的，取整段会把旁边几段一起框进来
+  const lines = monoIndex.lines
+    .filter((line) => overlapsVertically(target, line.rect) && sameColumn(target, line.rect))
+    .sort((a, b) => a.rect.x - b.rect.x || a.rect.y - b.rect.y)
+  if (!lines.length) return null
+  // 兜底校验：这些行真得有字（别把空白区当成命中）
+  if (!lines.some((line) => line.norm && line.norm.trim())) return null
+  return { page: monoPage, rects: mergeLineRects(lines) }
 }
 
 /** 惰性打开双语稿当参照（只在纯中文稿定位失败时用一次，之后复用）。 */

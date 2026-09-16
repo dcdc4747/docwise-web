@@ -98,21 +98,62 @@ export function buildPageIndex(lines, pageNumber) {
   }
 }
 
-/** 在一页里搜一段文本（都已去空白）。命中返回它覆盖的行号区间。 */
+/**
+ * 把若干行合成尽量少的方块：**同一栏、上下挨着的行并成一块**。
+ *
+ * 为什么要合：高亮"对上的那几行"时，如果一行画一个框，看起来是一排带缝的条；
+ * 合成一块才像"这一段被框住了"。行距判断用实测值：段内基线距 14.7、字高 10.5，
+ * 相邻两块之间空 4.2，而换段会空 14.8 以上——阈值取 0.9 倍字高正好卡开。
+ */
+export function mergeLineRects(lines) {
+  const out = []
+  let run = null
+  for (const line of lines || []) {
+    const rect = line.rect
+    if (
+      run &&
+      sameColumn(run, rect, 0.3) &&
+      rect.y - (run.y + run.h) <= Math.max(run.h, rect.h) * 0.9
+    ) {
+      // 四个方向都要并：列尾回到列首时（下一栏从页顶开始）后一块的 y 反而更小
+      const left = Math.min(run.x, rect.x)
+      const top = Math.min(run.y, rect.y)
+      const right = Math.max(run.x + run.w, rect.x + rect.w)
+      const bottom = Math.max(run.y + run.h, rect.y + rect.h)
+      run.x = left
+      run.y = top
+      run.w = right - left
+      run.h = bottom - top
+      continue
+    }
+    run = { ...rect }
+    out.push(run)
+  }
+  return out
+}
+
+/**
+ * 在一页里搜一段文本（都已去空白）。命中返回它覆盖的行号区间。
+ */
 export function findInPage(index, needleSquash) {
   if (!index || !needleSquash) return null
   const at = index.flat.indexOf(needleSquash)
   if (at < 0) return null
   const last = Math.min(at + needleSquash.length - 1, index.owners.length - 1)
-  return { from: index.owners[at], to: index.owners[last] }
+  return { at, from: index.owners[at], to: index.owners[last] }
 }
 
 /**
- * 在整个文档里找一段文本，返回 **第一个** 命中的页与要高亮的行。
+ * 在整个文档里找一段文本，返回 **第一个** 命中的页与要高亮的方块。
  *
- * 分档降级：先用整段（最准），对不上再用更短的前缀——块文本是引擎从**原 PDF**
- * 抽的，行断点/连字符可能和渲染结果不同；短前缀能容忍尾部差异，
- * 但**不短于 16 个字符**，免得随便一段就把高亮打到不相干的地方。
+ * **高亮的是"真正对上的那段文字"，不扩成整段**——这一点很关键：
+ * 中文文献的取字是**按行**切块的（实测第 3 页 29 个块，每块就是一行），
+ * 如果命中一行就扩成整段，那点「第 18 段 / 第 19 段 / 第 20 段」会亮同一个框，
+ * 看起来就是"定位不准"。改成按命中范围高亮之后，三个段各亮各的那一行。
+ *
+ * 分档降级：先用整段（最准），对不上再用更短的前缀（短于 16 个字符不用，
+ * 免得随便一段就把高亮打到不相干的地方）；命中后**从命中位置尽量往后延伸**，
+ * 能对上多少算多少——块文本和 PDF 的行断点本来就不一定一致。
  */
 export function findTextInPages(indexes, needle, { minPrefix = 16 } = {}) {
   const full = squash(needle)
@@ -123,24 +164,22 @@ export function findTextInPages(indexes, needle, { minPrefix = 16 } = {}) {
   }
   for (const candidate of tries) {
     for (const index of indexes || []) {
-      const hit = findInPage(index, candidate)
-      if (hit) {
-        // **把"命中了几行"扩成"整段"**：短前缀命中时只覆盖半段，扩完才是这一整段
-        const first = paragraphOf(index.paragraphs, hit.from)
-        const last = paragraphOf(index.paragraphs, hit.to)
-        const from = first >= 0 ? first : 0
-        const to = last >= 0 ? last : index.paragraphs.length - 1
-        const scope = index.paragraphs.slice(from, to + 1)
-        return {
-          page: index.page,
-          from,
-          to,
-          paragraphs: scope,
-          rects: scope.map((item) => item.rect),
-          text: scope.map((item) => item.text).join(' '),
-          matchedChars: candidate.length,
-          exact: candidate === full,
-        }
+      const at = index.flat.indexOf(candidate)
+      if (at < 0) continue
+      // 逐字符往后延伸（candidate 是 full 的前缀，所以前面已经对上了）
+      let len = candidate.length
+      while (len < full.length && index.flat[at + len] === full[len]) len += 1
+      const from = index.owners[at]
+      const to = index.owners[Math.min(at + len - 1, index.owners.length - 1)]
+      const lines = index.lines.slice(from, to + 1)
+      return {
+        page: index.page,
+        from,
+        to,
+        rects: mergeLineRects(lines),
+        text: lines.map((line) => line.norm).join(' '),
+        matchedChars: len,
+        exact: len === full.length,
       }
     }
   }
@@ -248,11 +287,4 @@ function sameParagraph(a, b, lineGap, overlapRatio) {
   return Math.abs(baselineA - baselineB) <= h * lineGap
 }
 
-/** 某一行落在第几段里（用于把"命中了几行"扩成"整段"）。 */
-export function paragraphOf(paragraphs, lineIndex) {
-  const list = paragraphs || []
-  for (let i = 0; i < list.length; i += 1) {
-    if (list[i].lines.includes(lineIndex)) return i
-  }
-  return -1
-}
+/** 命中点的行文本（给"这段在讲什么"用：命中的那一行 + 上一行 + 下一行）。 */
