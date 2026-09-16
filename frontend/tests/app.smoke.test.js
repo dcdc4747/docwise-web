@@ -22,7 +22,7 @@ import App from '../src/App.vue'
  * 假文档按取回来的字节打标签（mono / dual）：纯中文稿里**故意不含**块文本，
  * 用来验证"对不上时只翻页、不假高亮"这条硬约束。
  */
-const FAKE_PAGES = {
+const DEFAULT_FAKE_PAGES = {
   dual: [
     {
       n: 1,
@@ -30,9 +30,10 @@ const FAKE_PAGES = {
     },
     {
       n: 2,
+      // 段按阅读顺序（先上后下）排：y 小的在上面，所以 para 0 = third block
       items: [
-        { str: 'third block', x: 10, y: 100, w: 66 },
-        { str: 'second block', x: 10, y: 80, w: 72 },
+        { str: 'third block', x: 10, y: 80, w: 66 },
+        { str: 'second block', x: 10, y: 100, w: 72 },
       ],
     },
   ],
@@ -44,8 +45,11 @@ const FAKE_PAGES = {
   ],
 }
 
+/** 个别用例要换一套假页（比如验证"纯中文稿靠双语稿对齐"）。 */
+let FAKE_PAGES = DEFAULT_FAKE_PAGES
+
 function fakeDocument(tag) {
-  const pages = FAKE_PAGES[tag] || FAKE_PAGES.dual
+  const pages = (FAKE_PAGES[tag] || FAKE_PAGES.dual)
   return {
     numPages: pages.length,
     destroy() {},
@@ -654,8 +658,8 @@ describe('App.vue 页面渲染', () => {
     expect(wrapper.findAll('.pdf-hl').length).toBe(1)
     expect(wrapper.text()).toContain('已在 PDF 里定位到 第 2 页 · 第 1 段')
 
-    // 点 PDF 里的某一行：那一行**当场点亮**（选中态留着），并浮出「就这段提问」
-    const hit = wrapper.find('.pdf-page[data-page="2"] .pdf-hit[data-line="0"]')
+    // 点 PDF 里的某一段：那**一整段**当场点亮（选中态留着），并浮出「就这段提问」
+    const hit = wrapper.find('.pdf-page[data-page="2"] .pdf-hit[data-para="0"]')
     expect(hit.exists()).toBe(true)
     await hit.trigger('click')
     expect(wrapper.find('.pdf-sel').exists()).toBe(true)
@@ -730,6 +734,50 @@ describe('App.vue 页面渲染', () => {
     // 一个高亮框都不许画
     expect(wrapper.findAll('.pdf-hl').length).toBe(0)
     expect(wrapper.find('.assist .honest').text()).toContain('没能在这份 PDF 的文字层里对上')
+  })
+
+  it('纯中文稿：块里是英文、PDF 里是中文——靠双语稿的「原页 → 译页」几何对齐也能高亮到那一段', async () => {
+    const { task, detail } = completedFixture()
+    const answer = { answer: '按原文所述。', source_block_ids: ['p1_b2'], mode: 'full' }
+    globalThis.fetch = stubFetch({ tasks: [task], detail, ask: answer })
+    // 交替双语稿：1=原页1、2=译页1、3=原页2、4=译页2；纯中文稿 = 只有译页
+    FAKE_PAGES = {
+      dual: [
+        { n: 1, items: [{ str: 'first block', x: 10, y: 80, w: 66 }] },
+        { n: 2, items: [{ str: '第一段的中文译文', x: 10, y: 80, w: 120 }] },
+        { n: 3, items: [{ str: 'third block', x: 10, y: 80, w: 66 }] },
+        { n: 4, items: [{ str: '第三段的中文译文', x: 10, y: 80, w: 120 }] },
+      ],
+      mono: [
+        { n: 1, items: [{ str: '第一段的中文译文', x: 10, y: 80, w: 120 }] },
+        { n: 2, items: [{ str: '第三段的中文译文', x: 10, y: 80, w: 120 }] },
+      ],
+    }
+
+    wrapper = mountApp()
+    await flushPromises()
+    await buttonByText(wrapper, '继续读').trigger('click')
+    await flushPromises()
+
+    const modeWrap = wrapper
+      .findAll('.reader-top .menu-wrap')
+      .find((m) => m.text().includes('段落精读'))
+    await modeWrap.find('.chip').trigger('click')
+    await modeWrap.findAll('.menu button').find((b) => b.text().includes('纯中文')).trigger('click')
+    await flushPromises()
+    expect(wrapper.findAll('.pdf-page').length).toBe(2)
+
+    // p1_b2 的英文原文在纯中文稿里**搜不到**（那里只有中文），但仍然要高亮到第 2 页那段中文
+    await buttonByText(wrapper, '局限与不足').trigger('click')
+    await flushPromises()
+    await wrapper.find('.assist .srcs .src-tag').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.findAll('.pdf-hl').length).toBe(1)
+    expect(wrapper.find('.assist .honest').exists()).toBe(false)
+    expect(wrapper.text()).toContain('的中文译文')
+
+    FAKE_PAGES = DEFAULT_FAKE_PAGES
   })
 
   it('导读：有出处的写完坐标可点，无出处的置灰不可点并说明为什么（死链不许做成活链样式）', async () => {
