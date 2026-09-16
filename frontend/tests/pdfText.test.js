@@ -14,8 +14,10 @@ import {
   contextAround,
   findInPage,
   findTextInPages,
+  overlapsVertically,
   paragraphOf,
   pdfNormalize,
+  sameColumn,
   squash,
 } from '../src/pdfText'
 
@@ -46,6 +48,20 @@ describe('pdfText：条目 → 行', () => {
   it('基线差超过半个字高就断成两行（上下行不会被粘在一起）', () => {
     const lines = buildLines([box('first line', 10, 100), box('second line', 10, 86)])
     expect(lines.map((l) => l.norm)).toEqual(['first line', 'second line'])
+  })
+
+  it('同一基线上横向离很远的条目**不**并成一行（双栏不会粘成一行）', () => {
+    // 左栏和右栏恰好落在同一条基线上：距 170，行高 10 → 远超 2 倍行高
+    const lines = buildLines([box('左栏的一段话', 10, 100, 60), box('右栏的另一段', 300, 100, 72)])
+    expect(lines.length).toBe(2)
+    expect(lines[0].norm).toBe('左栏的一段话')
+    expect(lines[1].norm).toBe('右栏的另一段')
+  })
+
+  it('同一行内挨着的条目照旧并成一行（阈值不会误伤正常行）', () => {
+    const lines = buildLines([box('hello ', 10, 100, 36), box('world', 50, 100, 30)])
+    expect(lines.length).toBe(1)
+    expect(lines[0].norm).toBe('hello world')
   })
 
   it('空条目直接丢掉，不留空行', () => {
@@ -171,6 +187,26 @@ describe('pdfText：行 → 段', () => {
     const hit = findTextInPages([index], 'aw firms are rapidly integrating artificial')
     expect(hit.rects.length).toBe(1)
     expect(hit.text).toContain('denced by an article')
+  })
+})
+
+describe('pdfText：同栏判断（只按上下位置会框到另一栏去）', () => {
+  const right = { x: 319, y: 546, w: 270, h: 212 }
+
+  it('右栏段落 vs 同高度的左栏段落：不同栏', () => {
+    const left = { x: 141, y: 546, w: 153, h: 90 }
+    expect(overlapsVertically(right, left)).toBe(true) // 上下确实重叠——所以只看 y 就会误框
+    expect(sameColumn(right, left)).toBe(false)
+  })
+
+  it('同一栏、高度也重叠：同一栏', () => {
+    const same = { x: 319, y: 560, w: 274, h: 180 }
+    expect(sameColumn(right, same)).toBe(true)
+  })
+
+  it('真实数据的两个数：右栏 x 比 1.00、左栏 0.00（阈值 0.3 卡得开）', () => {
+    expect(sameColumn({ x: 319, y: 546, w: 270, h: 212 }, { x: 319, y: 560, w: 274, h: 200 })).toBe(true)
+    expect(sameColumn({ x: 319, y: 546, w: 270, h: 212 }, { x: 144, y: 700, w: 137, h: 20 })).toBe(false)
   })
 })
 

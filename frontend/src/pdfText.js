@@ -27,13 +27,17 @@ export function squash(value) {
 /**
  * 文本条目 → 行。
  *
- * 同一行的判定：基线 y 差不到半个字高（pdf.js 的条目坐标是 `[a,b,c,d,e,f]`，
- * e 是 x、f 是基线 y）。行内按 x 从左到右拼。
+ * 同一行要同时满足两条：
+ *   ① **基线差不到半个字高**（pdf.js 的条目坐标是 `[a,b,c,d,e,f]`，e 是 x、f 是基线 y）；
+ *   ② **横向挨着**——离得太远就不算同一行。加这条是因为双栏排版里左右两栏可能落在
+ *      同一条基线上，只按基线分会把两栏粘成"一行"，那一行的框横跨两栏、
+ *      文本也会交错（实测：真实产物里同一行内部的空隙基本是 0——pdf.js 把空格并进了
+ *      条目文本——仅有的两处例外是 5.9 / 11.2 倍行高，本来就是分开的两块）。
  *
  * @param {{text:string,x:number,y:number,w:number,h:number}[]} boxes 已经换算成视口坐标的条目
  * @returns {{text:string,norm:string,squash:string,rect:{x:number,y:number,w:number,h:number}}[]}
  */
-export function buildLines(boxes) {
+export function buildLines(boxes, { columnGap = 2 } = {}) {
   const lines = []
   let current = null
 
@@ -41,12 +45,16 @@ export function buildLines(boxes) {
     const text = String(box?.text ?? '')
     if (!text.trim()) continue
     const height = Number(box.h) || 10
-    // 基线 y（box.y 是基线）——同一行差不到半个字高就算一行
-    if (!current || Math.abs(current.baseline - box.y) > height * 0.5) {
-      current = { baseline: box.y, height, parts: [] }
+    const sameBaseline = current && Math.abs(current.baseline - box.y) <= height * 0.5
+    // 与当前行已占的横向区间比：空隙超过 columnGap 倍行高就当另起一行
+    const farApart =
+      sameBaseline && box.x - current.maxX > height * columnGap
+    if (!sameBaseline || farApart) {
+      current = { baseline: box.y, height, maxX: -Infinity, parts: [] }
       lines.push(current)
     }
     current.parts.push(box)
+    current.maxX = Math.max(current.maxX, box.x + (Number(box.w) || 0))
   }
 
   return lines
@@ -209,10 +217,31 @@ export function buildParagraphs(lines, { lineGap = 1.8, overlapRatio = 0.3 } = {
   return paragraphs
 }
 
+/** 一维重叠长度（两个区间）。 */
+export function overlap1d(a0, a1, b0, b1) {
+  return Math.max(0, Math.min(a1, b1) - Math.max(a0, b0))
+}
+
+/**
+ * 两个框算不算"同一栏"：**横向**重叠 ≥ 较短那个宽度的 `ratio`。
+ *
+ * 光看上下位置是不够的——双栏排版里，同一高度上左右两栏都有字，
+ * 拿一个右栏段落的 y 区间去比对，左栏的大标题和作者行都会被算进来（实测踩过，
+ * 用户截图里就是"高亮框到左栏去了"）。x 比是决定性的那个信号：右栏 1.00、左栏 0.00。
+ */
+export function sameColumn(a, b, ratio = 0.3) {
+  const overlap = overlap1d(a.x, a.x + a.w, b.x, b.x + b.w)
+  const shorter = Math.min(a.w, b.w) || 1
+  return overlap / shorter >= ratio
+}
+
+/** 两个框**竖向**有没有重叠。 */
+export function overlapsVertically(a, b) {
+  return overlap1d(a.y, a.y + a.h, b.y, b.y + b.h) > 0
+}
+
 function sameParagraph(a, b, lineGap, overlapRatio) {
-  const overlap = Math.min(a.rect.x + a.rect.w, b.rect.x + b.rect.w) - Math.max(a.rect.x, b.rect.x)
-  const shorter = Math.min(a.rect.w, b.rect.w) || 1
-  if (overlap / shorter < overlapRatio) return false
+  if (!sameColumn(a.rect, b.rect, overlapRatio)) return false
   const h = Math.max(a.rect.h, b.rect.h) || 10
   const baselineA = a.rect.y + a.rect.h
   const baselineB = b.rect.y + b.rect.h
