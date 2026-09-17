@@ -15,12 +15,50 @@ export function parseBlockId(blockId) {
 }
 
 /**
+ * 块编号 → 「第 X 页」。
+ *
+ * **出处只说页码、不说第几段**（2026-09-17 定的口径）：段号靠 PDF 版面切分算出来，
+ * 实测在没见过的期刊上只有五六成准（见 `temp/seg-audit/审查结论_汇总.md`），
+ * 而不准的段号比没有段号更糟——用户会拿它去数，数不上就整条出处都不信了。
+ * 出处真正让人信的是**点下去那几句被高亮**（那是按文字匹配算的，不依赖分段）。
+ *
+ * 解析不出页码 → 返回空串，由调用方显示「位置待定」（**绝不裸露块编号**）。
+ */
+export function pageLabel(blockId) {
+  const parsed = parseBlockId(blockId)
+  return parsed ? `第 ${parsed.page + 1} 页` : ''
+}
+
+/**
+ * 出处的完整标签：「第 X 页 ·「这一句的开头…」」。
+ *
+ * 两条都是硬要求：
+ * ① **块必须真的在这个任务的块列表里**——模型偶尔会编出不存在的块编号，
+ *    只按编号前缀给个页码，等于把编出来的位置当真显示（宁可写「位置待定」，也不假装）；
+ * ② 缀上**这一句的开头**：一页里往往有好几个出处，只写页码的话几个标签长得一模一样，
+ *    用户分不清哪个是哪个——缀上开头，没点之前就知道是哪几句。
+ */
+export function sourceLabel(blockId, blocks, { chars = 12 } = {}) {
+  const parsed = parseBlockId(blockId)
+  if (!parsed) return ''
+  const block = (blocks || []).find((item) => item?.block_id === blockId)
+  if (!block) return ''
+  const page = `第 ${parsed.page + 1} 页`
+  const text = String(block.text || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!text) return page
+  const head = text.slice(0, chars)
+  return `${page} ·「${head}${text.length > chars ? '…' : ''}」`
+}
+
+/**
  * 块编号 → 「第 X 页 · 第 Y 段」。
- * - 页号 = 块编号里的页序 + 1（人从 1 数起）；
- * - **段号必须按页内重算**：`b` 是全文档序号（实测任务 2 共 92 块 / 3 页，最后一块叫 `p2_b91`），
- *   直接把 b 当段号会显示成"第 92 段"。
- * - 解析不出、或该块不在本任务的块列表里 → 返回空串，由调用方显示"位置待定"，
- *   **绝不裸露块编号**（宁可不给，也不假装）。
+ *
+ * ⚠️ **界面上已经不用它了**（见 `pageLabel` 的说明：段号不准，改说人话只说页码）。
+ * 留着是因为它锁住了那条真教训：`b` 是**全文档全局序号**，段号必须按页内重算——
+ * 实测任务 2 共 92 块 / 3 页，最后一块叫 `p2_b91`，直接把 b 当段号会显示成"第 92 段"。
+ * 将来真把段落切分做到可信了（`temp/seg-audit/` 里有评测台），再把它接回来。
  */
 export function blockLabel(blockId, allBlockIds) {
   const parsed = parseBlockId(blockId)

@@ -575,7 +575,7 @@ describe('App.vue 页面渲染', () => {
     expect(dl.find('.menu').classes()).not.toContain('open')
   })
 
-  it('出处一律说人话：显示「第 X 页 · 第 Y 段」而不是块编号，且段号按页内重算 + 点击必闪烁', async () => {
+  it('出处只说「第 X 页 ·「这一句的开头…」」——不说第几段；点击必高亮那一段', async () => {
     const { task, detail } = completedFixture()
     const answer = {
       answer: '按原文所述，这条结论有两条局限。',
@@ -597,8 +597,10 @@ describe('App.vue 页面渲染', () => {
     await flushPromises()
 
     const text = wrapper.text()
-    // p1_b2 的全局块序是 2，但它是**第 2 页的第 1 段**——直接把 b 当段号就会显示"第 3 段"
-    expect(text).toContain('第 2 页 · 第 1 段')
+    // 出处 = 页码 + 那一句的开头（**不再有"第 Y 段"**：段号靠版面切分算，实测不准，
+    // 不准的段号比没有更糟——用户会拿它去数，数不上就不信整条出处了）
+    expect(text).toContain('第 2 页 ·「third block」')
+    expect(text).not.toContain('第 1 段')
     expect(text).not.toContain('p1_b2') // 块编号只留在 title 里，不出现在界面文本
 
     // 问答线程的结构：.turn > .bubble-q + .bubble-a(.srcs > .src-tag) + .a-tools
@@ -608,7 +610,7 @@ describe('App.vue 页面渲染', () => {
     expect(turn.find('.bubble-a').exists()).toBe(true)
     const srcTag = turn.find('.srcs .src-tag')
     expect(srcTag.exists()).toBe(true)
-    expect(srcTag.text()).toBe('第 2 页 · 第 1 段 ▸')
+    expect(srcTag.text()).toBe('第 2 页 ·「third block」 ▸')
     expect(srcTag.attributes('title')).toBe('原文块 p1_b2')
     expect(turn.findAll('.a-tools button').map((b) => b.text())).toEqual(['复制答案', '展开原文'])
 
@@ -656,7 +658,7 @@ describe('App.vue 页面渲染', () => {
     await wrapper.find('.assist .srcs .src-tag').trigger('click')
     await flushPromises()
     expect(wrapper.findAll('.pdf-hl').length).toBe(1)
-    expect(wrapper.text()).toContain('已在 PDF 里定位到 第 2 页 · 第 1 段')
+    expect(wrapper.text()).toContain('已在 PDF 里高亮这一段——出处 第 2 页 ·「third block」')
 
     // 点 PDF 里的某一段：那**一整段**当场点亮（选中态留着），并浮出「就这段提问」
     const hit = wrapper.find('.pdf-page[data-page="2"] .pdf-hit[data-para="0"]')
@@ -825,7 +827,7 @@ describe('App.vue 页面渲染', () => {
 
     // 有出处：坐标在点之前就显示（来自后端真数据 source_block_ids），且可点、带箭头
     const traceBtn = cards[0].find('.ops button')
-    expect(traceBtn.text()).toBe('看原文（第 1 页 · 第 1 段）▸')
+    expect(traceBtn.text()).toBe('看原文（第 1 页 ·「first block」）▸')
     expect(traceBtn.attributes('disabled')).toBeUndefined()
 
     // 无出处：置灰、disabled、没有箭头，并有一句说明
@@ -892,10 +894,10 @@ describe('App.vue 页面渲染', () => {
     expect(hitBtn.text()).toBe('在原文中定位')
     expect(hitBtn.text()).not.toContain('第')
 
-    // 命中 → 回填「已定位 · 第 X 页 · 第 Y 段」+ 跳过去闪烁
+    // 命中 → 回填「已定位 · 第 X 页 ·「…」」+ 跳过去闪烁
     await hitBtn.trigger('click')
     await flushPromises()
-    expect(terms[0].find('.ops button').text()).toBe('已定位 · 第 1 页 · 第 1 段')
+    expect(terms[0].find('.ops button').text()).toBe('已定位 · 第 1 页 ·「first block」')
     expect(wrapper.find('.doc-pane p#p0_b0').classes()).toContain('flash')
 
     // 未命中 → 直说（别装）

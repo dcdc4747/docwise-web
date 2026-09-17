@@ -39,7 +39,7 @@ import {
   runningLine,
   stageTextFor,
 } from './progressText'
-import { blockLabel, buildParagraphRows, findBlockByText, parseBlockId } from './blockLabel'
+import { buildParagraphRows, findBlockByText, parseBlockId, sourceLabel } from './blockLabel'
 import { NConfigProvider, NSpin, zhCN, dateZhCN } from 'naive-ui'
 
 // ============================================================ 屏与账号
@@ -257,11 +257,16 @@ const fileAvailability = ref({ mono: false, dual: false })
 const taskDetailError = ref('')
 const taskDetailLoading = ref(false)
 
-const blockOrder = computed(() => blocks.value.map((block) => block.block_id))
-
-/** 内部用：块编号 → 人话位置。解析不出返回空串（由调用方写「位置待定」）。 */
+/**
+ * 内部用：块编号 → 出处的**人话标签**（「第 X 页 ·「这一句的开头…」」）。
+ *
+ * **只说页码、不说第几段**（2026-09-17 口径）：段号靠版面切分算，实测在没见过的期刊上
+ * 只有五六成准；而不准的段号比没有更糟——用户会拿它去数，数不上就不信整条出处了。
+ * 让人信的是"点下去那几句被高亮"（按文字匹配算的，不依赖分段）+ 标签上就写着是哪一句。
+ * 解析不出返回空串，由调用方写「位置待定」。
+ */
 function labelOf(blockId) {
-  return blockLabel(blockId, blockOrder.value)
+  return sourceLabel(blockId, blocks.value)
 }
 
 const isNativeTask = computed(() => currentTask.value?.native === true)
@@ -1354,15 +1359,15 @@ function onPdfLocate(result) {
     honestNote.value = ''
     setNote(
       result.translated
-        ? `已在 PDF 里定位到 ${label} 的中文译文——高亮在左栏（纯中文稿只有中文，位置是拿双语稿的原页对齐出来的）。`
-        : `已在 PDF 里定位到 ${label}——高亮在左栏。`,
+        ? `已在 PDF 里高亮这段的中文译文——出处 ${label}（纯中文稿只有中文，位置是拿双语稿的原页对齐出来的）。`
+        : `已在 PDF 里高亮这一段——出处 ${label}。`,
     )
     return
   }
   honestNote.value =
     '这段没能在这份 PDF 的文字层里对上——只翻到了它所在的页，没有假高亮。' +
     '（图、表、扫描页里的字没有文字层，对不上；要看那一段被高亮，切「段落精读」。）'
-  setNote(result.page ? `只翻到了第 ${result.page} 页：${label} 在这份 PDF 里没对上。` : `${label} 没能定位到。`)
+  setNote(result.page ? `只翻到了第 ${result.page} 页——那一段在这份 PDF 里没对上。` : '那一段没能定位到。')
 }
 
 /** PdfPane 里点了一段 → 带着这一段去提问（能对上块就用块编号当锚点）。 */
