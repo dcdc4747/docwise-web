@@ -2,14 +2,26 @@
  * 出处人话化 / 术语定位 的纯函数单测。
  *
  * 这些断言锁的是形态里的硬约定：
- * - 段号必须**按页内重算**（块编号里的 b 是全文档全局序号）；
- * - 解析不出、或块不在本任务里 → 返回空串（调用方显示"位置待定"），不许裸露块编号；
- * - 文本比较前必须 NFKC（译稿里真实存在 U+F900–FAFF 的兼容汉字）。
+ * - **出处只说「第 X 页 ·「这一句的开头…」」，不说第几段**（段号实测不准，见
+ *   `temp/seg-audit/审查结论_汇总.md`；不准的段号比没有更糟，用户会拿它去数）；
+ * - 块**必须真的在本任务的块列表里** → 否则返回空串（调用方显示"位置待定"），
+ *   模型编出来的块编号绝不许给页码；不许裸露块编号；
+ * - 文本比较前必须 NFKC（译稿里真实存在 U+F900–FAFF 的兼容汉字）；
+ * - `blockLabel`（带段号那个）留着不删：它锁住了"b 是全文档全局序号、段号必须按页内重算"
+ *   这条真教训，将来段落切分做到可信了再接回来。
  */
 
 import { describe, expect, it } from 'vitest'
 
-import { blockLabel, buildParagraphRows, findBlockByText, normalizeText, parseBlockId } from '../src/blockLabel'
+import {
+  blockLabel,
+  buildParagraphRows,
+  findBlockByText,
+  normalizeText,
+  pageLabel,
+  parseBlockId,
+  sourceLabel,
+} from '../src/blockLabel'
 
 describe('parseBlockId', () => {
   it('解析 p<页>_b<全局块序>', () => {
@@ -24,7 +36,44 @@ describe('parseBlockId', () => {
   })
 })
 
-describe('blockLabel', () => {
+describe('sourceLabel / pageLabel（出处只说页码 + 那一句的开头）', () => {
+  const blocks = [
+    { block_id: 'p0_b0', text: '第一段的第一句话，后面还有很多字用来验证截断。' },
+    { block_id: 'p0_b1', text: '第二段的开头。' },
+    { block_id: 'p1_b2', text: 'another sentence here' },
+  ]
+
+  it('页码从 1 数起', () => {
+    expect(pageLabel('p0_b0')).toBe('第 1 页')
+    expect(pageLabel('p1_b2')).toBe('第 2 页')
+  })
+
+  it('标签 = 页码 + 那一句的开头（超过 12 字截断加省略号）', () => {
+    expect(sourceLabel('p0_b1', blocks)).toBe('第 1 页 ·「第二段的开头。」')
+    expect(sourceLabel('p0_b0', blocks)).toBe('第 1 页 ·「第一段的第一句话，后面还…」')
+    expect(sourceLabel('p1_b2', blocks)).toBe('第 2 页 ·「another sent…」')
+  })
+
+  it('**块不在本任务里 → 空串**：模型编出来的块编号绝不许给页码', () => {
+    expect(sourceLabel('p9_b99', blocks)).toBe('')
+    expect(sourceLabel('p0_b7', blocks)).toBe('')
+  })
+
+  it('块列表还没加载 → 也当推导不出（等加载完自然会填上）', () => {
+    expect(sourceLabel('p0_b0', [])).toBe('')
+  })
+
+  it('编号格式不对 → 空串，不裸露编号', () => {
+    expect(sourceLabel('b1', blocks)).toBe('')
+    expect(sourceLabel(undefined, blocks)).toBe('')
+  })
+
+  it('同一页的两个出处，标签不一样（靠开头那句区分）', () => {
+    expect(sourceLabel('p0_b0', blocks)).not.toBe(sourceLabel('p0_b1', blocks))
+  })
+})
+
+describe('blockLabel（带段号的旧口径，界面上已不用，留着锁住那条教训）', () => {
   const order = ['p0_b0', 'p0_b1', 'p0_b2', 'p1_b3', 'p1_b4', 'p2_b91']
 
   it('页号从 1 数起，段号按页内重算', () => {
