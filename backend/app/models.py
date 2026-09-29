@@ -46,6 +46,9 @@ class Task(Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 形态（阅读位置记忆）：上次读到第几页（1 起数）；没读过就是 NULL，
+    # 界面据此决定显示「继续读 · 上次读到第 N 页」还是「开始阅读」——不假装记得。
+    last_read_page: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now()
     )

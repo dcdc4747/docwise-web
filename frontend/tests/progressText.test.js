@@ -2,16 +2,22 @@
  * 诚实进度文案的单测（F 批）。
  *
  * 这里只测"事实怎么变成人话"，不碰网络与组件；模板渲染另有 app.smoke.test.js 兜底。
+ *
+ * 文案写法以形态原型为准（`frontend/prototype/product-form.html`）：
+ * `正在翻译 · 第 3/10 页 · 已用 12 秒 · 引擎自报还需约 25 秒`。
  */
 
 import { describe, expect, it } from 'vitest'
 
 import {
   elapsedTextFor,
-  engineText,
+  enginePageText,
   etaTextFor,
+  factLine,
   formatDuration,
   queueText,
+  relativeTime,
+  runningLine,
   stageTextFor,
 } from '../src/progressText'
 
@@ -19,9 +25,7 @@ const running = { status: 'in_progress' }
 
 describe('阶段文字', () => {
   it('排队中：有位置就说前面还有几篇', () => {
-    expect(queueText({ status: 'pending', queue_position: 2 })).toBe(
-      '排队中 · 前面还有 2 篇',
-    )
+    expect(queueText({ status: 'pending', queue_position: 2 })).toBe('排队中 · 前面还有 2 篇')
     expect(queueText({ status: 'pending', queue_position: 0 })).toBe('排队中')
   })
 
@@ -29,14 +33,19 @@ describe('阶段文字', () => {
     expect(stageTextFor(running, null)).toBe('正在翻译 · 引擎还没报进度')
   })
 
-  it('引擎报的页数一律标"引擎自报"（它可能十几秒不更新一次，不是我们的承诺）', () => {
-    expect(
-      engineText({ done: 2, total: 5, percent: 0.4, rate: 1.72 }),
-    ).toBe('引擎自报：第 2/5 页 · 1.72 页/秒')
-    expect(engineText({ done: 2, total: 5, rate: null })).toBe('引擎自报：第 2/5 页')
+  it('引擎报的页数照原型写「第 X/Y 页」；没报就是空串（绝不编）', () => {
+    expect(enginePageText({ done: 2, total: 5, percent: 0.4, rate: 1.72 })).toBe('第 2/5 页')
+    expect(enginePageText({ done: 2, total: 5, rate: null })).toBe('第 2/5 页')
+    expect(enginePageText({ done: 2 })).toBe('')
+    expect(enginePageText({ done: 2, total: 0 })).toBe('')
+    expect(enginePageText(null)).toBe('')
   })
 
-  it('有引擎进度时阶段行只说"正在翻译"（页数单独一行，不混着说）', () => {
+  it('引擎进度字段不完整时当作没报（不显示半截数字）', () => {
+    expect(stageTextFor(running, { done: 2 })).toBe('正在翻译 · 引擎还没报进度')
+  })
+
+  it('有引擎进度时阶段行只说"正在翻译"（页数单独一段，不混着说）', () => {
     expect(stageTextFor(running, { done: 2, total: 5, rate: 1.72 })).toBe('正在翻译')
   })
 
@@ -46,11 +55,31 @@ describe('阶段文字', () => {
     expect(stageTextFor({ status: 'failed' }, null)).toBe('翻译失败')
     expect(stageTextFor(null, null)).toBe('')
   })
+})
 
-  it('引擎进度字段不完整时当作没报（不显示半截数字）', () => {
-    expect(engineText({ done: 2 })).toBeNull()
-    expect(engineText({ done: 2, total: 0 })).toBeNull()
-    expect(engineText(null)).toBeNull()
+describe('L1 进行中任务条那一行（原型的四段式）', () => {
+  it('四段都齐时，与原型逐字一致', () => {
+    const task = { status: 'in_progress', elapsed_seconds: 12, eta_seconds: 25 }
+    const engine = { done: 3, total: 10, percent: 0.3, eta_seconds: 25 }
+    expect(runningLine(task, engine, 12)).toBe(
+      '正在翻译 · 第 3/10 页 · 已用 12 秒 · 引擎自报还需约 25 秒',
+    )
+  })
+
+  it('引擎没报进度时不留占位数字，只留真有的那几段', () => {
+    const task = { status: 'in_progress', elapsed_seconds: 12, eta_seconds: null }
+    expect(runningLine(task, null, 12)).toBe('正在翻译 · 引擎还没报进度 · 已用 12 秒')
+  })
+
+  it('排队中的任务条不说"正在翻译"', () => {
+    expect(runningLine({ status: 'pending', queue_position: 2 }, null, null)).toBe(
+      '排队中 · 前面还有 2 篇',
+    )
+  })
+
+  it('factLine 丢掉空段，不留孤零零的分隔符', () => {
+    expect(factLine(['a', '', null, undefined, 'b'])).toBe('a · b')
+    expect(factLine([])).toBe('')
   })
 })
 
@@ -79,10 +108,31 @@ describe('耗时文案', () => {
 })
 
 describe('预计剩余', () => {
-  it('只有跑着、且是正数才显示（且标着引擎自报）', () => {
-    expect(etaTextFor(running, 25)).toBe('引擎自报还需 25 秒')
+  it('只有跑着、且是正数才显示（**必须带"引擎自报"与"约"**，它只是引擎的估计）', () => {
+    expect(etaTextFor(running, 25)).toBe('引擎自报还需约 25 秒')
     expect(etaTextFor(running, 0)).toBe('') // tqdm 四舍五入到 0，不是"马上好"
     expect(etaTextFor(running, null)).toBe('')
     expect(etaTextFor({ status: 'completed' }, 25)).toBe('')
+  })
+})
+
+describe('相对时间（卡片上的"2 天前 / 昨天"）', () => {
+  const now = new Date('2026-09-15T12:00:00').getTime()
+  const at = (iso) => relativeTime(iso, now)
+
+  it('按人话分档', () => {
+    expect(at('2026-09-15T11:59:30')).toBe('刚刚')
+    expect(at('2026-09-15T11:30:00')).toBe('30 分钟前')
+    expect(at('2026-09-15T08:00:00')).toBe('4 小时前')
+    expect(at('2026-09-14T12:00:00')).toBe('昨天')
+    expect(at('2026-09-13T12:00:00')).toBe('2 天前')
+    expect(at('2026-09-06T12:00:00')).toBe('上周')
+    expect(at('2026-08-01T12:00:00')).toBe('2026-08-01')
+  })
+
+  it('解析不了就返回空串——不猜', () => {
+    expect(relativeTime(null, now)).toBe('')
+    expect(relativeTime('', now)).toBe('')
+    expect(relativeTime('不是时间', now)).toBe('')
   })
 })

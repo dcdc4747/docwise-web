@@ -94,7 +94,12 @@ def extract(pdf_path: Path, out_dir: Path) -> dict:
                     continue
                 blocks.append(
                     {
-                        "block_id": f"p{page_no + 1}_b{index}",
+                        # 页号**从 0 起**：外部翻译引擎的包装脚本也是这么写的
+                        # （`run_translation.py` 里 `enumerate` 出来的 pno），
+                        # 前端 `blockLabel` 统一 +1。
+                        # 这里曾写成 `page_no + 1`，中文文献的「第 X 页」整体多一页
+                        # （实测：一份 8 页的文献，最后一块显示成"第 9 页"）。
+                        "block_id": f"p{page_no}_b{index}",
                         "text": text,
                         "translated": None,
                     }

@@ -40,8 +40,8 @@ out.mkdir(parents=True, exist_ok=True)
 mono = out / f"{src.stem}_mono.pdf"
 shutil.copyfile(src, mono)
 blocks = [
-    {"block_id": "p1_b0", "text": "这是一份中文文献的摘要。", "translated": None},
-    {"block_id": "p1_b1", "text": "第二段讲研究方法。", "translated": None},
+    {"block_id": "p0_b0", "text": "这是一份中文文献的摘要。", "translated": None},
+    {"block_id": "p0_b1", "text": "第二段讲研究方法。", "translated": None},
 ]
 (out / "result.json").write_text(
     json.dumps(
@@ -115,7 +115,7 @@ def test_native_engine_extracts_blocks_without_translation(monkeypatch) -> None:
     )
 
     assert result.status == TaskState.COMPLETED
-    assert [b.block_id for b in result.blocks] == ["p1_b0", "p1_b1"]
+    assert [b.block_id for b in result.blocks] == ["p0_b0", "p0_b1"]
     assert [b.text for b in result.blocks][0].startswith("这是一份中文文献")
     # 关键：中文文献没有译文，translated 必须是 None（前端据此只显示原文）
     assert all(b.translated is None for b in result.blocks)

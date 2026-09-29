@@ -63,6 +63,8 @@ def _ensure_schema() -> None:
         "eta_seconds": "INTEGER",
         "started_at": "DATETIME",
         "finished_at": "DATETIME",
+        # 形态（阅读位置记忆）：上次读到第几页，用于「继续读」跳回原处
+        "last_read_page": "INTEGER",
     }
     with engine.begin() as conn:
         for column, ddl in additions.items():

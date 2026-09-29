@@ -31,6 +31,9 @@ _HONEST_NO_HIT = "抱歉，在这篇论文的文本里没有找到与这个问�
 
 class AskRequest(BaseModel):
     question: str = Field(min_length=1, max_length=1000)
+    # 提问锚点：用户在阅读区划词选中的段落（形态：提问锚点与出处是同一个坐标系）。
+    # 只接受本任务里真实存在的块——块编号跨任务会重名，不校验就会拿别篇文献的段当锚点。
+    focus_block_ids: list[str] = Field(default_factory=list, max_length=20)
 
 
 def _query_tokens(question: str) -> list[str]:
@@ -158,9 +161,12 @@ def ask_paper(
         raise HTTPException(status_code=400, detail="问题不能为空")
 
     known_ids = {block_id for block_id, _ in items}
+    # 锚点只保留本任务里真实存在的块（与出处校验同一把尺子）
+    focus_ids = [bid for bid in body.focus_block_ids if bid in known_ids]
+    focus_kwargs: dict = {"focus_block_ids": focus_ids} if focus_ids else {}
     total_chars = sum(len(text) for _, text in items)
     if total_chars <= settings.docwise_ask_full_context_max_chars:
-        result = answer_question(items, question)
+        result = answer_question(items, question, **focus_kwargs)
         return {
             "answer": result["answer"],
             "source_block_ids": _keep_known_sources(
@@ -176,7 +182,14 @@ def ask_paper(
             "source_block_ids": [],
             "mode": "fts",
         }
-    result = answer_question(hits, question)
+    # 锚点必须真的进上下文：用户明确指着这一段问，检索没召回就补进来
+    # （否则"锚点"只是一句空话）
+    hit_ids = {block_id for block_id, _ in hits}
+    anchor_rows = [
+        row for row in items if row[0] in focus_ids and row[0] not in hit_ids
+    ]
+    hits = anchor_rows + hits
+    result = answer_question(hits, question, **focus_kwargs)
     return {
         "answer": result["answer"],
         "source_block_ids": _keep_known_sources(

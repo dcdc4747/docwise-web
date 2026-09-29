@@ -208,13 +208,36 @@ def extract_understanding(blocks: list[tuple[str, str]]) -> dict:
     return _extract_json(content)
 
 
-def answer_question(blocks: list[tuple[str, str]], question: str) -> dict:
+def answer_question(
+    blocks: list[tuple[str, str]],
+    question: str,
+    focus_block_ids: list[str] | None = None,
+) -> dict:
     """基于 (block_id, text) 片段回答论文问题，返回 {answer, source_block_ids}。
 
     回答必须按 block_id 引用出处；文本不足时由提示词要求 LLM 诚实说明。
+
+    focus_block_ids：用户在阅读区**划词提问**时选中的段落（提问锚点）。
+    锚点与出处是同一个坐标系——带上它，模型才知道问题里的"这句话 / 这段"指哪一段，
+    回答的出处也才能回到同一段（这是本产品对外那句"每条结论点得回原文那一句"的支撑）。
     """
     labeled = "\n\n".join(f"[{bid}] {txt}" for bid, txt in blocks)
-    user_msg = f"文献分段文字：\n\n{labeled}\n\n问题：{question}"
+    focus = [str(item) for item in (focus_block_ids or []) if str(item)]
+    focus_hint = ""
+    if focus:
+        # 关键：**把锚点那段的原文贴出来**，而不是只给块编号。
+        # 实测（2026-09-14 真接口冒烟）：只给编号时，问"这一段在讲什么？"模型会回
+        # "文本中没有提供具体问题内容，无法作答"——它认不出 [p0_b1] 就是"这一段"。
+        anchored = [(bid, txt) for bid, txt in blocks if bid in set(focus)]
+        quoted = "\n".join(f"[{bid}] {txt}" for bid, txt in anchored)
+        focus_hint = (
+            "\n\n【提问锚点】用户是在下面这一段（或几段）里划词提问的，"
+            "问题里的「这句话 / 这段」指的就是它：\n"
+            f"{quoted}\n"
+            "请直接针对上面这段内容回答（即使问题很短、很含糊，也要按这段来答），"
+            "并让出处包含该段的块标记；确实与它无关时再引用其他段落。"
+        )
+    user_msg = f"文献分段文字：\n\n{labeled}{focus_hint}\n\n问题：{question}"
     content = _chat(
         [
             {"role": "system", "content": _QA_SYSTEM_PROMPT},
