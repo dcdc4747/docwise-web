@@ -112,7 +112,9 @@ backend/
 
 ## 测试与验收
 
-- 改完代码必须验证：后端 `pytest tests/ -q` 全过 + `ruff check app tests` 通过；`/api/health` 正常。
+- 改完代码必须验证：**照 CI 的步子来**（`.github/workflows/ci.yml`，工作目录是 `backend/`）——
+  后端 `uv run ruff check .` 全过（**是整个 backend，含 `scripts/`**；只查 `app tests` 会漏掉 `scripts/` 里的超长行，
+  2026-09-30 真漏过一次、PR 上 CI 直接红了）+ `uv run pytest -q` 通过；再起一次服务确认 `/api/health` 正常。
 - 测试约定：功能测试默认"已登录"（conftest 覆盖鉴权依赖，账号 id 见 `tests/helpers.py`）；**直接建任务要带 `user_id=TEST_USER_ID`**；鉴权本身由 `test_auth` / `test_authz` / `test_admin` 用真实令牌覆盖（未登录 401、跨用户 404、后台 403）。
 - 任务生命周期测试见 `test_task_lifecycle.py`（删除/重试/取消/归属/文件清理）；`test_engine_cancel.py` **真起子进程**验证"取消能把引擎杀掉"，所以**别 mock 掉 Popen**。测试里不要用 `tmp_path`／`mkdtemp` 建目录（受限环境不可写），用 `storage` 那几个模块级目录（conftest 已指向临时目录）。
 - 诚实进度的测试见 `test_progress.py`：解析样本取自**真实 engine.log**；其中一个用例让假引擎往 `engine.log` 写 tqdm 进度，并断言"进度在引擎还在跑的时候就落库了"（不是等结束才一次性写）。
