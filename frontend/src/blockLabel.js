@@ -37,19 +37,84 @@ export function pageLabel(blockId) {
  *    只按编号前缀给个页码，等于把编出来的位置当真显示（宁可写「位置待定」，也不假装）；
  * ② 缀上**这一句的开头**：一页里往往有好几个出处，只写页码的话几个标签长得一模一样，
  *    用户分不清哪个是哪个——缀上开头，没点之前就知道是哪几句。
+ *
+ * @param {string} blockId 用哪一块的页码
+ * @param {Array} blocks 本任务的块列表（用来校验"这块真的存在" + 取开头）
+ * @param {{chars?:number,text?:string}} [opts] `text` 可以传"合成后的那一整句"（见 mergeSourceRuns）
  */
-export function sourceLabel(blockId, blocks, { chars = 12 } = {}) {
+export function sourceLabel(blockId, blocks, { chars = 12, text: textOverride } = {}) {
   const parsed = parseBlockId(blockId)
   if (!parsed) return ''
   const block = (blocks || []).find((item) => item?.block_id === blockId)
   if (!block) return ''
   const page = `第 ${parsed.page + 1} 页`
-  const text = String(block.text || '')
+  const text = String(textOverride ?? block.text ?? '')
     .replace(/\s+/g, ' ')
     .trim()
   if (!text) return page
-  const head = text.slice(0, chars)
+  const head = text.slice(0, chars).trim()
   return `${page} ·「${head}${text.length > chars ? '…' : ''}」`
+}
+
+/** 句子收尾的标点（中英文都算）。行末不是这些 → 这句话还没写完。 */
+const SENTENCE_END = /[。！？…；：!?;:]["'”’』」）】》)\]]*$/
+
+/** 这段文字是不是说到句子结尾了。 */
+export function endsSentence(text) {
+  return SENTENCE_END.test(String(text || '').trim())
+}
+
+/** 拼接两段文字：中文直接接上；英文单词被断开时补一个空格（与引擎侧 `_join_lines` 同规则）。 */
+function joinText(head, tail) {
+  if (!head) return tail
+  if (!tail) return head
+  const prev = head.slice(-1)
+  const next = tail.slice(0, 1)
+  if (/[A-Za-z0-9]/.test(prev) && /[A-Za-z0-9]/.test(next)) return `${head} ${tail}`
+  return head + tail
+}
+
+/**
+ * **把"同一句被换行切断"的相邻块合成一个出处。**
+ *
+ * 为什么需要：中文文献的块是**按行**切的（一页 39 个块 = 39 行），模型引用时会把
+ * "上一行 + 下一行"当成两个块报回来。界面如果照单全收，就会显示成两个出处按钮——
+ * 用户看到的是"同一句话被拆成两个出处"，而点下去两条各自只高亮半句。
+ *
+ * 规则（**只合并真的一直连下去的**）：
+ * ① 两块在块列表里**紧挨着**、且在**同一页**；
+ * ② 前一块**没有以句末标点收尾**（换了行但话没说完）。
+ * 两条缺一不可——模型引两个不相邻的块，本来就该是两个出处。
+ *
+ * @returns {{id:string, ids:string[], text:string}[]} 每个 run 的 `id` 取第一块（页码以它为准）
+ */
+export function mergeSourceRuns(ids, blocks) {
+  const list = blocks || []
+  const position = new Map(list.map((block, i) => [block?.block_id, i]))
+  const textOf = (id) => String(list[position.get(id)]?.text || '')
+  const pageOf = (id) => parseBlockId(id)?.page
+
+  const runs = []
+  for (const id of [...new Set(ids || [])]) {
+    // 对不上号的块编号**照旧保留成一条**：界面上写「位置待定」、点了说实话，
+    // 总比"看起来模型没给出处"要诚实（模型给了、是我们对不上，这件事得让用户看见）
+    if (!position.has(id)) {
+      runs.push({ id, ids: [id], text: '' })
+      continue
+    }
+    const last = runs[runs.length - 1]
+    const prevId = last ? last.ids[last.ids.length - 1] : null
+    const adjacent = prevId !== null && position.get(id) === position.get(prevId) + 1
+    const samePage = prevId !== null && pageOf(prevId) === pageOf(id)
+    const unfinished = prevId !== null && !endsSentence(textOf(prevId))
+    if (adjacent && samePage && unfinished) {
+      last.ids.push(id)
+      last.text = joinText(last.text, textOf(id))
+      continue
+    }
+    runs.push({ id, ids: [id], text: textOf(id) })
+  }
+  return runs
 }
 
 /**
