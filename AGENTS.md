@@ -118,7 +118,7 @@ backend/
 - 诚实进度的测试见 `test_progress.py`：解析样本取自**真实 engine.log**；其中一个用例让假引擎往 `engine.log` 写 tqdm 进度，并断言"进度在引擎还在跑的时候就落库了"（不是等结束才一次性写）。
 - 同源部署的测试见 `test_same_origin.py`：断言 `/api`、`/files` 下的未知路径仍是 **JSON 404**（没被 SPA 回退成 HTML）、只有 `Accept: text/html` 才回退壳、入口文件带 `no-cache`、**产物缺失时不挂载也不报错**，以及一条结构性断言"挂载点之后不许再有 `/api`、`/files` 路由"（防有人把路由写回 `main.py` 末尾挂载之后）。
 - 前端 `bun dev` 能跑、页面正常；界面改动请在 PR 里贴截图。
-- **前端渲染检查（必须有）**：`cd frontend && bun run test`（vitest + happy-dom，62 个用例：progressText 17 + blockLabel 12 + pdfText 13 + App.vue 渲染冒烟 20）。加这个是因为真出过事故——模板里把函数当值插值（少写一对括号），Vue 会 `String(fn)` 把**整个函数源码印在页面上**，而 `vite build` 一声不吭，最后是用户截图发现的。所以：
+- **前端渲染检查（必须有）**：`cd frontend && bun run test`（vitest + happy-dom，89 个用例：progressText 17 + blockLabel 25 + pdfText 24 + App.vue 渲染冒烟 23）。加这个是因为真出过事故——模板里把函数当值插值（少写一对括号），Vue 会 `String(fn)` 把**整个函数源码印在页面上**，而 `vite build` 一声不吭，最后是用户截图发现的。所以：
   - `tests/app.smoke.test.js` 会真的挂载 `App.vue`、走一遍"打开一篇正在翻译的论文"，断言页面文本**不含任何源码痕迹**（`function `、`=>`、`{{` 等），并断言进度区显示的是人话；**同时直接锁原型的结构类名、断言旧结构类名一个都不出现**（`FORBIDDEN_LEGACY`），以及 PDF 模式"对不上时只翻页、不假高亮"；
   - `tests/pdfText.test.js` 单测 PDF 文字层的行合并 / 归一化 / 按文本找位置（**命中算错不会崩，只会把高亮打到不相干的地方**，最需要单测）；
   - `tests/progressText.test.js` 单测进度文案逻辑（`src/progressText.js`）；

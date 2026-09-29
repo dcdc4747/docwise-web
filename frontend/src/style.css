@@ -576,7 +576,7 @@ body {
 .dw .pdoc { flex: 1; overflow: auto; padding: 12px 14px; background: #fff; }
 .dw .pdoc .pg { display: flex; gap: 8px; margin-bottom: 14px; }
 .dw .pdoc .idx { color: #9aa1ad; font-size: 11px; padding-top: 2px; min-width: 12px; }
-/* 段号直接写「段 N」，并在跨页处插页分隔条——让「第 X 页 · 第 Y 段」在手机上找得到 */
+/* 段号直接写「段 N」，并在跨页处插页分隔条——段落精读里要能按段、按页跟人对话（出处本身已不说段号） */
 .dw .pdoc .seg-no { color: #9aa1ad; font-size: 11px; padding-top: 2px; min-width: 38px; }
 .dw .pdoc .pg-sep {
   display: flex; align-items: center; gap: 10px; margin: 8px 0 14px;
