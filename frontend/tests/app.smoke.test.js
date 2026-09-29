@@ -684,6 +684,35 @@ describe('App.vue 页面渲染', () => {
     )
   })
 
+  it('导读：相邻两行的出处合并成**一个**（同一句被换行切断，不该显示成两个出处）', async () => {
+    const { task, detail } = completedFixture()
+    // 真实情况：中文文献的块按行切，模型把"上一行 + 下一行"当两个块报回来
+    const understanding = {
+      status: 'ready',
+      guide: {
+        research_question: { text: '研究问题在这两行里。', source_block_ids: ['p0_b0', 'p0_b1'] },
+      },
+      terms: [],
+      error: null,
+    }
+    globalThis.fetch = stubFetch({ tasks: [task], detail, understanding })
+    wrapper = mountApp()
+    await flushPromises()
+    await buttonByText(wrapper, '继续读').trigger('click')
+    await flushPromises()
+    // 点开「导读」页签才会去取理解层（惰性）
+    await wrapper.findAll('.assist .tabs button')[1].trigger('click')
+    await flushPromises()
+
+    const trace = wrapper
+      .findAll('.guide-card .ops button')
+      .filter((b) => b.text().includes('看原文'))
+    expect(trace.length, '相邻两行被拆成了两个出处').toBe(1)
+    // 标签用**合并后的整句**开头，点一次高亮完整句
+    expect(trace[0].text()).toBe('看原文（第 1 页 ·「first block…」）▸')
+    expect(trace[0].attributes('title')).toBe('原文块 p0_b0 + p0_b1')
+  })
+
   it('段落精读：点正文那一段本身就亮，不是只有「看原文」才亮；再点一次取消', async () => {
     const { task, detail } = completedFixture()
     globalThis.fetch = stubFetch({ tasks: [task], detail })

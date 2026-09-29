@@ -39,7 +39,13 @@ import {
   runningLine,
   stageTextFor,
 } from './progressText'
-import { buildParagraphRows, findBlockByText, parseBlockId, sourceLabel } from './blockLabel'
+import {
+  buildParagraphRows,
+  findBlockByText,
+  mergeSourceRuns,
+  parseBlockId,
+  sourceLabel,
+} from './blockLabel'
 import { NConfigProvider, NSpin, zhCN, dateZhCN } from 'naive-ui'
 
 // ============================================================ 屏与账号
@@ -264,9 +270,12 @@ const taskDetailLoading = ref(false)
  * 只有五六成准；而不准的段号比没有更糟——用户会拿它去数，数不上就不信整条出处了。
  * 让人信的是"点下去那几句被高亮"（按文字匹配算的，不依赖分段）+ 标签上就写着是哪一句。
  * 解析不出返回空串，由调用方写「位置待定」。
+ *
+ * @param {string} blockId 决定页码的那一块
+ * @param {string} [text] 合并后的整句（见 mergeSourceRuns）；不传就用这一块自己的文字
  */
-function labelOf(blockId) {
-  return sourceLabel(blockId, blocks.value)
+function labelOf(blockId, text) {
+  return sourceLabel(blockId, blocks.value, text ? { text } : {})
 }
 
 const isNativeTask = computed(() => currentTask.value?.native === true)
@@ -498,7 +507,7 @@ function scrollWithinPane(el) {
  *    对不上时它只翻到那一页、**一个高亮框都不画**，由 `onPdfLocate` 把话说清楚
  *    （纯中文稿里是中文译文、块里存的是原文，本来就对不上——宁可不给，也不假高亮）。
  */
-async function traceTo(blockId, { silent = false } = {}) {
+async function traceTo(blockId, { silent = false, text = '' } = {}) {
   if (!blockId) return false
   const parsed = parseBlockId(blockId)
   const page = parsed ? parsed.page + 1 : 0
@@ -511,7 +520,7 @@ async function traceTo(blockId, { silent = false } = {}) {
       return false
     }
     honestNote.value = ''
-    await locateBlockInPdf(blockId)
+    await locateBlockInPdf(blockId, text)
     return true
   }
 
@@ -648,6 +657,10 @@ const guideFieldOrder = ['research_question', 'method', 'conclusion', 'innovatio
 /**
  * 导读要点（带出处）。坐标来自后端返回的真数据 source_block_ids，所以**可以点前就显示**；
  * 没有出处的要点降级成置灰不可点（死链不许做成活链样式）。
+ *
+ * **出处先按"同一句被换行切断"合并**（`mergeSourceRuns`）：中文文献的块是按行切的，
+ * 模型会把"上一行 + 下一行"当两个块报回来；不合并的话界面上就成了"同一句话两个出处"，
+ * 各自还只高亮半句。合并后一个出处 = 一整句，点下去一次高亮完。
  */
 const guidePoints = computed(() => {
   const guide = understandingGuide.value || {}
@@ -659,7 +672,10 @@ const guidePoints = computed(() => {
         key,
         label: guideFieldLabel[key],
         text: field.text || '',
-        sources: ids.map((id) => ({ id, label: labelOf(id), found: Boolean(labelOf(id)) })),
+        sources: mergeSourceRuns(ids, blocks.value).map((run) => {
+          const label = labelOf(run.id, run.text)
+          return { id: run.id, ids: run.ids, text: run.text, label, found: Boolean(label) }
+        }),
       }
     })
     .filter((point) => point.text)
@@ -696,15 +712,14 @@ const askAnchor = ref(null)
 let turnSeq = 0
 const askThread = ref([])
 
-/** 出处标签在渲染前就把人话坐标算好（模板里不出现函数调用）。 */
+/** 出处标签在渲染前就把人话坐标算好（模板里不出现函数调用）；相邻行同样先合并成一句。 */
 const askTurns = computed(() =>
   askThread.value.map((turn) => ({
     ...turn,
-    sources: (turn.sourceIds || []).map((id) => ({
-      id,
-      label: labelOf(id),
-      found: Boolean(labelOf(id)),
-    })),
+    sources: mergeSourceRuns(turn.sourceIds || [], blocks.value).map((run) => {
+      const label = labelOf(run.id, run.text)
+      return { id: run.id, ids: run.ids, text: run.text, label, found: Boolean(label) }
+    }),
   })),
 )
 
@@ -1342,13 +1357,14 @@ const pdfFallbackPage = computed(() => {
   return parsed ? parsed.page + 1 : 0
 })
 
-/** 点出处时把块文本交出去定位。块还没加载就先加载（术语定位也是这个套路）。 */
-async function locateBlockInPdf(blockId) {
+/** 点出处时把块文本交出去定位。块还没加载就先加载（术语定位也是这个套路）。
+ *  `text` 是"合并后的一整句"（相邻行合成），传了就按它高亮——一次高亮完整句。 */
+async function locateBlockInPdf(blockId, text) {
   if (!currentTask.value) return
   if (!blocks.value.length) await loadBlocks(currentTask.value.id)
   const block = blocks.value.find((item) => item.block_id === blockId)
   pendingBlockId.value = blockId
-  locateText.value = block ? block.text || '' : ''
+  locateText.value = text || (block ? block.text || '' : '')
   locateKey.value += 1
 }
 
@@ -2255,8 +2271,8 @@ function openDeletePanel() {
                               :key="src.id"
                               class="src-tag"
                               :class="{ unknown: !src.found }"
-                              :title="'原文块 ' + src.id"
-                              @click="traceTo(src.id)"
+                              :title="'原文块 ' + src.ids.join(' + ')"
+                              @click="traceTo(src.id, { text: src.text })"
                             >
                               {{ src.label || '出处未能定位' }} ▸
                             </button>
@@ -2267,7 +2283,7 @@ function openDeletePanel() {
                       <div class="a-tools">
                         <span v-if="turn.mode === 'fts'" class="muted">长文 · 检索模式</span>
                         <button @click="copyAnswer(turn)">{{ turn.copied ? '已复制' : '复制答案' }}</button>
-                        <button v-if="turn.sources.length" @click="traceTo(turn.sources[0].id)">展开原文</button>
+                        <button v-if="turn.sources.length" @click="traceTo(turn.sources[0].id, { text: turn.sources[0].text })">展开原文</button>
                       </div>
                     </template>
                   </div>
@@ -2291,7 +2307,12 @@ function openDeletePanel() {
                       <div class="v">{{ point.text }}</div>
                       <div class="ops">
                         <template v-if="point.sources.length">
-                          <button v-for="src in point.sources" :key="src.id" @click="traceTo(src.id)">
+                          <button
+                            v-for="src in point.sources"
+                            :key="src.id"
+                            :title="'原文块 ' + src.ids.join(' + ')"
+                            @click="traceTo(src.id, { text: src.text })"
+                          >
                             看原文（{{ src.label || '位置待定' }}）▸
                           </button>
                         </template>
