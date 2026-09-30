@@ -1010,6 +1010,72 @@ describe('App.vue 页面渲染', () => {
     expect(wrapper.find('.cols p.pg-undefined').exists()).toBe(false)
   })
 
+  it('目录：把标题变成可点的跳转，点一条滚到那一段并高亮', async () => {
+    // 判据仍然只在服务端（块分级给 type）；前端只做两件事：**列出来**、**跳过去**。
+    // 跳转复用出处那套 traceTo（滚到那一段 + 高亮脉冲），不另立一套定位机制。
+    const { task, detail } = completedFixture({
+      detail: {
+        blocks: [
+          { block_id: 'p0_b0', text: 'Solving Linear Systems', translated: '求解线性方程组', status: 'success', error: null, type: 'title' },
+          { block_id: 'p0_b1', text: '1 Introduction', translated: '1 引言', status: 'success', error: null, type: 'heading' },
+          { block_id: 'p0_b2', text: 'We give an algorithm.', translated: '我们给出一个算法。', status: 'success', error: null, type: 'body' },
+          { block_id: 'p1_b0', text: '2 Methods', translated: '2 方法', status: 'success', error: null, type: 'heading' },
+          { block_id: 'p1_b1', text: '3 Results', translated: '3 结果', status: 'success', error: null, type: 'heading' },
+        ],
+      },
+    })
+    globalThis.fetch = stubFetch({ tasks: [task], detail })
+    wrapper = mountApp()
+    await flushPromises()
+    await buttonByText(wrapper, '继续读').trigger('click')
+    await flushPromises()
+
+    // 默认收起：只占一行，正文不被顶开
+    expect(wrapper.find('.doc-pane .toc').exists()).toBe(true)
+    expect(wrapper.find('.doc-pane .toc-list').exists()).toBe(false)
+    expect(wrapper.find('.doc-pane .toc-head').text()).toContain('4 节')
+
+    await wrapper.find('.doc-pane .toc-head').trigger('click')
+    const items = wrapper.findAll('.doc-pane .toc-item')
+    expect(items.length).toBe(4)
+    // 目录用中文译文（有译文时），并标出在第几页
+    expect(items[1].text()).toContain('1 引言')
+    expect(items[1].text()).toContain('第 1 页')
+
+    await items[3].trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.doc-pane .toc-list').exists()).toBe(false) // 跳完就收起
+    const flashed = wrapper.find('.doc-pane p.flash')
+    expect(flashed.exists()).toBe(true)
+    expect(flashed.attributes('data-block-id')).toBe('p1_b1')
+  })
+
+  it('目录：标题太少或没有标题时整条不渲染（不硬造）', async () => {
+    // 只有一两个标题的文献摆个「目录」是噪音；老任务 / 扫描件一条标题都没有，更不能编。
+    const few = completedFixture({
+      detail: {
+        blocks: [
+          { block_id: 'p0_b0', text: '1 Introduction', translated: '1 引言', status: 'success', error: null, type: 'heading' },
+          { block_id: 'p0_b1', text: 'Body text.', translated: '正文。', status: 'success', error: null, type: 'body' },
+        ],
+      },
+    })
+    globalThis.fetch = stubFetch({ tasks: [few.task], detail: few.detail })
+    wrapper = mountApp()
+    await flushPromises()
+    await buttonByText(wrapper, '继续读').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.toc').exists()).toBe(false)
+
+    const none = completedFixture()
+    globalThis.fetch = stubFetch({ tasks: [none.task], detail: none.detail })
+    wrapper = mountApp()
+    await flushPromises()
+    await buttonByText(wrapper, '继续读').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.toc').exists()).toBe(false)
+  })
+
   it('扫描件：段落视图如实说明「文字是 OCR 认的、可能有错字」', async () => {
     // 这份文献没有文字层，块里的字是本地 OCR 认出来的。不说这一句，
     // 用户会把 OCR 的错字当成原文的错——诚实性是硬约束。

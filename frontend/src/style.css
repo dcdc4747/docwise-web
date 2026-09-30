@@ -604,6 +604,26 @@ body {
 .dw .pdoc .pg-heading .zh { font-weight: 600; color: #1f2329; }
 .dw .pdoc .pg-heading .en { color: #6b7280; }
 .dw .pdoc .pg-caption .zh { font-size: calc(12px * var(--pdoc-scale, 1)); color: #6b7280; }
+/* 目录（章节导航）：把服务端认出来的标题变成可点的跳转。
+   默认只占一行（收起），点标题就滚到那一段并高亮——复用出处那套 traceTo/flash，不另立机制。 */
+.dw .toc { margin: 0 0 12px; border: 1px solid var(--line); border-radius: 8px; background: #fff; overflow: hidden; }
+.dw .toc-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%;
+  padding: 7px 12px; border: 0; background: none; font-size: 12px; color: #4a5160; cursor: pointer;
+}
+.dw .toc-head i { font-style: normal; font-size: 11px; color: var(--accent); }
+.dw .toc-list {
+  margin: 0; padding: 4px 0 6px; list-style: none; max-height: 44vh; overflow: auto;
+  border-top: 1px solid var(--line);
+}
+.dw .toc-item {
+  display: flex; align-items: baseline; gap: 10px; width: 100%; padding: 5px 12px;
+  border: 0; background: none; font-size: 12px; color: #20242b; text-align: left; cursor: pointer;
+}
+.dw .toc-item:hover { background: #f5f7ff; color: var(--accent); }
+.dw .toc-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dw .toc-page { flex: none; font-size: 11px; color: var(--muted); }
+.dw .toc-title .toc-text { font-weight: 600; }
 .dw .reader-ctrls {
   display: flex; align-items: center; gap: 10px; padding: 8px 14px;
   border-bottom: 1px solid var(--line); font-size: 12px; color: var(--muted);
