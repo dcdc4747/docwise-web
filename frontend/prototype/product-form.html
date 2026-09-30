@@ -401,20 +401,19 @@
       <div class="drop">
         <div class="big">点击或拖拽 PDF 到此处</div>
         <div class="tiny">上传后自动开始翻译；完成后可读双语稿、导读与术语表</div>
-        <div class="drop-hint">支持电子版文字层 PDF（扫描件暂不支持）；耗时取决于页数与档位</div>
+        <div class="drop-hint">支持电子版 PDF 与扫描件（扫描件走本地 OCR，文字可能有错字）；耗时取决于页数与档位</div>
       </div>
       <div>
         <div class="tier-label">翻译档位</div>
         <div class="seg" data-seg>
           <span>快档 · 最快</span>
           <span class="on">中档 · 平衡</span>
-          <span>精档 · 最准</span>
         </div>
         <div class="tier-note">
           档位影响速度与质量，请在上传前选择<br>
           快：最快，先看个大概<br>
           中：版式更稳，适合正式阅读<br>
-          精：最准，多一道审校，适合定稿引用<br>
+          精档（多一道审校的那一档）还没做，做出来再放出来<br>
           耗时取决于页数与档位（不承诺秒数）
         </div>
       </div>
@@ -478,7 +477,7 @@
       </div>
       <div class="card paper-card">
         <div class="row"><span class="fname">论文C.pdf</span><span class="chip ok">已完成</span></div>
-        <div class="meta">精档 · 最准 · 8 页 · 昨天</div>
+        <div class="meta">中档 · 平衡 · 8 页 · 昨天</div>
         <div class="lastpos">上次读到第 2 页</div>
         <div class="actions">
           <button class="btn primary sm">继续读</button>
@@ -560,7 +559,7 @@
       <div class="menu" id="more-menu">
         <button data-note="文档信息：档位（中档 · 平衡）、页数、上传时间、完成用时">文档信息</button>
         <button data-note="重试翻译（本档）：清空本任务结果，用同一档位从头重跑">重试翻译（本档）</button>
-        <button data-note="换档位重译…：新建一个任务（另选快档 / 精档），原任务保留">换档位重译…</button>
+        <button data-note="换档位重译…：新建一个任务（另选快档 / 中档），原任务保留">换档位重译…</button>
         <button data-note="详情：每块的原文 / 译文 / 状态与失败原因（排查用）">详情</button>
         <button data-note="问题反馈…：带着任务号与引擎日志尾部提交">问题反馈…</button>
         <div class="sep"></div>

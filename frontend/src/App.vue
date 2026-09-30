@@ -126,11 +126,24 @@ const dropHinting = ref(false)
 let dropHintTimer = null
 
 /** 档位只有一个写法（形态硬约定）：选择处、工具条、卡片一律用这一套。 */
-const tierTextMap = { fast: '快档 · 最快', medium: '中档 · 平衡', precise: '精档 · 最准' }
+const tierTextMap = {
+  fast: '快档 · 最快',
+  medium: '中档 · 平衡',
+  // 历史任务里若出现过精档，如实显示"未开放"，不写"最准"——那个能力还没做
+  precise: '精档（未开放）',
+}
+/**
+ * 可选档位只有两个。
+ *
+ * **精档已从选项里拿掉（2026-09-30）**：`engine/registry.py` 里 `Tier.PRECISE` 一直映射到
+ * `MediumEngine`，也就是说选了精档实际跑的是中档——界面上却写着"最准，多一道审校"，
+ * 这是**不实宣称**（这个项目撤过一次同类话术）。多一道审校的版本还没做，
+ * 所以在做出来之前**不提供这个选项**，也不在任何地方承诺它。
+ * 后端 `Tier.PRECISE` 枚举**故意保留**：老任务数据与 `Tier()` 校验都还要用它。
+ */
 const tierOptions = [
   { value: 'fast', label: '快档 · 最快', note: '最快，先看个大概' },
   { value: 'medium', label: '中档 · 平衡', note: '版式更稳，适合正式阅读' },
-  { value: 'precise', label: '精档 · 最准', note: '最准，多一道审校，适合定稿引用' },
 ]
 /** 对象是文献本身，不限于外文：中文文献不翻译，直接抽字进理解层。 */
 const langOptions = [
@@ -1840,7 +1853,7 @@ function openDeletePanel() {
                       : '上传后自动开始翻译；完成后可读双语稿、导读与术语表'
                   }}
                 </div>
-                <div class="drop-hint">支持电子版文字层 PDF（扫描件暂不支持）；耗时取决于页数与档位</div>
+                <div class="drop-hint">支持电子版 PDF 与扫描件（扫描件走本地 OCR，文字可能有错字）；耗时取决于页数与档位</div>
                 <div v-if="uploading" class="drop-hint">正在上传…</div>
                 <div v-if="uploadError" class="drop-hint" style="color: var(--danger)">{{ uploadError }}</div>
               </div>
@@ -1874,7 +1887,7 @@ function openDeletePanel() {
                     档位影响速度与质量，请在上传前选择<br />
                     快：最快，先看个大概<br />
                     中：版式更稳，适合正式阅读<br />
-                    精：最准，多一道审校，适合定稿引用<br />
+                    精档（多一道审校的那一档）还没做，做出来再放出来<br />
                     耗时取决于页数与档位（不承诺秒数）
                   </div>
                 </template>

@@ -311,8 +311,12 @@ describe('App.vue 页面渲染', () => {
     const segText = upload.findAll('.seg span').map((s) => s.text())
     expect(segText).toContain('快档 · 最快')
     expect(segText).toContain('中档 · 平衡')
-    expect(segText).toContain('精档 · 最准')
+    // 精档**不可选**：registry 里它一直映射到中档引擎，摆出来就是骗人（见 App.vue 的注释）
+    expect(segText).not.toContain('精档 · 最准')
+    expect(segText.join('')).not.toContain('精档')
     expect(upload.find('.tier-note').exists()).toBe(true)
+    expect(upload.text()).toContain('精档（多一道审校的那一档）还没做')
+    expect(upload.text()).not.toContain('多一道审校，适合定稿引用')
     expect(upload.text()).not.toContain('慢档')
 
     // 空库不出论文网格与标题行
