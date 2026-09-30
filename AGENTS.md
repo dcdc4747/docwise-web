@@ -96,7 +96,7 @@ backend/
 ├── app/logging_setup.py # 日志：data/logs/docwise.log 轮转 + 控制台（写不了文件自动降级）
 ├── app/worker.py     # 单进程 worker：扫表恢复/行锁认领/线程池跑引擎/取消信号表/事件总线；心跳 + 空闲扫表兜底 + 单任务异常不杀循环
 ├── app/engine/       # 引擎接口（TranslationEngine + CancelToken）+ OpenSourceEngine 适配器（Popen/可取消/引擎日志）+ MediumEngine（中档）+ **NativeEngine（中文文献：不翻译，抽文字层 + 出原稿）** + registry（按"语言对 + 档位"选引擎）
-├── scripts/          # 运维/工具脚本：backup_db.py（VACUUM INTO 备份 + 只留最近 N 份）、reset_password.py（重置密码/提升管理员/列账号）、**extract_blocks.py（中文文献取字：抽文字块 + 出原稿，跑在引擎 Python 里）**、**e2e_chinese_check.py（中文文献端到端验收）**
+├── scripts/          # 运维/工具脚本：backup_db.py（VACUUM INTO 备份 + 只留最近 N 份）、reset_password.py（重置密码/提升管理员/列账号）、**extract_blocks.py（中文文献取字：抽文字块 + 出原稿，跑在引擎 Python 里；文字层为空时自动转 OCR）**、**ocr_blocks.py（扫描件取字：本地 ONNX OCR + 按版面合并段落，离线零成本）**、**e2e_chinese_check.py（中文文献端到端验收）**
 └── pyproject.toml    # uv 依赖；.env.example 模板（复制为 .env，不提交）
 ```
 
@@ -107,7 +107,7 @@ backend/
 - 启动后端：`cd backend && uv sync && uv run uvicorn app.main:app --port 8000`（单进程 worker，勿用 `--workers N` 并发，避免 SQLite 写锁）。
 - **同源部署（推荐演示与手机真机用）**：先 `cd frontend && bun install && bun run build`，再 `cd backend && uv run uvicorn app.main:app --host 0.0.0.0 --port 8000` —— **一个地址同时给页面与接口**，手机访问 `http://<电脑局域网IP>:8000/`（启动日志会直接列出本机内网地址），不用拼 `?apiBase=`、也不用配 CORS。实现见 `app/webapp.py`：**挂载调用必须写在 `main.py` 最后**（Starlette 按注册顺序匹配，写在前面会把 `/api/...` 吃成静态文件）；`/api`、`/files` 下的未知路径**不参与** SPA 回退（保持 JSON 404），只有 `Accept: text/html` 的浏览器导航才回退 `index.html`；`index.html` / `sw.js` / `manifest.webmanifest` 发 `Cache-Control: no-cache`（防装了 PWA 的手机吃旧壳）；产物不存在只跳过挂载 + 打一条日志（开发态不构建也能起服务），`DOCWISE_SERVE_FRONTEND=0` 关闭、`DOCWISE_FRONTEND_DIST=<路径>` 改位置（相对路径按仓库根解析）。**改完前端要重新构建**，后端只负责端出去、不会替你编译。
 - > 翻译引擎（OpenSourceEngine）通过子进程调用，需配置环境变量 `DOCWISE_ENGINE_PYTHON` / `DOCWISE_ENGINE_SCRIPT` / `DOCWISE_ENGINE_SERVICE` 才会运行；未配置则返回错误。**中档引擎（MediumEngine）用独立的前缀 `DOCWISE_ENGINE_MEDIUM_PYTHON` / `DOCWISE_ENGINE_MEDIUM_SCRIPT` / `DOCWISE_ENGINE_MEDIUM_SERVICE`，未配则回退到基础变量。** 这些（及 `DEEPSEEK_*`）写入 `backend/.env` 后，后端启动时自动注入环境（`_inject_engine_env`），无需手动 `$env:`。
-- > **中文文献不翻译**（对象是文献本身，不限于外文）：上传时 `source_lang=zh&target_lang=zh` → `is_native_pair` 命中 → 走 `NativeEngine`，子进程跑仓库自带的 `scripts/extract_blocks.py`（需要 PyMuPDF，用 `DOCWISE_ENGINE_NATIVE_PYTHON`，未配回退 `DOCWISE_ENGINE_PYTHON`）抽文字块，产物 `mono`＝原稿副本、`dual`＝null、每块 `translated`＝null；理解层靠 `translated or text` 照常工作。**`zh → en` 是翻译任务，不走这条路。** 扫描件（无文字层）如实失败。
+- > **中文文献不翻译**（对象是文献本身，不限于外文）：上传时 `source_lang=zh&target_lang=zh` → `is_native_pair` 命中 → 走 `NativeEngine`，子进程跑仓库自带的 `scripts/extract_blocks.py`（需要 PyMuPDF，用 `DOCWISE_ENGINE_NATIVE_PYTHON`，未配回退 `DOCWISE_ENGINE_PYTHON`）抽文字块，产物 `mono`＝原稿副本、`dual`＝null、每块 `translated`＝null；理解层靠 `translated or text` 照常工作。**`zh → en` 是翻译任务，不走这条路。** 扫描件（没有文字层）**自动改走本地 OCR**（`scripts/ocr_blocks.py`，离线、零成本、模型随包自带）；连 OCR 都认不出内容才如实失败。
 - **代码架构图**：完整的分层 / 模块依赖 / 数据流 / 接入点 / 注意事项见 `docs/代码架构图.md`。**改动代码（尤其模块 / 接口 / 数据结构 / 路由 / 引擎层）后，请同步更新该图**，方便后续 AI 快速理解底层。
 
 ## 测试与验收

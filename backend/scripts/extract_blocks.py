@@ -13,7 +13,11 @@
 1. **不翻译**：`translated` 一律为 null。中文文献就是没有译文，前端据此只显示原文；
    理解层（导读/术语/问答）取的是 `translated or text`，所以照样能用。
 2. **原稿即产物**：把上传的 PDF 复制成 mono，用户"下载"拿到的就是原文件，不做任何改写。
-3. **抽不到就说抽不到**：没有文字层（扫描件）时 status=failed 并写明原因，绝不假装成功。
+3. **抽不到就说抽不到**：先读文字层；**扫描件（没有文字层）自动改走本地 OCR**
+   （`ocr_blocks.py`，离线、零成本）；连 OCR 都认不出内容时 status=failed 并写明原因，
+   **绝不假装成功**。`result.json` 里多一个 `mode` 字段（`text-layer` / `ocr`）
+   说明这批字是怎么来的，并打进引擎日志——扫描件的字是 OCR 认的、可能有个别错字，
+   不能和文字层混为一谈。
 
 用法：
     python extract_blocks.py --input <源 PDF> --output <结果目录>
@@ -26,6 +30,9 @@ import json
 import shutil
 import sys
 from pathlib import Path
+
+# 与兄弟模块（ocr_blocks.py）同目录，按脚本位置找，别依赖调用方的 cwd
+sys.path.insert(0, Path(__file__).resolve().parent.as_posix())
 
 
 def _join_lines(lines: list[str]) -> str:
@@ -110,12 +117,22 @@ def extract(pdf_path: Path, out_dir: Path) -> dict:
         if bar is not None:
             bar.close()
 
+    mode = "text-layer"
     if not blocks:
-        return {
-            "status": "failed",
-            "error": "这份 PDF 没有可抽取的文字层（可能是扫描件或纯图片版）",
-            "blocks": [],
-        }
+        # 文字层是空的（扫描件 / 纯图片版）→ 本地 OCR 兜底。
+        # 实测一份 8 页中文扫描件：约 9 秒/页、置信度 0.99–1.00、离线零成本。
+        print(f"[extract] {pdf_path.name} 没有文字层，改用本地 OCR", flush=True)
+        blocks, reason = _ocr_fallback(pdf_path)
+        if not blocks:
+            return {
+                "status": "failed",
+                "error": (
+                    "这份 PDF 没有可抽取的文字层（扫描件或纯图片版），"
+                    f"本地 OCR 也没能识别出文字：{reason}"
+                ),
+                "blocks": [],
+            }
+        mode = "ocr"
 
     # 原稿即产物：复制成 mono，用户下载到的就是原文件
     mono = out_dir / f"{pdf_path.stem}_mono.pdf"
@@ -126,8 +143,41 @@ def extract(pdf_path: Path, out_dir: Path) -> dict:
         "mono": str(mono),
         "dual": None,
         "blocks": blocks,
+        "mode": mode,
         "error": None,
     }
+
+
+def _ocr_fallback(pdf_path: Path) -> tuple[list[dict], str]:
+    """扫描件兜底：本地 OCR 取字。返回 `(blocks, 失败原因)`。"""
+    try:
+        import ocr_blocks  # 同目录（sys.path 已插入脚本目录）
+    except ImportError as exc:
+        return [], f"取字环境缺少 OCR 模块：{exc}"
+
+    bar = _make_bar(_page_count(pdf_path))
+    try:
+        return ocr_blocks.ocr_blocks(pdf_path, on_page=lambda _pno: _tick(bar))
+    except Exception as exc:  # noqa: BLE001 - 失败要如实回传，不能让父进程拿到半截结果
+        return [], str(exc)
+    finally:
+        if bar is not None:
+            bar.close()
+
+
+def _page_count(pdf_path: Path) -> int:
+    try:
+        import fitz
+
+        with fitz.open(str(pdf_path)) as doc:
+            return doc.page_count
+    except Exception:  # noqa: BLE001 - 只是为了画进度条，数不出来就不画
+        return 0
+
+
+def _tick(bar) -> None:
+    if bar is not None:
+        bar.update(1)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -157,9 +207,11 @@ def main(argv: list[str] | None = None) -> int:
             payload = {"status": "failed", "error": f"取字失败：{exc}", "blocks": []}
 
     result_file.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    mode = payload.get("mode")
     print(
         f"[extract] {pdf_path.name}: {payload['status']}，"
-        f"{len(payload.get('blocks') or [])} 块",
+        f"{len(payload.get('blocks') or [])} 块"
+        + (f"（取字方式：{mode}）" if mode else ""),
         flush=True,
     )
     return 0 if payload["status"] == "completed" else 1
