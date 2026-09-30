@@ -93,6 +93,7 @@ backend/
 ├── app/models.py     # SQLAlchemy：tasks（含 user_id 归属）、task_history、task_blocks、task_understanding、users、auth_sessions、auth_tickets
 ├── app/config.py     # 配置：DATABASE_URL；CORS 白名单；问答阈值；**导读输入预算与输出上限（DOCWISE_UNDERSTANDING_MAX_CHARS / _MAX_TOKENS）**；账号开关（session_days / legacy_owner / demo_autologin / 登录失败上限）
 ├── app/db.py         # 引擎与会话；SQLite PRAGMA（WAL+busy_timeout）；ensure_fts 建 FTS5（trigram）检索表 + 触发器
+├── app/blocktypes.py # 块分级（阶段 3）：把每块判成 题名 / 章节标题 / 图注 / 正文，**文字形状 + 版面信号**（块上带 layout 就比"比正文大不大"），纯函数、任务详情接口当场算不落库；阈值依据见 docs/块分级阈值实测记录.md
 ├── app/logging_setup.py # 日志：data/logs/docwise.log 轮转 + 控制台（写不了文件自动降级）
 ├── app/worker.py     # 单进程 worker：扫表恢复/行锁认领/线程池跑引擎/取消信号表/事件总线；心跳 + 空闲扫表兜底 + 单任务异常不杀循环
 ├── app/engine/       # 引擎接口（TranslationEngine + CancelToken）+ OpenSourceEngine 适配器（Popen/可取消/引擎日志）+ MediumEngine（中档）+ **NativeEngine（中文文献：不翻译，抽文字层 + 出原稿）** + registry（按"语言对 + 档位"选引擎）

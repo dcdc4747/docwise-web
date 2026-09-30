@@ -72,8 +72,8 @@ def test_chinese_numbered_headings() -> None:
 def test_chinese_body_starting_with_paren_number_is_not_heading() -> None:
     """正文段首也长这样，靠行尾的"。"区分——判错就是整篇正文被当标题。"""
     line = (
-        "（一）本次竞赛报名面向普通高等学校全日制在校学生开放，参赛学生范围包括研究生、"
-        "本科生及高职高专学生，参赛专业不受限制。"
+        "（一）本次活动面向普通高等学校全日制在校学生开放，参与学生范围包括研究生、"
+        "本科生及高职高专学生，参与专业不受限制。"
     )
     assert classify(line, "p2_b0") == "body"
 
@@ -389,3 +389,86 @@ def test_title_zone_skips_caption_block() -> None:
     classify_blocks(blocks)
 
     assert [b["type"] for b in blocks] == ["caption", "body"]
+
+
+# ── 3a：引擎那条路带上版面量之后，真样本上抓出来的三个错 ──────────────
+
+
+def test_author_initials_line_is_not_heading() -> None:
+    """署名行 `A. G. L ohr, …` 不是标题——它靠 `A. ` 命中了**字母编号**那条规则。
+
+    实测（task 36/37，化学 arXiv 182 块）：这份文献**唯一**被判成 heading 的就是它。
+    区别在于编号后面跟的是"又一个单字母 + 点"（缩写串）还是完整的词
+    （`A. Geometrical measure` 才是真小节标题）。
+    """
+    assert classify("A. G. L ohr, O. Smirnova, and M. Mirahmadi", "p0_b0") == "body"
+    assert classify("A. G. L ohr, O. Smirnova, and M. Mirahmadi", "p3_b7") == "body"
+    # 真小节标题不受影响
+    assert classify("A. Geometrical measure", "p3_b4") == "heading"
+    assert classify("B. Dynamical measure", "p3_b9") == "heading"
+
+
+def test_title_zone_picks_largest_eligible_not_largest() -> None:
+    """题名区里"更大但不合格"的块**不能把题名位置占住**。
+
+    实测（`pdf_EBSCO_04.pdf`，task 31）：首页的**首字下沉碎片** `L` 是 94.2pt，
+    而真题名 `Partnering for Progress:` 才 47.4pt。旧写法先取最大的那块（`L`）、
+    再判它不合格 → **整篇一个题名都没有**（那份文献现在就是这样）。
+    现在先筛掉不合格的，再在合格的里面取最大的。
+    """
+    blocks = [
+        _block("p0_b0", "L", 94.2),
+        _block("p0_b1", "aw firms are rapidly integrating AI into workflows.", 10.5),
+        _block("p0_b2", "Partnering for Progress:", 47.4),
+        _block("p0_b9", "正文足够长，用来把基准字号压到正文这一档上。" * 3, 10.5),
+    ]
+    classify_blocks(blocks)
+
+    assert [b["type"] for b in blocks] == ["body", "body", "title", "body"]
+
+
+def test_signature_line_is_neither_heading_nor_title() -> None:
+    """**署名行不许是标题，也不许是题名**（老任务没有版面量时走的是"题名兜底"）。
+
+    实测（task 36/37）：这份文献首页第一块就是 `A. G. L ohr, O. Smirnova, and
+    M. Mirahmadi`。它短、不像句子，所以"题名区兜底"也想吃它——两条判据都得挡。
+    """
+    blocks = [
+        {"block_id": "p0_b0", "text": "A. G. L ohr, O. Smirnova, and M. Mirahmadi"},
+        {"block_id": "p0_b1", "text": "We introduce chiral rotational wavepackets."},
+    ]
+
+    classify_blocks(blocks)
+
+    assert [b["type"] for b in blocks] == ["body", "body"]
+    # EBSCO 那份的署名行同理（`BY MADELINE COHEN, …`）
+    assert classify("BY MADELINE COHEN, AARON PIERCE", "p0_b0") == "body"
+
+
+def test_figure_reference_in_body_is_not_caption() -> None:
+    """**正文里提到图**不是图注：`Fig. 7 shows …`。
+
+    实测（化学 arXiv 182 块）：10 个"图注"里有 2 个是这种句子
+    （`Fig. 7 shows both local measures…`、`Fig. 8(a–c) shows the orientation
+    trajectories…`）。判据是编号后面那一段：小写拉丁词 = 正文，分隔符 / 汉字 = 图注。
+    """
+    assert (
+        classify("Fig. 7 shows both local measures for the trajectory.", "p7_b88")
+        == "body"
+    )
+    assert (
+        classify("Fig. 8(a–c) shows the orientation trajectories of three.", "p8_b94")
+        == "body"
+    )
+    assert classify("Table 2 in the appendix shows the same trend.", "p2_b9") == "body"
+    # 真图注一条都不能掉
+    real_captions = [
+        "FIG. 7. Local (a) geometrical and (b) dynamical measures",
+        "FIG. 8(a–c). Orientation trajectories of a symmetric top",
+        "图 1 赛程安排",
+        "Figure 1 Overview of the proposed pipeline",
+    ]
+    for caption in real_captions:
+        assert classify(caption, "p7_b89") == "caption", caption
+
+
