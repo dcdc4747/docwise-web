@@ -968,6 +968,34 @@ describe('App.vue 页面渲染', () => {
     }
   })
 
+  it('扫描件：段落视图如实说明「文字是 OCR 认的、可能有错字」', async () => {
+    // 这份文献没有文字层，块里的字是本地 OCR 认出来的。不说这一句，
+    // 用户会把 OCR 的错字当成原文的错——诚实性是硬约束。
+    const { task, detail } = completedFixture({ detail: { text_source: 'ocr' } })
+    globalThis.fetch = stubFetch({ tasks: [task], detail })
+    wrapper = mountApp()
+    await flushPromises()
+    await buttonByText(wrapper, '继续读').trigger('click')
+    await flushPromises()
+
+    const note = wrapper.find('.doc-pane .doc-note')
+    expect(note.exists()).toBe(true)
+    expect(note.text()).toContain('扫描件')
+    expect(note.text()).toContain('OCR')
+    expect(note.text()).toContain('错字')
+  })
+
+  it('非扫描件不该出现 OCR 提示（别把提示当装饰挂着）', async () => {
+    const { task, detail } = completedFixture({ detail: { text_source: 'text-layer' } })
+    globalThis.fetch = stubFetch({ tasks: [task], detail })
+    wrapper = mountApp()
+    await flushPromises()
+    await buttonByText(wrapper, '继续读').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('文字由本地 OCR 识别')
+  })
+
   it('中文文献：说"原文"、只给一份下载，不提供中英对照', async () => {
     const finished = new Date(Date.now() - 60_000).toISOString()
     const nativeTask = {

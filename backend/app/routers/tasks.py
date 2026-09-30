@@ -147,6 +147,8 @@ def _serialize_task(task: Task, blocks: list[TaskBlock] | None = None) -> dict:
         "finished_at": task.finished_at.isoformat() if task.finished_at else None,
         # 阅读位置记忆：null 表示没读过（前端据此显示「开始阅读」而不是「继续读」）
         "last_read_page": task.last_read_page,
+        # 诚实性：这批字是文字层抽的还是 OCR 认的（扫描件要在界面上说清楚）
+        "text_source": task.text_source,
     }
     if blocks is not None:
         data["error_message"] = task.error_message

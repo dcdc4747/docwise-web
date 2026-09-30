@@ -39,7 +39,7 @@ blocks = __BLOCKS__
 (out / "result.json").write_text(
     json.dumps(
         {"status": "completed", "mono": str(mono), "dual": str(dual),
-         "blocks": blocks, "error": None},
+         "blocks": blocks, "error": None, "mode": "ocr"},
         ensure_ascii=False,
     ),
     encoding="utf-8",
@@ -127,4 +127,6 @@ def test_non_empty_result_still_completes(monkeypatch) -> None:
 
     assert result.status == TaskState.COMPLETED
     assert [b.block_id for b in result.blocks] == ["p0_b0"]
+    # 取字方式要跟着回来（界面据此如实说明"字是 OCR 认的"）
+    assert result.mode == "ocr"
     assert result.translated_path is not None

@@ -464,6 +464,8 @@ class TranslationWorker:
             task.status = terminal
             task.progress = result.progress
             task.error_message = result.error
+            # 诚实性：记下这批字是文字层还是 OCR 认的（界面据此如实说明）
+            task.text_source = result.mode
             task.translated_path = (
                 str(result.translated_path) if result.translated_path else None
             )
