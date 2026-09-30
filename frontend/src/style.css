@@ -594,6 +594,16 @@ body {
 .dw .pdoc .en { font-size: calc(11px * var(--pdoc-scale, 1)); color: #8a9099; margin-bottom: 3px; }
 .dw .pdoc .zh { font-size: calc(13.5px * var(--pdoc-scale, 1)); line-height: 1.8; color: #20242b; }
 .dw .pdoc .pg.flash .zh { background: rgba(79,110,247,.28); outline: 2px solid var(--accent-line); border-radius: 3px; }
+/* 块分级（阶段 3 第一小步）：题名 / 章节标题 / 图注 的视觉层级。
+   判据在服务端（backend/app/blocktypes.py），这里只管"长什么样"——
+   前端不再自己猜一遍，免得两处口径打架。正文（.pg-body）不加任何样式。 */
+.dw .page .cols p.pg-title { font-weight: 700; font-size: 1.18em; color: #1f2329; margin-bottom: 6px; }
+.dw .page .cols p.pg-heading { font-weight: 600; color: #1f2329; margin-top: 10px; }
+.dw .page .cols p.pg-caption { font-size: 10px; color: #6b7280; }
+.dw .pdoc .pg-title .zh { font-weight: 700; font-size: calc(15px * var(--pdoc-scale, 1)); }
+.dw .pdoc .pg-heading .zh { font-weight: 600; color: #1f2329; }
+.dw .pdoc .pg-heading .en { color: #6b7280; }
+.dw .pdoc .pg-caption .zh { font-size: calc(12px * var(--pdoc-scale, 1)); color: #6b7280; }
 .dw .reader-ctrls {
   display: flex; align-items: center; gap: 10px; padding: 8px 14px;
   border-bottom: 1px solid var(--line); font-size: 12px; color: var(--muted);
