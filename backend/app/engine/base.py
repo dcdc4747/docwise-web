@@ -99,6 +99,9 @@ class TranslationResult:
     status: TaskState = TaskState.PENDING
     progress: float = 0.0
     error: str | None = None
+    # 这批字是怎么来的：`text-layer`（PDF 文字层）/ `ocr`（扫描件走 OCR）。
+    # 界面要据此如实说明"字是认出来的、可能有错字"——扫描件不能和文字层混为一谈。
+    mode: str | None = None
 
 
 class TranslationEngine(ABC):

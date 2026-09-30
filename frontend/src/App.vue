@@ -466,6 +466,12 @@ const noBlockTranslationNotice = computed(
     blocks.value.length > 0,
 )
 
+/**
+ * 扫描件的诚实提示（**必须有**）：这份文献没有文字层，文字是**本地 OCR 认出来的**，
+ * 可能有个别错字，出处与引用也按识别结果给。不说这一句，用户会把 OCR 的错当成原文的错。
+ */
+const scannedNotice = computed(() => currentTask.value?.text_source === 'ocr')
+
 // ---- 出处跳转（点击必闪烁；定位不到就诚实说）----
 
 const blockEls = new Map()
@@ -2032,6 +2038,9 @@ function openDeletePanel() {
               class="doc-pane"
               @scroll="onPaneScroll"
             >
+              <div v-if="scannedNotice" class="card doc-note">
+                这份文献是扫描件：文字由本地 OCR 识别，可能有个别错字；出处与引用都按识别结果给出。
+              </div>
               <div v-if="noBlockTranslationNotice" class="card doc-note">
                 这篇文献暂无「块级」译文（译文在 PDF 产物里，段落视图拿不到），下面显示的是原文；
                 问答与检索同样基于原文。
@@ -2160,6 +2169,9 @@ function openDeletePanel() {
                 </div>
               </div>
               <div v-if="docMode === 'paragraph'" class="pdoc" :style="pdocStyle">
+                <div v-if="scannedNotice" class="honest pdoc-note">
+                  这份文献是扫描件：文字由本地 OCR 识别，可能有个别错字。
+                </div>
                 <div v-if="noBlockTranslationNotice" class="honest pdoc-note">
                   这篇文献暂无「块级」译文（译文在 PDF 产物里）——下面显示的是原文。
                 </div>

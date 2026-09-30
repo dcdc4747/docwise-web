@@ -185,6 +185,8 @@ class OpenSourceEngine(TranslationEngine):
             status=TaskState.COMPLETED if completed else TaskState.FAILED,
             progress=1.0 if completed else 0.0,
             error=payload.get("error"),
+            # 引擎自己报的取字方式（text-layer / ocr）；不报就当文字层
+            mode=payload.get("mode"),
         )
 
     @staticmethod

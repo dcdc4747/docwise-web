@@ -96,7 +96,7 @@ backend/
 ├── app/logging_setup.py # 日志：data/logs/docwise.log 轮转 + 控制台（写不了文件自动降级）
 ├── app/worker.py     # 单进程 worker：扫表恢复/行锁认领/线程池跑引擎/取消信号表/事件总线；心跳 + 空闲扫表兜底 + 单任务异常不杀循环
 ├── app/engine/       # 引擎接口（TranslationEngine + CancelToken）+ OpenSourceEngine 适配器（Popen/可取消/引擎日志）+ MediumEngine（中档）+ **NativeEngine（中文文献：不翻译，抽文字层 + 出原稿）** + registry（按"语言对 + 档位"选引擎）
-├── scripts/          # 运维/工具脚本：backup_db.py（VACUUM INTO 备份 + 只留最近 N 份）、reset_password.py（重置密码/提升管理员/列账号）、**extract_blocks.py（中文文献取字：抽文字块 + 出原稿，跑在引擎 Python 里；文字层为空时自动转 OCR）**、**ocr_blocks.py（扫描件取字：本地 ONNX OCR + 按版面合并段落，离线零成本）**、**e2e_chinese_check.py（中文文献端到端验收）**
+├── scripts/          # 运维/工具脚本：backup_db.py（VACUUM INTO 备份 + 只留最近 N 份）、reset_password.py（重置密码/提升管理员/列账号）、**extract_blocks.py（中文文献取字：抽文字块 + 出原稿，跑在引擎 Python 里；文字层为空时自动转 OCR）**、**ocr_blocks.py（扫描件取字：本地 ONNX OCR + 按版面合并段落，离线零成本）**、**translate_blocks.py（逐段翻译：扫描件跨语言时给段落补译文，编号对回、不编）**、**e2e_chinese_check.py（中文文献端到端验收）**
 └── pyproject.toml    # uv 依赖；.env.example 模板（复制为 .env，不提交）
 ```
 

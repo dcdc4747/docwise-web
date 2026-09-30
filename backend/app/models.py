@@ -40,6 +40,9 @@ class Task(Base):
         String(32), default="pending", index=True
     )  # pending / in_progress / completed / failed / cancelled
     progress: Mapped[float] = mapped_column(Float, default=0.0)
+    # 这批字是怎么来的：None / "text-layer"（PDF 文字层）/ "ocr"（扫描件走 OCR）。
+    # 界面据此如实说明"字是认出来的、可能有个别错字"——扫描件不能和文字层混为一谈。
+    text_source: Mapped[str | None] = mapped_column(String(16), nullable=True)
     # 诚实进度（F 批）：阶段 + 引擎自报的预计剩余秒数；进度只增不减
     stage: Mapped[str | None] = mapped_column(String(16), nullable=True)
     eta_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)

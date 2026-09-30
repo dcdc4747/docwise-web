@@ -65,6 +65,8 @@ def _ensure_schema() -> None:
         "finished_at": "DATETIME",
         # 形态（阅读位置记忆）：上次读到第几页，用于「继续读」跳回原处
         "last_read_page": "INTEGER",
+        # 诚实性：这批字是文字层还是 OCR 认的（扫描件要在界面上说清楚）
+        "text_source": "VARCHAR(16)",
     }
     with engine.begin() as conn:
         for column, ddl in additions.items():
