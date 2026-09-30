@@ -149,6 +149,15 @@ class OpenSourceEngine(TranslationEngine):
                 text=item["text"],
                 status=BlockState.SUCCESS if completed else BlockState.FAILED,
                 translated=item.get("translated"),
+                # 版面信号（2026-09-30 起的契约）：引擎能给就给，给不出就是 None。
+                # **缺了不许当失败**——老产物、认不出的页都没有，分级器会自动退回
+                # "只看文字形状"，与之前的表现完全一致
+                # （见 scripts/extract_blocks.py 的契约说明）。
+                layout=(
+                    item.get("layout")
+                    if isinstance(item.get("layout"), dict)
+                    else None
+                ),
             )
             for item in payload.get("blocks", [])
         ]

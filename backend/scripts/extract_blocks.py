@@ -7,7 +7,22 @@
     {"status": "completed",
      "mono": "<原稿 PDF 的副本>",
      "dual": null,
-     "blocks": [{"block_id": "p1_b0", "text": "……", "translated": null}, ...]}
+     "blocks": [{"block_id": "p1_b0", "text": "……", "translated": null,
+                 "layout": {"unit_h": 10.0, "bold": 0.0,
+                             "y0": 142.6, "page_h": 808.0}}, ...]}
+
+**`layout` 是版面信号契约（2026-09-30 起）**：三条取字路（文字层 / 扫描件 OCR /
+外部翻译引擎）各自把"手里本来就有的版面量"按**同一套键**带出来，判定仍然只在
+`backend/app/blocktypes.py` 一处做（三条路各判一遍口径必然漂移）：
+
+    - `unit_h`：一行有多高。文字层＝**字号**（pt）；
+      OCR＝**行高中位数**（px）；引擎＝段落字号。
+  **不同路的量纲不同，只比"同篇内的相对大小"，绝不跨路比绝对值。**
+- `bold`：加粗字符占比 0–1（**只有文字层与引擎给得出**；OCR 没有这个概念，留空）。
+- `y0` / `page_h`：段落顶端到页面顶端的距离 / 页高（都用同一坐标系，只用来算相对位置）。
+
+**摸不到这些量时一律留空**（老任务、认不出的页），分级器自动退回"只看文字形状"——
+与今天的表现完全一致，不会因为缺字段而变差。
 
 三条纪律：
 1. **不翻译**：`translated` 一律为 null。中文文献就是没有译文，前端据此只显示原文；
@@ -62,6 +77,64 @@ def _block_text(raw: str) -> str:
     return _join_lines([ln.strip() for ln in raw.splitlines() if ln.strip()])
 
 
+def _page_blocks(page, page_no: int) -> list[dict]:
+    """一页 → 文字块（带版面信号）。
+
+    **切段与块号必须与旧实现逐字一致**（2026-09-30 换读法时实测对照过：中文样本
+    257 块 → 257 块、逐块文本 257 相同 / 0 不同）。`block_id` 是译文、出处、FTS 检索的
+    共同锚点，换读法若让切段变了，老任务与新任务就对不上——所以这里刻意保持：
+    块顺序、块边界、跨行拼接方式都与 `page.get_text("blocks")` 那条路一致，
+    只是**多读了字号 / 加粗 / 位置**（旧路把这三样当场丢掉了）。
+
+    为什么要换：`blocks` 模式只给 7 元组（没有字体信息），`dict` 模式才给 span 的
+    `size`/`flags`/`font`。实测这一条让中文文献的章节标题**全部**被挑出来
+    （正文 10.0pt，标题 12.0pt：`1. 引言`/`2. 理论基础`/…/`参考文献` 一个不漏）。
+    """
+    import statistics
+
+    out: list[dict] = []
+    index = 0
+    page_h = float(page.rect.height) or 1.0
+    for block in page.get_text("dict")["blocks"]:
+        if block.get("type") != 0:  # 1 是图片块，跳过（与旧实现一致）
+            continue
+        lines = []
+        spans = []
+        for line in block["lines"]:
+            line_text = "".join(span["text"] for span in line["spans"])
+            if line_text.strip():
+                lines.append(line_text)
+            spans.extend(span for span in line["spans"] if span["text"].strip())
+        if not lines or not spans:
+            continue
+        text = _join_lines([line.strip() for line in lines if line.strip()])
+        if not text:
+            continue
+
+        sizes = [float(span["size"]) for span in spans]
+        bold_chars = sum(
+            len(span["text"]) for span in spans if span.get("flags", 0) & 16
+        )
+        total_chars = sum(len(span["text"]) for span in spans) or 1
+        out.append(
+            {
+                "block_id": f"p{page_no}_b{index}",
+                "text": text,
+                "translated": None,
+                "layout": {
+                        # 行高（这里＝字号）；bold 是加粗字符占比；
+                        # y0/page_h 只用来算相对位置
+                    "unit_h": round(statistics.median(sizes), 1),
+                    "bold": round(bold_chars / total_chars, 2),
+                    "y0": round(float(block["bbox"][1]), 1),
+                    "page_h": round(page_h, 1),
+                },
+            }
+        )
+        index += 1
+    return out
+
+
 def _make_bar(total: int):
     """进度条：有 tqdm 就用（父进程的 progress.py 能解析它），没有就不报进度。
 
@@ -90,28 +163,8 @@ def extract(pdf_path: Path, out_dir: Path) -> dict:
         bar = _make_bar(total)
         for page_no in range(total):
             page = doc.load_page(page_no)
-            index = 0
-            for item in page.get_text("blocks"):
-                # item = (x0, y0, x1, y1, text, block_no, block_type)；
-                # block_type=0 才是文字块（1 是图片块，跳过）
-                if len(item) < 7 or item[6] != 0:
-                    continue
-                text = _block_text(item[4] or "")
-                if not text:
-                    continue
-                blocks.append(
-                    {
-                        # 页号**从 0 起**：外部翻译引擎的包装脚本也是这么写的
-                        # （`run_translation.py` 里 `enumerate` 出来的 pno），
-                        # 前端 `blockLabel` 统一 +1。
-                        # 这里曾写成 `page_no + 1`，中文文献的「第 X 页」整体多一页
-                        # （实测：一份 8 页的文献，最后一块显示成"第 9 页"）。
-                        "block_id": f"p{page_no}_b{index}",
-                        "text": text,
-                        "translated": None,
-                    }
-                )
-                index += 1
+            for block in _page_blocks(page, page_no):
+                blocks.append(block)
             if bar is not None:
                 bar.update(1)
         if bar is not None:
