@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from sqlalchemy import (
+    JSON,
     Boolean,
     DateTime,
     Enum,
@@ -93,6 +94,11 @@ class TaskBlock(Base):
     )
     translated: Mapped[str | None] = mapped_column(Text, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 版面信号（2026-09-30 起的契约）：`{"unit_h":…, "bold":…, "y0":…, "page_h":…}`。
+    # **存原始信号、不存判定结果**——分级规则将来还会改，规则改了所有有信号的块一起受益；
+    # 老任务这里是 NULL，分级器自动退回"只看文字形状"。
+    # 字段含义见 scripts/extract_blocks.py。
+    layout: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
 
 class TaskUnderstanding(Base):

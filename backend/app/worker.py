@@ -458,6 +458,9 @@ class TranslationWorker:
                         status=block.status,
                         translated=block.translated,
                         error=block.error,
+                        # 版面信号原样入库（没有就是 None）：判定规则将来改，
+                        # 有信号的块一起受益，不用重跑引擎
+                        layout=block.layout,
                     )
                 )
             terminal = _status_value(result.status)

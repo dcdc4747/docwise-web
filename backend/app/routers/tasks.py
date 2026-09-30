@@ -27,7 +27,7 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
 from .. import progress, storage
-from ..blocktypes import classify
+from ..blocktypes import classify_blocks
 from ..deps import (
     get_current_user,
     get_db,
@@ -68,10 +68,9 @@ def _serialize_block(block: TaskBlock) -> dict:
         "status": _status_value(block.status),
         "translated": block.translated,
         "error": block.error,
-        # 块分级（阶段 3 第一小步）：题名 / 章节标题 / 图注 / 正文。
-        # 当场按文字形状算——引擎侧不参与，所以三条取字路径口径一致，
-        # 老任务不用重跑也立刻有类型（见 app/blocktypes.py）。
-        "type": classify(block.text, block.block_id),
+        # 版面信号原样带出去（2026-09-30 起的契约）：三条取字路各自填自己摸得到的，
+        # 老任务是 null。**判定不在这里做**——见下面 `classify_blocks` 的批处理。
+        "layout": block.layout,
     }
 
 
@@ -159,7 +158,9 @@ def _serialize_task(task: Task, blocks: list[TaskBlock] | None = None) -> dict:
         data["error_message"] = task.error_message
         data["translated_path"] = task.translated_path
         data["dual_translated_path"] = task.dual_translated_path
-        data["blocks"] = [_serialize_block(block) for block in blocks]
+        data["blocks"] = classify_blocks(
+            [_serialize_block(block) for block in blocks]
+        )
     return data
 
 

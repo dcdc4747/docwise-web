@@ -48,7 +48,8 @@ def _ensure_schema() -> None:
     if not str(engine.url).startswith("sqlite"):
         return
     inspector = inspect(engine)
-    if "tasks" not in inspector.get_table_names():
+    tables = inspector.get_table_names()
+    if "tasks" not in tables:
         return
     existing = {col["name"] for col in inspector.get_columns("tasks")}
     additions = {
@@ -68,6 +69,9 @@ def _ensure_schema() -> None:
         # 诚实性：这批字是文字层还是 OCR 认的（扫描件要在界面上说清楚）
         "text_source": "VARCHAR(16)",
     }
+        # task_blocks 的补列：版面信号（2026-09-30）。
+        # 老任务为 NULL，分级器自动退回文字形状。
+    block_additions = {"layout": "JSON"}
     with engine.begin() as conn:
         for column, ddl in additions.items():
             if column not in existing:
@@ -75,6 +79,15 @@ def _ensure_schema() -> None:
         conn.execute(
             text("CREATE INDEX IF NOT EXISTS ix_tasks_user_id ON tasks (user_id)")
         )
+        if "task_blocks" in tables:
+            block_existing = {
+                col["name"] for col in inspector.get_columns("task_blocks")
+            }
+            for column, ddl in block_additions.items():
+                if column not in block_existing:
+                    conn.execute(
+                        text(f"ALTER TABLE task_blocks ADD COLUMN {column} {ddl}")
+                    )
 
 
 def _assign_legacy_tasks() -> None:

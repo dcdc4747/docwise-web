@@ -140,3 +140,121 @@ def test_classify_blocks_fills_type_in_place() -> None:
 def test_type_vocabulary_is_fixed() -> None:
     """类型词表就是前端要支持的四个值——加值前先想好界面上怎么表现。"""
     assert BLOCK_TYPES == ("title", "heading", "caption", "body")
+
+
+# ── 版面信号（2026-09-30 起）：真样本实测出来的阈值与护栏 ──────────────
+
+
+def _block(block_id: str, text: str, unit_h: float, bold: float = 0.0) -> dict:
+    return {
+        "block_id": block_id,
+        "text": text,
+        "layout": {"unit_h": unit_h, "bold": bold, "y0": 100.0, "page_h": 800.0},
+    }
+
+
+def test_cjk_text_with_latin_acronym_is_not_all_caps_heading() -> None:
+    """**真 bug 的回归用例**：中文里夹 `AI`/`AIGC` 的正文段曾被"全大写"判成标题。
+
+    Python 的 `str.isupper()` 只看"有大小写的字符"——`…生成式AI 驱动下` 里唯一有大小写的
+    就是 `AI`，于是整段被判成全大写。中文样本（257 块）因此误判出 **9 个正文段**当标题。
+    """
+    line = (
+        "现有文献已就生成式人工智能在营销领域的应用展开了一定探索。"
+        "部分研究聚焦于生成式AI 驱动下"
+    )
+
+    assert classify(line, "p1_b13") == "body"
+
+
+def test_layout_bigger_than_body_is_heading() -> None:
+    """中文排版靠"字号大一点"：实测正文 10.0pt、标题 12.0pt（1.2 倍）。"""
+    blocks = [
+        _block("p1_b0", "这是一段正文，长度足够代表正文基准字号。", 10.0),
+        _block("p1_b1", "1. 引言", 12.0),
+    ]
+
+    classify_blocks(blocks)
+
+    assert [b["type"] for b in blocks] == ["body", "heading"]
+
+
+def test_layout_bold_but_smaller_than_body_is_heading_in_arxiv() -> None:
+    """arXiv 反着来：章节标题**加粗但字号比正文小**（实测 0.90 倍）。
+
+    所以字号与加粗两条判据都得留——只留一条会漏掉一半文档。
+    """
+    blocks = [
+        _block("p0_b0", "Some body paragraph that is reasonably long here.", 10.0),
+        _block("p0_b1", "I. INTRODUCTION", 9.0, bold=1.0),
+    ]
+
+    classify_blocks(blocks)
+
+    assert [b["type"] for b in blocks] == ["body", "heading"]
+
+
+def test_layout_huge_font_is_not_heading() -> None:
+    """比正文大 8.95 倍的是**首字下沉碎片**（真样本 `L`），不是标题。"""
+    blocks = [
+        _block("p0_b0", "这是一段正文，用来定基准。", 10.5),
+        _block("p0_b1", "L", 94.2),
+    ]
+
+    classify_blocks(blocks)
+
+    assert [b["type"] for b in blocks] == ["body", "body"]
+
+
+def test_layout_bold_author_line_is_not_heading() -> None:
+    """署名行是粗体、字号也接近正文——**只有全大写才算标题**这条把它挡在外面。"""
+    blocks = [
+        _block("p0_b3", "这是一段正文，用来定基准字号。", 10.0),
+        _block("p0_b8", "Sheng Wu", 11.0, bold=1.0),
+    ]
+
+    classify_blocks(blocks)
+
+    assert [b["type"] for b in blocks] == ["body", "body"]
+
+
+def test_title_is_the_largest_block_in_title_zone() -> None:
+    """题名＝题名区里**字号最大**的那块。
+
+    实测中文样本：p0_b0 页眉 9pt、p0_b1 引用行 9pt、**p0_b2 真题名 22pt**——
+    按"第一块"判会把引用行当题名。
+    """
+    blocks = [
+        _block("p0_b0", "E-Commerce Letters 电子商务评论, 2026", 9.0),
+        _block(
+            "p0_b1",
+            "文章引用: 吴晟. 生成式人工智能赋能网络营销的机制与路径研究",
+            9.0,
+        ),
+        _block("p0_b2", "生成式人工智能赋能网络营销的机制与路径研究", 22.0),
+        _block("p0_b5", "摘 要", 12.0),
+    ]
+
+    classify_blocks(blocks)
+
+    assert [b["type"] for b in blocks] == ["body", "body", "title", "heading"]
+
+
+def test_without_layout_still_uses_text_shape() -> None:
+    """**老任务（没有版面信号）的行为必须与以前完全一致**——这是硬要求。"""
+    blocks = [
+        {"block_id": "p0_b0", "text": "Solving Linear Systems"},
+        {"block_id": "p0_b1", "text": "1 Introduction"},
+        {"block_id": "p1_b0", "text": "Figure 2: Running time."},
+        {"block_id": "p1_b1", "text": "We prove the bound by induction."},
+    ]
+
+    classify_blocks(blocks)
+
+    assert [b["type"] for b in blocks] == ["title", "heading", "caption", "body"]
+
+
+def test_letter_numbered_subsection_is_heading() -> None:
+    """`A. Geometrical measure`：arXiv 化学那份 20 多条小节标题全靠这条（实测）。"""
+    assert classify("A. Geometrical measure", "p3_b4") == "heading"
+    assert classify("B. Dynamical measure", "p3_b9") == "heading"
