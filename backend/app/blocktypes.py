@@ -18,7 +18,10 @@
 
 from __future__ import annotations
 
+import logging
 import re
+
+logger = logging.getLogger(__name__)
 
 # 类型词表（前端按这四个值给样式；新增值要先想好界面上怎么表现）
 BLOCK_TYPES = ("title", "heading", "caption", "body")
@@ -31,7 +34,9 @@ _CAPTION_RE = re.compile(
 # （要求编号后紧跟空白，避免把 "2023年正式纳入…" 这种正文当成标题；
 #  最后那支是**字母编号**：arXiv 论文里 `A. xxx` / `B. xxx` 是二级标题，
 #  实测化学那份 20 多条小节标题全靠这条）
-_NUMBERED_RE = re.compile(r"^(?:\d{1,2}(?:\.\d{1,2}){0,3}|[A-Z])[.、)．]?\s+\S")
+_NUMBERED_RE = re.compile(
+    r"^(?:\d{1,2}(?:\.\d{1,2}){0,3}[.、)．]?|[A-Z][.)．])\s+\S"
+)
 # 中文编号标题：一、xxx ／ （一）xxx ／ (1) xxx
 _CJK_NUM_RE = re.compile(r"^[一二三四五六七八九十]+[、.．]\s*\S")
 _CJK_PAREN_RE = re.compile(r"^[（(]\s*[一二三四五六七八九十\d]+\s*[）)]\s*\S")
@@ -81,6 +86,12 @@ _PAGE_ZERO_RE = re.compile(r"^p0_b(\d+)$")
 _TITLE_ZONE_BLOCKS = 2
 # 标题 / 题名的长度上限：超过就不是标题了，是正文
 _HEADING_MAX = 120
+_HEADING_SHORT_MAX = 60
+# "比正文大一点"这条的**长度上限**（2026-10-01 加）：
+# 实测真标题都短（中文样本 1.20 倍的 `摘 要`/`Keywords`/`参考文献` 是 2–8 个字），
+# 而**冒牌货都长**——EBSCO 杂志那类 1.60 倍的"导语（deck）"是一整句话。
+# 所以"大 + 短"才判标题；**只抬阈值不管用**（1.25 既挡不住 1.60 的导语，
+# 又会漏掉 1.20 的真标题）。
 _TITLE_MAX = 150
 # 题名区里的下限：实测英文杂志版式会在首页头部产生 `L` 这种碎片块，
 # 不设下限它就成了"文献题名"
@@ -142,14 +153,20 @@ def classify(
     block_id: str | None = None,
     layout: dict | None = None,
     body_h: float | None = None,
+    has_signal: bool | None = None,
 ) -> str:
     """给一块文字判类型。
 
     - `block_id` 用来认"首页最前面那几块"（题名区）；
     - `layout` + `body_h` 是**版面信号**（2026-09-30 起）：`layout` 是该块自己的量
-      （见 scripts/extract_blocks.py 的契约），`body_h` 是**同一页正文的基准行高**
-      （调用方按页算好传进来——单看一块是不知道"大不大"的）。
-    **给不出信号时（老任务、OCR 认不出的页）行为与以前完全一致**，这是硬要求。
+      （见 scripts/extract_blocks.py 的契约），`body_h` 是**全篇正文的基准行高**
+      （由 `classify_blocks` 一次算好传下来——单看一块是不知道"大不大"的）。
+    **给不出信号时的退路**：没有 layout 的块（老任务、OCR 那两条路）走文字形状判据。
+
+    ⚠️ 注意口径（2026-10-01 更正）：**库层面**是零变化的（block_id / 切段 / 译文 /
+    检索 / 问答都不碰），但**分级结果会变**——修掉 `str.isupper()` 那个 bug 之后，
+    中文老任务会**少掉**一批被误判成标题的正文段，字母编号那条也会多判一些。
+    "与以前完全一致"这句话只对库层面成立，对分级结果不成立。
     """
     line = (text or "").strip()
     if not line:
@@ -165,7 +182,7 @@ def classify(
     # （实测：中文样本首页前几块里，页眉与引用行都是 9pt，真题名 22pt；
     #  这条兜底会把引用行也判成题名）。批处理里由 `_title_block_id` 精确指定。
     if (
-        not _has_layout(blocks=None, layout=layout)
+        not (has_signal if has_signal is not None else _has_layout(layout))
         and _in_title_zone(block_id)
         and _TITLE_MIN <= len(line) <= _TITLE_MAX
         and line[-1] not in _TERMINAL
@@ -174,8 +191,13 @@ def classify(
     return "body"
 
 
-def _has_layout(blocks, layout: dict | None) -> bool:
-    """这块有没有可用的版面信号（有就交给批处理里的题名判定，不再走文字兜底）。"""
+def _has_layout(layout: dict | None) -> bool:
+    """这一块自己有没有可用的版面信号。
+
+    ⚠️ **判"这篇有没有信号"不要用它**——那要按全篇判（见 `classify_blocks` 传的
+    `has_signal`）。用单块判过的坑：同一篇里一部分块有信号、一部分没有时，
+    没信号的那几块会被静默降级（题名兜底被跳过），与"有信号就统一交给版面判定"相反。
+    """
     return isinstance(layout, dict) and bool(layout.get("unit_h"))
 
 
@@ -210,7 +232,7 @@ def _looks_like_heading_by_layout(
 
     ratio = unit_h / body_h
     # ① 明显大于正文、但不是"超大装饰"（中文样本靠这条：1.2 倍）
-    if 1.15 <= ratio <= 3.0:
+    if 1.20 <= ratio <= 3.0 and len(line) <= _HEADING_SHORT_MAX:
         return True
     # ② 加粗 + 接近正文大小（arXiv 靠这条：0.90 倍但粗体）。
     #    护栏（都是实测抓出来的）：必须**全大写**（否则作者署名行 `Sheng Wu`
@@ -292,6 +314,9 @@ def _title_block_id(blocks: list[dict], body_h: float | None = None) -> str | No
     unit_h, block_id, text = zone[0]
     if unit_h <= 0 or len(text) < _TITLE_MIN or not text or text[-1] in _TERMINAL:
         return None
+    # 图注不能当题名：首页大字号图注是常见版式，抢走题名会让真题名降级、图注被标成 title
+    if _CAPTION_RE.match(text):
+        return None
     if body_h and unit_h < body_h * 1.15:
         return None
     return block_id
@@ -304,12 +329,25 @@ def classify_blocks(blocks: list[dict]) -> list[dict]:
     "这块字号算不算大"（要跟全篇正文基准比）、"哪块是题名"（要跟首页同区几块比字号）。
     """
     body_h = _body_height(blocks)
-    title_id = _title_block_id(blocks, body_h)
+    # 有没有信号是**全篇**的事：只要有基准行高，所有块都走"有信号"的分支
+    # （没有信号的块由 `classify` 自己退回文字形状）。
+    has_signal = body_h is not None
+    try:
+        title_id = _title_block_id(blocks, body_h)
+    except Exception:  # noqa: BLE001 - 判不出来就不给题名，绝不让详情接口挂掉
+        logger.warning("选题名失败，本次不指定文献题名", exc_info=True)
+        title_id = None
     for block in blocks:
         block_id = block.get("block_id")
         text = block.get("text") or ""
-        if title_id and block_id == title_id:
-            block["type"] = "title"
-            continue
-        block["type"] = classify(text, block_id, block.get("layout"), body_h)
+        try:
+            if title_id and block_id == title_id:
+                block["type"] = "title"
+                continue
+            block["type"] = classify(
+                text, block_id, block.get("layout"), body_h, has_signal
+            )
+        except Exception:  # noqa: BLE001 - 分级判错只是少个样式，不能让任务详情 500
+            logger.warning("块分级失败，按正文处理：%s", block_id, exc_info=True)
+            block["type"] = "body"
     return blocks

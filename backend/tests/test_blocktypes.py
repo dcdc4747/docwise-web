@@ -12,7 +12,14 @@ OCR 出来的文本），不是编的——分级判错在界面上是"标题被
 
 from __future__ import annotations
 
-from app.blocktypes import BLOCK_TYPES, classify, classify_blocks
+import statistics
+
+from app.blocktypes import (
+    BLOCK_TYPES,
+    _body_height,
+    classify,
+    classify_blocks,
+)
 
 
 def test_english_numbered_headings() -> None:
@@ -258,3 +265,127 @@ def test_letter_numbered_subsection_is_heading() -> None:
     """`A. Geometrical measure`：arXiv 化学那份 20 多条小节标题全靠这条（实测）。"""
     assert classify("A. Geometrical measure", "p3_b4") == "heading"
     assert classify("B. Dynamical measure", "p3_b9") == "heading"
+
+
+# ── 实施审查（2026-10-01）点名要补的几类用例 ──────────────────────
+
+
+def test_long_big_line_is_not_heading() -> None:
+    """**"大 + 短"才判标题**：EBSCO 那类 1.60 倍的"导语（deck）"是一整句话。
+
+    实测过：只抬阈值不管用——1.25 既挡不住 1.60 的导语，又会漏掉 1.20 的真标题
+    （中文样本的 `Keywords`）。所以判据是"明显大 **且** 够短"。
+    """
+    deck = (
+        "Moving beyond transactions to strategic collaboration in a rapidly "
+        "evolving legal market"
+    )
+    blocks = [
+        _block("p0_b0", "这是一段正文，用来定基准字号。", 10.5),
+        _block("p0_b1", deck, 16.8),
+    ]
+
+    classify_blocks(blocks)
+
+    assert [b["type"] for b in blocks] == ["body", "body"]
+
+
+def test_mixed_signal_document_does_not_downgrade_silently() -> None:
+    """同一篇里"一部分块有信号、一部分没有"时，没信号的块走文字形状判据。
+
+    踩过的坑：早先按**单块**判"这篇有没有信号"，于是没信号的块会把题名兜底也跳过，
+    被静默降级。现在按**全篇**判（`has_signal`），批处理里一次算好传下去。
+    """
+    blocks = [
+        _block("p0_b0", "E-Commerce Letters 电子商务评论, 2026", 9.0),
+        _block("p0_b1", "生成式人工智能赋能网络营销的机制与路径研究", 22.0),
+        # 正文要够多，基准才落在正文上（真实文档就是这样）
+        _block("p0_b5", "这是一段正文，长度足够代表正文的基准字号。" * 3, 10.0),
+        _block("p1_b1", "这也是一段正文，同样足够长。" * 4, 10.0),
+        # 这两块没有版面信号，但命中文字形状规则 → 不能因为缺信号就降级
+        {"block_id": "p1_b0", "text": "1 Introduction"},
+        {"block_id": "p2_b0", "text": "Figure 3: Running time."},
+    ]
+
+    classify_blocks(blocks)
+
+    assert [b["type"] for b in blocks] == [
+        "body",
+        "title",
+        "body",
+        "body",
+        "heading",
+        "caption",
+    ]
+
+
+def test_broken_layout_values_never_crash() -> None:
+    """契约被破坏（字符串 / 负数 / NaN / 缺键 / 不是 dict）时，
+    **只退化为文字形状**，不许抛异常。
+
+    分级跑在任务详情接口的请求路径上——判错只是少个样式，**不能让详情 500**。
+    """
+    broken = [
+        {"block_id": "p0_b0", "text": "正文一", "layout": {"unit_h": "abc"}},
+        {"block_id": "p0_b1", "text": "正文二", "layout": {"unit_h": -5}},
+        {"block_id": "p0_b2", "text": "正文三", "layout": {"unit_h": float("nan")}},
+        {"block_id": "p0_b3", "text": "1 引言", "layout": {}},
+        {"block_id": "p0_b4", "text": "正文四", "layout": "不是字典"},
+        {"block_id": "p0_b5", "text": "正文五"},
+    ]
+
+    classify_blocks(broken)  # 不抛异常即通过
+
+    assert [b["type"] for b in broken] == [
+        "body",
+        "body",
+        "body",
+        "heading",  # 命中编号规则，与有没有布局信号无关
+        "body",
+        "body",
+    ]
+
+
+def test_letter_numbering_requires_punctuation() -> None:
+    """`A. Geometrical measure` 是小节标题，但 `A second approach …` 是正文续行。
+
+    早先的正则把标点写成可选，于是单个大写字母开头的续行会被判成标题——**块是行**，
+    这种续行很常见。现在字母后必须有点号/括号。
+    """
+    assert classify("A. Geometrical measure", "p3_b4") == "heading"
+    assert classify("A second approach to the same problem", "p3_b5") == "body"
+    assert classify("I cannot prove this here", "p3_b6") == "body"
+
+
+def test_body_height_is_character_weighted() -> None:
+    """正文基准是**按字符数加权**的中位数——不是朴素中位数。
+
+    为什么值得单独测：朴素中位数会被页眉/页脚/图注那群**短块**带偏（实测就踩过：
+    某页基准落到 8.5pt，于是 10pt 的**正文长段**被算成"比正文大 18%"）。这里构造一份
+    "短块多、长块少"的样本，两种算法结果不同，锁住这个设计。
+    """
+    blocks = [
+        _block("p0_b0", "正" * 300, 10.0),
+        _block("p0_b1", "文" * 250, 10.0),
+        _block("p0_b2", "页脚" * 5, 9.0),
+        _block("p0_b3", "图注" * 5, 9.0),
+        _block("p0_b4", "脚注" * 5, 9.0),
+    ]
+
+    assert _body_height(blocks) == 10.0  # 按字数加权 → 取到正文那两块的 10.0
+    assert statistics.median([10.0, 10.0, 9.0, 9.0, 9.0]) == 9.0  # 朴素中位数会得到 9.0
+
+
+def test_title_zone_skips_caption_block() -> None:
+    """首页**大字号图注**不能当文献题名（journal 常见版式）。
+
+    否则它会抢走题名：真题名降级成正文，而那块被标成 `title` 而不是 `caption`。
+    """
+    blocks = [
+        _block("p0_b0", "Figure 1: Overview of the proposed pipeline.", 20.0),
+        _block("p0_b1", "这是一段正文，长度足够用来定基准字号。", 10.0),
+    ]
+
+    classify_blocks(blocks)
+
+    assert [b["type"] for b in blocks] == ["caption", "body"]
