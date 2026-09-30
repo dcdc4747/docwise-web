@@ -425,6 +425,41 @@ const pdocRows = computed(() => {
   })
 })
 
+/**
+ * 目录（章节导航）：把**服务端认出来的**标题（块分级：`title` / `heading`）变成可点的跳转。
+ *
+ * 三条刻意的口径：
+ * 1. **只跳转，不判断**——哪块是标题由后端 `blocktypes.py` 决定，前端不自己再猜一遍
+ *    （两处口径必然打架，见项目记忆）；
+ * 2. 文字用 `main`（有译文就是中文）——目录是给读中文的人看的；没有译文的老任务
+ *    会显示原文标题，也照实显示，不假装有中文；
+ * 3. **少于 3 条就不显示这条**：只有一两个标题的文献摆个"目录"是噪音；
+ *    一条都没有（老任务、扫描件）就整条不渲染——**不硬造**。
+ */
+const outlineItems = computed(() =>
+  paragraphRows.value
+    .filter(
+      (row) =>
+        row.kind === 'block' &&
+        (row.block.type === 'title' || row.block.type === 'heading'),
+    )
+    .map((row) => ({
+      blockId: row.block.block_id,
+      type: row.block.type,
+      page: row.page,
+      text: (row.main || row.block.text || '').replace(/\s+/g, ' ').trim().slice(0, 90),
+    }))
+    .filter((item) => item.text),
+)
+const showOutline = computed(() => outlineItems.value.length >= 3)
+const outlineOpen = ref(false)
+
+/** 点目录里的一条：收起目录 → 滚到那一段并高亮（复用出处那套 traceTo，口径只有一处）。 */
+async function goOutline(item) {
+  outlineOpen.value = false
+  await traceTo(item.blockId)
+}
+
 const docTitle = computed(() => (currentTask.value?.filename || '').replace(/\.pdf$/i, ''))
 
 const docMetaLine = computed(() => {
@@ -2058,6 +2093,26 @@ function openDeletePanel() {
                 这篇文献暂无「块级」译文（译文在 PDF 产物里，段落视图拿不到），下面显示的是原文；
                 问答与检索同样基于原文。
               </div>
+              <div v-if="showOutline" class="toc">
+                <button class="toc-head" @click="outlineOpen = !outlineOpen">
+                  <span>目录 · {{ outlineItems.length }} 节</span>
+                  <i>{{ outlineOpen ? '收起' : '展开' }}</i>
+                </button>
+                <ol v-if="outlineOpen" class="toc-list">
+                  <li v-for="item in outlineItems" :key="item.blockId">
+                    <button
+                      class="toc-item"
+                      :class="'toc-' + item.type"
+                      @click="goOutline(item)"
+                    >
+                      <span class="toc-text">{{ item.text }}</span>
+                      <span class="toc-page">{{
+                        item.page === null ? '' : `第 ${item.page + 1} 页`
+                      }}</span>
+                    </button>
+                  </li>
+                </ol>
+              </div>
               <div v-if="!docPages.length" class="card doc-note">{{ docEmptyText }}</div>
               <template v-else>
                 <div
@@ -2188,6 +2243,26 @@ function openDeletePanel() {
                 </div>
                 <div v-if="noBlockTranslationNotice" class="honest pdoc-note">
                   这篇文献暂无「块级」译文（译文在 PDF 产物里）——下面显示的是原文。
+                </div>
+                <div v-if="showOutline" class="toc">
+                  <button class="toc-head" @click="outlineOpen = !outlineOpen">
+                    <span>目录 · {{ outlineItems.length }} 节</span>
+                    <i>{{ outlineOpen ? '收起' : '展开' }}</i>
+                  </button>
+                  <ol v-if="outlineOpen" class="toc-list">
+                    <li v-for="item in outlineItems" :key="item.blockId">
+                      <button
+                        class="toc-item"
+                        :class="'toc-' + item.type"
+                        @click="goOutline(item)"
+                      >
+                        <span class="toc-text">{{ item.text }}</span>
+                        <span class="toc-page">{{
+                          item.page === null ? '' : `第 ${item.page + 1} 页`
+                        }}</span>
+                      </button>
+                    </li>
+                  </ol>
                 </div>
                 <div v-if="!paragraphRows.length" class="card doc-note">{{ docEmptyText }}</div>
                 <template
