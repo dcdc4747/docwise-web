@@ -469,6 +469,9 @@ class TranslationWorker:
             task.error_message = result.error
             # 诚实性：记下这批字是文字层还是 OCR 认的（界面据此如实说明）
             task.text_source = result.mode
+            # 版面区域（任务 A）：引擎带回来的每页类别 + 矩形，原样入库。
+            # 与块 layout 一样**只存原始量**——分级规则将来改，老任务不用重跑。
+            task.regions = result.regions
             task.translated_path = (
                 str(result.translated_path) if result.translated_path else None
             )

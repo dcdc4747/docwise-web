@@ -106,6 +106,12 @@ class TranslationResult:
     # 这批字是怎么来的：`text-layer`（PDF 文字层）/ `ocr`（扫描件走 OCR）。
     # 界面要据此如实说明"字是认出来的、可能有错字"——扫描件不能和文字层混为一谈。
     mode: str | None = None
+    # **版面区域**（2026-10-01，任务 A）：引擎自己跑一次版面模型，把每页的
+    # `{页码: [{"cls": "title" / "figure_caption" / …, "bbox": [x0, y0, x1, y1]}]}`
+    # 带回来。坐标是**距页顶**的点，与块 `layout` 同一口径（双栏页光靠 y 分不开左右栏，
+    # 所以后端按"块首行中心点落在哪个区域里"来贴类别）。
+    # **摸不到就是 None**（老任务、扫描件那条路），分级器自动退回文字形状 + 字号。
+    regions: dict | None = None
 
 
 class TranslationEngine(ABC):

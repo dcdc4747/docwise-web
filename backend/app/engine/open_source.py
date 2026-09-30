@@ -196,6 +196,13 @@ class OpenSourceEngine(TranslationEngine):
             error=payload.get("error"),
             # 引擎自己报的取字方式（text-layer / ocr）；不报就当文字层
             mode=payload.get("mode"),
+            # 版面区域（任务 A）：引擎给就给，给不出（老产物 / 扫描件）就是 None。
+            # **缺了不许当失败**——分级器自动退回文字形状 + 字号。
+            regions=(
+                payload.get("regions")
+                if isinstance(payload.get("regions"), dict)
+                else None
+            ),
         )
 
     @staticmethod

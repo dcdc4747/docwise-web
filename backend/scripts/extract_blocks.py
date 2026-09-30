@@ -21,7 +21,11 @@
       "大 **且短**"两条一起挡。**量纲与口径各不同，只比同篇内的相对大小。**
     - `bold`：加粗字符占比 0–1（**只有文字层给得出**；OCR 没有这个概念，引擎那边
       `pstk` 里也没有加粗信息——一律留空）。
-    - `y0` / `page_h`：段落顶端到页面顶端的距离 / 页高（同一坐标系，只用来算相对位置）。
+    - `x0` / `y0` / `x1` / `y1`：块在页上的矩形（**距页顶**、单位点；`y1` 是底边）。
+      `page_h` 是页高。这几个量只用来算相对位置，但**必须成对带上 x**：
+      双栏页的左右栏会在同一个 y 上（实测 `I. INTRODUCTION` 与左栏正文都是 y≈297），
+      只比 y 会把右栏的块贴到左栏的区域上——按坐标贴版面类别（任务 A）与标题前缀切分
+      （任务 3b）都要用。
       ⚠️ 引擎那条路的 `y0` 取自 pdfminer 的字体框顶（已翻成"距页顶"），实测比 PyMuPDF
       的行顶**系统性地高约 2.2pt**（10pt 正文）——同一坐标系里的固定口径差，不参与任何
       阈值判定。
@@ -127,11 +131,15 @@ def _page_blocks(page, page_no: int) -> list[dict]:
                 "text": text,
                 "translated": None,
                 "layout": {
-                        # 行高（这里＝字号）；bold 是加粗字符占比；
-                        # y0/page_h 只用来算相对位置
+                    # 行高（这里＝字号）；bold 是加粗字符占比；
+                    # x0/y0/x1/y1 是块在页上的矩形（**距页顶**，与引擎那条路同一口径），
+                    # page_h 是页高——都只用来算相对位置（双栏页光靠 y 分不开左右栏）
                     "unit_h": round(statistics.median(sizes), 1),
                     "bold": round(bold_chars / total_chars, 2),
+                    "x0": round(float(block["bbox"][0]), 1),
                     "y0": round(float(block["bbox"][1]), 1),
+                    "x1": round(float(block["bbox"][2]), 1),
+                    "y1": round(float(block["bbox"][3]), 1),
                     "page_h": round(page_h, 1),
                 },
             }

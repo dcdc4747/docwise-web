@@ -68,6 +68,9 @@ def _ensure_schema() -> None:
         "last_read_page": "INTEGER",
         # 诚实性：这批字是文字层还是 OCR 认的（扫描件要在界面上说清楚）
         "text_source": "VARCHAR(16)",
+        # 任务 A（2026-10-01）：引擎带回来的**版面区域**（每页的类别 + 矩形），
+        # 供块分级"按坐标贴类别"用；老任务为 NULL，分级自动退回文字形状 + 字号
+        "regions": "JSON",
     }
         # task_blocks 的补列：版面信号（2026-09-30）。
         # 老任务为 NULL，分级器自动退回文字形状。
