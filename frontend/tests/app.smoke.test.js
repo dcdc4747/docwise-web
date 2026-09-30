@@ -1139,11 +1139,16 @@ describe('App.vue 页面渲染', () => {
 
   // ======================================================== 兜底：失败态与可撤销
 
-  it('问答失败态：人话 + 保留问题原文 + 重试按钮', async () => {
+  it('问答失败态：听后端的原话（别拿「网络繁忙」盖住）+ 保留问题原文 + 重试按钮', async () => {
     const { task, detail } = completedFixture()
     globalThis.fetch = vi.fn(async (input, init = {}) => {
       const url = typeof input === 'string' ? input : String(input?.url ?? input)
-      if (url.includes('/ask')) return { ok: false, status: 503, json: async () => ({ detail: '服务繁忙' }) }
+      // 真实事故（2026-09-30）：任务没有可提问的文本时，后端会说清原因；
+      // 界面不该把它降级成第二行、再抬一句"网络或服务繁忙"——
+      // 那等于把我们自己的问题说成用户的网不好。
+      if (url.includes('/ask')) {
+        return { ok: false, status: 400, json: async () => ({ detail: '该任务没有可提问的文本' }) }
+      }
       return stubFetch({ tasks: [task], detail })(input, init)
     })
     wrapper = mountApp()
@@ -1156,11 +1161,32 @@ describe('App.vue 页面渲染', () => {
 
     const fail = wrapper.find('.assist .fail-card')
     expect(fail.exists()).toBe(true)
-    expect(fail.text()).toContain('没答出来，通常是网络或服务繁忙')
+    expect(fail.text()).toContain('该任务没有可提问的文本')
+    expect(fail.text()).not.toContain('网络或服务繁忙')
     expect(fail.text()).toContain('你的问题已保留：「主要结果是什么？」')
     expect(fail.find('button.btn.primary').text()).toBe('重试')
     // 问题气泡还在（不静默吞掉用户的问题）
     expect(wrapper.find('.assist .turn .bubble-q').text()).toBe('主要结果是什么？')
+  })
+
+  it('问答失败且后端没说原因时：给一句不甩锅的兜底话 + HTTP 码', async () => {
+    const { task, detail } = completedFixture()
+    globalThis.fetch = vi.fn(async (input, init = {}) => {
+      const url = typeof input === 'string' ? input : String(input?.url ?? input)
+      if (url.includes('/ask')) return { ok: false, status: 500, json: async () => ({}) }
+      return stubFetch({ tasks: [task], detail })(input, init)
+    })
+    wrapper = mountApp()
+    await flushPromises()
+    await buttonByText(wrapper, '继续读').trigger('click')
+    await flushPromises()
+    await buttonByText(wrapper, '主要结果').trigger('click')
+    await flushPromises()
+
+    const fail = wrapper.find('.assist .fail-card')
+    expect(fail.exists()).toBe(true)
+    expect(fail.text()).toContain('服务没有给出原因')
+    expect(fail.text()).toContain('HTTP 500')
   })
 
   it('关闭完成提示后给可撤销的 toast（不假装撤销删除这种不可逆动作）', async () => {

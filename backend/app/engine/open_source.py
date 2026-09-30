@@ -153,6 +153,25 @@ class OpenSourceEngine(TranslationEngine):
             for item in payload.get("blocks", [])
         ]
 
+        # 引擎说"完成"不等于真的产出了东西。
+        # 实测（2026-09-30，一份 8 页扫描版 PDF 当外文文献上传）：引擎把 8 页全"翻"完、
+        # mono/dual 都写出来了、tqdm 也跑到 100%，但 result.json 里 `blocks` 是空的
+        # （扫描件没有文字层，引擎不会 OCR），`status` 照样是 completed。
+        # 照单全收的后果很具体：任务标成"翻译完成"，用户点进去一个字都读不到，
+        # 提问还被回一句"网络或服务繁忙"——把我们的问题说成了用户的网不好。
+        # 所以：报了完成却一个块都没有 = 没成功，如实失败并说清原因。
+        if completed and not blocks:
+            logger.warning(
+                "引擎报告完成但没有返回文字块：%s；日志尾部：%s",
+                result_file,
+                self._log_tail(log_file),
+            )
+            return self._failed(
+                request,
+                "引擎报告完成，但一个文字块都没有返回——这份 PDF 很可能没有可抽取的"
+                "文字层（扫描件或纯图片版），当前版本不支持扫描件，请换电子版 PDF。",
+            )
+
         translated = Path(payload["mono"]) if payload.get("mono") else None
         dual = Path(payload["dual"]) if payload.get("dual") else None
         if translated is None and dual is not None:

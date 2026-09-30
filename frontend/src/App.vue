@@ -779,10 +779,13 @@ async function submitAsk() {
     })
     if (!res.ok) {
       const body = await res.json().catch(() => ({}))
+      // 后端说清了原因就用它的原话（例：「该任务没有可提问的文本」）——
+      // 别拿"网络或服务繁忙"盖上去，那是把我们自己的问题说成用户的网不好。
+      const why = String(body.detail || '').trim()
       patchTurn(id, {
         loading: false,
-        error: '没答出来，通常是网络或服务繁忙。',
-        errorDetail: body.detail || '',
+        error: why || '没答出来，服务没有给出原因。',
+        errorDetail: why ? '' : `HTTP ${res.status}`,
       })
       return
     }
@@ -796,7 +799,8 @@ async function submitAsk() {
   } catch (err) {
     patchTurn(id, {
       loading: false,
-      error: '没答出来，通常是网络或服务繁忙。',
+      // 走到这里才是真的没发出去 / 服务没响应，这时说"网络"才是对的
+      error: '没答出来：请求没发出去，或服务没响应。',
       errorDetail: err.message || '',
     })
   } finally {
