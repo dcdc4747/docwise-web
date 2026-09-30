@@ -50,9 +50,15 @@ class Task(Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # 形态（阅读位置记忆）：上次读到第几页（1 起数）；没读过就是 NULL，
+    # 形体（阅读位置记忆）：上次读到第几页（1 起数）；没读过就是 NULL，
     # 界面据此决定显示「继续读 · 上次读到第 N 页」还是「开始阅读」——不假装记得。
     last_read_page: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # 版面区域（2026-10-01，任务 A）：引擎自己跑一次版面模型，把每页的
+    # `{页码: [{cls, bbox, conf}]}` 原样带回来（bbox 是**距页顶**的点坐标，
+    # 与块 layout 同一口径）。
+    # 与 `task_blocks.layout` 一样**只存原始量、不存判定结果**：判定规则将来改了，
+    # 老任务不用重跑引擎就跟着受益。缺失（老任务 / OCR 扫描件）就是 NULL。
+    regions: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now()
     )

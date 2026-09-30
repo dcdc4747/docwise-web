@@ -159,7 +159,10 @@ def _serialize_task(task: Task, blocks: list[TaskBlock] | None = None) -> dict:
         data["translated_path"] = task.translated_path
         data["dual_translated_path"] = task.dual_translated_path
         data["blocks"] = classify_blocks(
-            [_serialize_block(block) for block in blocks]
+            [_serialize_block(block) for block in blocks],
+            # 版面区域（任务 A）：按坐标把"这块落在模型框的哪个区域里"贴上来。
+            # 老任务没有（NULL），分级自动退回文字形状 + 字号。
+            regions=task.regions,
         )
     return data
 

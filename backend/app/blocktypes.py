@@ -86,6 +86,8 @@ _SECTION_WORDS = frozenset(
 )
 # 题名区：首页最前面几块（论文题名常被拆成 2–3 块）
 _PAGE_ZERO_RE = re.compile(r"^p0_b(\d+)$")
+# 任意页的块号（`p{页序}_b{块序}`）——按坐标贴版面类别时要用页码
+_PAGE_RE = re.compile(r"^p(\d+)_b\d+$")
 _TITLE_ZONE_BLOCKS = 2
 # 标题 / 题名的长度上限：超过就不是标题了，是正文
 _HEADING_MAX = 120
@@ -112,6 +114,12 @@ _ROMAN_PREFIX_RE = re.compile(r"^(?:[IVXLC]{1,4}[.、)]\s+)+")
 # 实测（2026-10-01）：化学 arXiv 那份的署名行靠 `A. ` 命中了字母编号标题规则。
 # 真标题长这样：`A. Geometrical measure`（编号后面跟一个完整的词）。
 _INITIALS_RE = re.compile(r"^[A-Z][.)．]\s+[A-Z][.)．]\s")
+
+# ── 版面区域（引擎版面模型给的类别，2026-10-01 任务 A 起）──────────────────────
+# 引擎那边自己跑一次版面模型，把每页 `{cls, bbox, conf}` 原样带回来；
+# 这里**只按坐标贴标签**（双栏页要带 x 才不会串栏）。
+_TITLE_REGION = "title"
+_CAPTION_REGIONS = frozenset({"figure_caption", "table_caption"})
 
 
 def _looks_like_author_line(line: str) -> bool:
@@ -202,6 +210,7 @@ def classify(
     layout: dict | None = None,
     body_h: float | None = None,
     has_signal: bool | None = None,
+    region: str | None = None,
 ) -> str:
     """给一块文字判类型。
 
@@ -209,6 +218,8 @@ def classify(
     - `layout` + `body_h` 是**版面信号**（2026-09-30 起）：`layout` 是该块自己的量
       （见 scripts/extract_blocks.py 的契约），`body_h` 是**全篇正文的基准行高**
       （由 `classify_blocks` 一次算好传下来——单看一块是不知道"大不大"的）。
+    - `region` 是**版面类别**（2026-10-01 任务 A 起）：引擎版面模型框出来的类别
+      （`title` / `figure_caption` / …），由 `classify_blocks` 按坐标算好传下来。
     **给不出信号时的退路**：没有 layout 的块（老任务、OCR 那两条路）走文字形状判据。
 
     ⚠️ 注意口径（2026-10-01 更正）：**库层面**是零变化的（block_id / 切段 / 译文 /
@@ -219,7 +230,9 @@ def classify(
     line = (text or "").strip()
     if not line:
         return "body"
-    if _looks_like_caption(line):
+    # 图注：文字形状（`FIG. 3.`）或**模型框出来的图注区域**（能救回罗马数字表注
+    # `TABLE I. …` 这种"数字不是阿拉伯数字"的，实测化学那份 +2 条真表注）
+    if _looks_like_caption(line) or region in _CAPTION_REGIONS:
         return "caption"
     if _looks_like_heading(line):
         return "heading"
@@ -238,6 +251,10 @@ def classify(
         and not _looks_like_author_line(line)
     ):
         return "title"
+    # 最后才是"模型说这块是标题"——放在既有规则**之后**，只做加法：
+    # 文字形状与字号判得出来的照旧，它们判不出来的才靠区域补（实测化学 +9 条真标题）。
+    if _looks_like_heading_by_region(line, region):
+        return "heading"
     return "body"
 
 
@@ -298,6 +315,76 @@ def _looks_like_heading_by_layout(
             return False
         return True
     return False
+
+
+def _region_of(
+    block_id: str | None, layout: dict | None, regions: dict | None
+) -> str | None:
+    """块**首行中心点**落在哪个版面区域里；落不进任何区域就返回 None。
+
+    为什么是"中心点"而不是矩形重叠率：
+
+    - 块与区域本来就是同一份版面，实测两者的框几乎逐点重合（化学那份抽 20 块：
+      块 `x[54,299] y[52,108]` ↔ 区域 `x[54,299] y[53,110]`）；
+    - **双栏页的左右栏会在同一个 y 上**（实测 `I. INTRODUCTION` 与左栏正文都是 y≈297），
+      只比 y 必然串栏——所以必须带上 x，这也正是 `layout` 要有 `x0`/`x1` 的原因；
+    - 多个区域盖住同一个点时取**面积最小**的那个（最贴近的框，比如整页 plain text
+      与页面里的一个小 title 同时盖住标题行）。
+    """
+    if not isinstance(regions, dict) or not isinstance(layout, dict):
+        return None
+    match = _PAGE_RE.match(block_id or "")
+    if not match:
+        return None
+    try:
+        x0 = float(layout["x0"])
+        x1 = float(layout["x1"])
+        y0 = float(layout["y0"])
+        unit_h = float(layout.get("unit_h") or 0)
+    except (KeyError, TypeError, ValueError):
+        # 老产物没有 x0/x1（2026-10-01 之前录的），贴不了就不贴
+        return None
+    page = regions.get(match.group(1))
+    if not isinstance(page, list):
+        return None
+    px, py = (x0 + x1) / 2, y0 + unit_h / 2
+    best: tuple[float, str] | None = None
+    for region in page:
+        if not isinstance(region, dict):
+            continue
+        bbox = region.get("bbox")
+        cls = region.get("cls")
+        if not isinstance(bbox, list) or len(bbox) != 4 or not cls:
+            continue
+        try:
+            rx0, ry0, rx1, ry1 = (float(v) for v in bbox)
+        except (TypeError, ValueError):
+            continue
+        if not (rx0 <= px <= rx1 and ry0 <= py <= ry1):
+            continue
+        area = max(rx1 - rx0, 0.0) * max(ry1 - ry0, 0.0)
+        if best is None or area < best[0]:
+            best = (area, str(cls))
+    return best[1] if best else None
+
+
+def _looks_like_heading_by_region(line: str, region: str | None) -> bool:
+    """模型把这块框成 `title` → 当章节标题。
+
+    实测价值（两份外文，都是真数字）：化学那份 182→212 块之后，21 条标题靠文字形状与
+    字号就认得出来，**另有 9 条只靠区域才认得出来**（`II. ORIENTATION TRAJECTORY OF A
+    ROTATIONAL WAVEPACKET`、`IV. ROTATIONAL BASIS AND ITS PROPERTIES…`、
+    `Appendix A~G` 这些）；EBSCO 那份 7 条候选里 5 条是真标题（含**题名第二行**），
+    1 条是杂志导语（大字号导言，当标题可接受），1 条以问号收尾被下面的护栏挡掉。
+    **两份样本里没有一条"正文 → 标题"误报。**
+
+    护栏沿用已有的两条，不新增阈值：
+    ① 不比 `_HEADING_MAX` 长——"标题 + 紧随正文"被并成一段时整段很长，不能整段变标题；
+    ② 行尾不是句末标点——问句、整句话不当标题。
+    """
+    if region != _TITLE_REGION or not line:
+        return False
+    return len(line) <= _HEADING_MAX and line[-1] not in _TERMINAL
 
 
 def _body_height(blocks: list[dict]) -> float | None:
@@ -381,11 +468,16 @@ def _title_block_id(blocks: list[dict], body_h: float | None = None) -> str | No
     return best[1] if best else None
 
 
-def classify_blocks(blocks: list[dict]) -> list[dict]:
+def classify_blocks(blocks: list[dict], regions: dict | None = None) -> list[dict]:
     """就地给一批块补 `type`（元素形如 `{"block_id", "text", "layout"?}`）。
 
-    **一批一起看**，因为两件事只有看到全篇才知道：
-    "这块字号算不算大"（要跟全篇正文基准比）、"哪块是题名"（要跟首页同区几块比字号）。
+    **一批一起看**，因为三件事只有看到全篇才知道：
+    "这块字号算不算大"（要跟全篇正文基准比）、"哪块是题名"（要跟首页同区几块比字号）、
+    "这块落在模型的哪个版面区域里"（要按页查区域表）。
+
+    `regions` 是引擎带回来的**版面区域表**（`{页码: [{cls, bbox, conf}]}`，
+    见 `_region_of`）：给不出来（老任务、扫描件）时一块都不受影响，判据自动退回
+    文字形状 + 字号。
     """
     body_h = _body_height(blocks)
     # 有没有信号是**全篇**的事：只要有基准行高，所有块都走"有信号"的分支
@@ -400,11 +492,14 @@ def classify_blocks(blocks: list[dict]) -> list[dict]:
         block_id = block.get("block_id")
         text = block.get("text") or ""
         try:
+            # 按坐标把"这块落在哪个区域"算好（贴标签，不切块）——算不出来就是 None
+            region = _region_of(block_id, block.get("layout"), regions)
+            block["region"] = region
             if title_id and block_id == title_id:
                 block["type"] = "title"
                 continue
             block["type"] = classify(
-                text, block_id, block.get("layout"), body_h, has_signal
+                text, block_id, block.get("layout"), body_h, has_signal, region
             )
         except Exception:  # noqa: BLE001 - 分级判错只是少个样式，不能让任务详情 500
             logger.warning("块分级失败，按正文处理：%s", block_id, exc_info=True)

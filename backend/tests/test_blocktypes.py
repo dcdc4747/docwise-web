@@ -160,6 +160,29 @@ def _block(block_id: str, text: str, unit_h: float, bold: float = 0.0) -> dict:
     }
 
 
+def _placed(
+    block_id: str, text: str, unit_h: float, x0: float, x1: float, y0: float
+) -> dict:
+    """带**完整矩形**的块（按坐标贴版面类别要用 x/y）。"""
+    return {
+        "block_id": block_id,
+        "text": text,
+        "layout": {
+            "unit_h": unit_h,
+            "bold": 0.0,
+            "x0": x0,
+            "y0": y0,
+            "x1": x1,
+            "y1": y0 + unit_h,
+            "page_h": 800.0,
+        },
+    }
+
+
+def _region(cls: str, x0: float, y0: float, x1: float, y1: float) -> dict:
+    return {"cls": cls, "bbox": [x0, y0, x1, y1], "conf": 0.9}
+
+
 def test_cjk_text_with_latin_acronym_is_not_all_caps_heading() -> None:
     """**真 bug 的回归用例**：中文里夹 `AI`/`AIGC` 的正文段曾被"全大写"判成标题。
 
@@ -470,5 +493,117 @@ def test_figure_reference_in_body_is_not_caption() -> None:
     ]
     for caption in real_captions:
         assert classify(caption, "p7_b89") == "caption", caption
+
+
+# ── 任务 A：按坐标贴「版面类别」（模型框出来的区域）────────────────────
+
+
+def test_region_title_promotes_only_such_blocks() -> None:
+    """模型把某块框成 `title` → 当章节标题；**长块与整句话不认**。
+
+    实测价值：化学那份 21 条标题靠文字形状 + 字号就认得出来，**另有 9 条只有区域
+    认得出来**（`II. ORIENTATION TRAJECTORY OF A ROTATIONAL WAVEPACKET`、
+    `Appendix A~G` 这些：罗马数字编号 + 全大写超过 4 个词 / 没有编号也没有章节名，
+    两条既有判据都够不着）。护栏沿用既有的两条：不比 `_HEADING_MAX` 长
+    （防"标题 + 紧随正文"并成一段时整段变标题）、行尾不是句末标点（防整句话变标题）。
+    """
+    roman_heading = "II. ORIENTATION TRAJECTORY OF A ROTATIONAL WAVEPACKET"
+    sentence = "This sentence just happens to sit inside it."
+    blocks = [
+        _placed("p3_b1", "Appendix C: Fourier figures", 9.0, 54, 299, 100.0),
+        _placed("p3_b2", roman_heading, 9.0, 54, 299, 150.0),
+        # 只是"落在标题区域里"的一整句话 → 不许变标题
+        _placed("p3_b3", sentence, 10.0, 54, 299, 200.0),
+        # 太长（"标题 + 正文"并成一段的样子）→ 不许变标题
+        _placed("p3_b4", "Header Words " + "body text " * 20, 10.0, 54, 299, 250.0),
+    ]
+    regions = {
+        "3": [
+            _region("title", 54, 98, 299, 120),
+            _region("title", 54, 148, 299, 170),
+            _region("title", 54, 198, 299, 220),
+            _region("title", 54, 248, 299, 300),
+        ]
+    }
+
+    classify_blocks(blocks, regions)
+
+    assert [b["type"] for b in blocks] == ["heading", "heading", "body", "body"]
+    assert [b.get("region") for b in blocks] == ["title"] * 4
+
+
+def test_region_caption_beats_nothing_but_keeps_body_safe() -> None:
+    """模型框成图注/表注 → `caption`（救回**罗马数字表注**：文字规则漏的那种）。"""
+    roman_table = "TABLE I. Effect of transformations of the coefficients"
+    blocks = [
+        _placed("p6_b1", roman_table, 9.0, 54, 299, 100.0),
+        _placed("p6_b2", "FIG. 9. Caught by the text rule.", 9.0, 54, 299, 150.0),
+        _placed("p6_b3", "An ordinary paragraph, not a caption.", 10.0, 54, 299, 200.0),
+    ]
+    regions = {
+        "6": [
+            _region("table_caption", 54, 98, 299, 120),
+            _region("figure_caption", 54, 148, 299, 170),
+            _region("plain text", 54, 198, 299, 260),
+        ]
+    }
+
+    classify_blocks(blocks, regions)
+
+    assert [b["type"] for b in blocks] == ["caption", "caption", "body"]
+
+
+def test_region_needs_column_not_just_row() -> None:
+    """**双栏页光靠 y 分不开左右栏**：同一个 y 上左右两栏各有一条，各贴各的区域。
+
+    实测依据：化学那份第 0 页 `I. INTRODUCTION` 在右栏 y≈297.9，左栏正文 y≈297.1——
+    只比 y 会把右栏的标题贴到左栏的区域上，所以 `layout` 必须带 x0/x1。
+    """
+    blocks = [
+        _placed("p0_b1", "Left column paragraph.", 10.0, 54, 299, 295.0),
+        _placed("p0_b2", "II. RIGHT COLUMN HEADING", 9.0, 317, 562, 295.0),
+    ]
+    regions = {
+        "0": [
+            _region("plain text", 54, 290, 299, 340),
+            _region("title", 317, 290, 562, 320),
+        ]
+    }
+
+    classify_blocks(blocks, regions)
+
+    assert [b["type"] for b in blocks] == ["body", "heading"]
+    assert [b["region"] for b in blocks] == ["plain text", "title"]
+
+
+def test_region_absent_or_broken_never_changes_anything() -> None:
+    """老产物（`layout` 里没有 x0/x1）、区域表缺失或被写坏时：**一块都不受影响**。"""
+    blocks = [
+        _block("p0_b1", "II. ORIENTATION TRAJECTORY OF A ROTATIONAL WAVEPACKET", 9.0),
+        _block("p0_b2", "An ordinary paragraph.", 10.0),
+    ]
+
+    # 没有 x0/x1 → 贴不上（注意这两块的文字形状本来就会判成 body）
+    classify_blocks(blocks, {"0": [_region("title", 0, 0, 999, 999)]})
+    assert [b["type"] for b in blocks] == ["body", "body"]
+    assert [b.get("region") for b in blocks] == [None, None]
+
+    broken = [
+        _placed("p1_b1", "Region test line with mixed Case", 9.0, 54, 299, 100.0),
+        _placed("p1_b2", "Another paragraph here.", 10.0, 54, 299, 150.0),
+    ]
+    classify_blocks(
+        broken,
+        {
+            "1": [
+                {"cls": "title"},  # 没有 bbox
+                {"cls": "title", "bbox": "不是列表"},
+                {"cls": "title", "bbox": [1, 2, 3]},  # 少一个数
+                {"bbox": [0, 0, 999, 999]},  # 没有 cls
+                "不是字典",
+            ]
+        },
+    )
+    assert [b["type"] for b in broken] == ["body", "body"]
 
 
