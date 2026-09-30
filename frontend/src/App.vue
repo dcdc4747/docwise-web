@@ -2069,6 +2069,7 @@ function openDeletePanel() {
                         anchor: flashId === row.block.block_id,
                         flash: flashId === row.block.block_id,
                         sel: pickedBlockId === row.block.block_id,
+                        ['pg-' + (row.block.type || 'body')]: true,
                       }"
                       @click="onBlockClick(row, $event)"
                     >
@@ -2187,7 +2188,10 @@ function openDeletePanel() {
                       :ref="(el) => setBlockEl(row.block.block_id, el)"
                       :data-block-id="row.block.block_id"
                       class="pg"
-                      :class="{ flash: flashId === row.block.block_id }"
+                      :class="[
+                        'pg-' + (row.block.type || 'body'),
+                        { flash: flashId === row.block.block_id },
+                      ]"
                     >
                       <!-- 触发热区收窄到「段 N」标签本身（不与系统选词 / 滚动抢手势） -->
                       <span

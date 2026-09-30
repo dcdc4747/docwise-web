@@ -968,6 +968,44 @@ describe('App.vue 页面渲染', () => {
     }
   })
 
+  it('块分级：标题 / 图注 在段落精读里各有自己的类', async () => {
+    // 判据在服务端（backend/app/blocktypes.py），前端只负责按 type 上样式。
+    // 这里锁的是"类型真的走到了 DOM 上"——判错是"标题被当正文"这种一眼可见、
+    // 但没人会逐块核对的问题。
+    const { task, detail } = completedFixture({
+      detail: {
+        blocks: [
+          { block_id: 'p0_b0', text: 'Solving Linear Systems', translated: '求解线性方程组', status: 'success', error: null, type: 'title' },
+          { block_id: 'p0_b1', text: '1 Introduction', translated: '1 引言', status: 'success', error: null, type: 'heading' },
+          { block_id: 'p0_b2', text: 'Figure 1: The algorithm.', translated: '图 1：算法。', status: 'success', error: null, type: 'caption' },
+          { block_id: 'p0_b3', text: 'We give an algorithm.', translated: '我们给出一个算法。', status: 'success', error: null, type: 'body' },
+        ],
+      },
+    })
+    globalThis.fetch = stubFetch({ tasks: [task], detail })
+    wrapper = mountApp()
+    await flushPromises()
+    await buttonByText(wrapper, '继续读').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('.cols p.pg-title').exists()).toBe(true)
+    expect(wrapper.find('.cols p.pg-heading').exists()).toBe(true)
+    expect(wrapper.find('.cols p.pg-caption').exists()).toBe(true)
+    expect(wrapper.find('.cols p.pg-body').exists()).toBe(true)
+  })
+
+  it('块没有 type 字段时按正文渲染，不留空类', async () => {
+    const { task, detail } = completedFixture()
+    globalThis.fetch = stubFetch({ tasks: [task], detail })
+    wrapper = mountApp()
+    await flushPromises()
+    await buttonByText(wrapper, '继续读').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.findAll('.cols p.pg-body').length).toBe(3)
+    expect(wrapper.find('.cols p.pg-undefined').exists()).toBe(false)
+  })
+
   it('扫描件：段落视图如实说明「文字是 OCR 认的、可能有错字」', async () => {
     // 这份文献没有文字层，块里的字是本地 OCR 认出来的。不说这一句，
     // 用户会把 OCR 的错字当成原文的错——诚实性是硬约束。
