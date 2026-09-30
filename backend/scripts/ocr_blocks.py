@@ -10,10 +10,11 @@
 **段落怎么合并**：OCR 给的是"一行一行"的框，而产品要的是"一段一段"的块。
 
 - 同一栏：两行横向重叠 ≥ 较短行宽的 30%（双栏排版不串行）
-- 行距：按**页面自己算出的行距基准**判（相邻行基线间距的中位数），
-  间距 ≤ 1.25 × 基准算同一段。**不用"倍数 × 行高"**——OCR 框紧贴字形，
-  同页行高能差 25%（实测 51–65px），而基线间距很稳（段内 113–122px）。
-  实测：段内 ≈ 1.00 × 基准，段间 ≥ 1.33 × 基准。
+- 行距：按**页面自己算出的行距基准**判——基准 = **同一栏内**上下相邻两行的基线间距
+  中位数，间距 ≤ 1.25 × 基准算同一段。**不用"倍数 × 行高"**（OCR 框紧贴字形，
+  同页行高能差 25%，实测 51–65px；而基线间距很稳），**也不能把跨栏的行距混进来**
+  （双栏页里按 y 排序的相邻两行常常分属左右栏，实测那样算出来的间距只有 4–10px，
+  真行距是 31–37px）。实测：段内 ≈ 1.00 × 基准，段间 ≥ 1.33 × 基准。
 - 首行缩进：下一行相对上一行缩进 ≥ 行高的 0.8 倍 → 不是同一段
   （中文期刊段间**不空行**，只靠缩进区分；实测敬语行与正文首行间距与段内一致，
   只能靠这条分）
@@ -69,17 +70,29 @@ def _overlap_ratio(a: dict, b: dict) -> float:
 
 
 def _line_pitch(lines: list[dict]) -> float:
-    """页面行距基准：相邻行基线间距的**中位数**；样本太少返回 0（退回按行高判）。
+    """页面行距基准：**同一栏内**上下相邻两行的基线间距中位数；样本太少返回 0。
 
-    只取正的间距（同一横排上的左右两块算 0，要排除）；中位数天然抗离群值，
-    所以页里夹着插图、跨栏大间隔也不会把基准带歪。
+    ⚠️ 必须先按栏筛：双栏页里按 y 排序取"相邻两行"，那两行往往**分属左右两栏**
+    （实测：这样算出来的间距只有 4–10px，而真正的行距是 31–37px）。
+    把这些串进来，中位数会被拉到一半、阈值跟着变小，整页就并不到段——
+    实测一份 5 页双栏英文扫描件，这样算出来 246 段（本该只有几十段）。
+    同一栏的判据与合并用的是同一条（横向重叠 ≥ 30%）：对每一行，往下找**本栏**
+    最近的一行，量它们之间的基线间距。
     """
-    baselines = sorted(round(line["y1"], 1) for line in lines)
-    gaps = [later - earlier for earlier, later in zip(baselines, baselines[1:])]
-    positive = [gap for gap in gaps if gap > 0]
-    if len(positive) < MIN_PITCH_SAMPLES:
+    ordered = sorted(lines, key=lambda item: (round(item["y0"], 1), item["x0"]))
+    gaps: list[float] = []
+    for index, line in enumerate(ordered):
+        for lower in ordered[index + 1 :]:
+            if _overlap_ratio(line, lower) < OVERLAP_RATIO:
+                continue
+            gap = lower["y1"] - line["y1"]
+            if gap > 0:
+                gaps.append(gap)
+            break
+    if len(gaps) < MIN_PITCH_SAMPLES:
         return 0.0
-    return positive[len(positive) // 2]
+    gaps.sort()
+    return gaps[len(gaps) // 2]
 
 
 def _mergeable(
