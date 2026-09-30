@@ -27,9 +27,11 @@ BLOCK_TYPES = ("title", "heading", "caption", "body")
 _CAPTION_RE = re.compile(
     r"^(?:fig(?:ure)?|tab(?:le)?|scheme|chart|图|表)\s*[.．]?\s*\d+", re.IGNORECASE
 )
-# 西文编号标题：1 Introduction / 2.1 Methods / 3.4.1 Notes
-# （要求编号后紧跟空白，避免把 "2023年正式纳入…" 这种正文当成标题）
-_NUMBERED_RE = re.compile(r"^\d{1,2}(?:\.\d{1,2}){0,3}[.、)．]?\s+\S")
+# 西文编号标题：1 Introduction / 2.1 Methods / 3.4.1 Notes / A. Geometrical measure
+# （要求编号后紧跟空白，避免把 "2023年正式纳入…" 这种正文当成标题；
+#  最后那支是**字母编号**：arXiv 论文里 `A. xxx` / `B. xxx` 是二级标题，
+#  实测化学那份 20 多条小节标题全靠这条）
+_NUMBERED_RE = re.compile(r"^(?:\d{1,2}(?:\.\d{1,2}){0,3}|[A-Z])[.、)．]?\s+\S")
 # 中文编号标题：一、xxx ／ （一）xxx ／ (1) xxx
 _CJK_NUM_RE = re.compile(r"^[一二三四五六七八九十]+[、.．]\s*\S")
 _CJK_PAREN_RE = re.compile(r"^[（(]\s*[一二三四五六七八九十\d]+\s*[）)]\s*\S")
@@ -102,10 +104,18 @@ def _in_title_zone(block_id: str | None) -> bool:
 def _is_all_caps_heading(line: str) -> bool:
     """全大写短行（ABSTRACT / I. INTRODUCTION / RELATED WORK）。
 
-    收紧过一轮：作者署名、页脚这类"全大写但明显不是标题"的串要挡在外面——
-    见 `_ALL_CAPS_MAX` 的注释（那两条是真样本上抓出来的）。
-    罗马数字编号（`I.` / `II.`）先剥掉再判，否则那个点号会把化学那份的章节标题误杀。
+    收紧过两轮，两条都是真样本上抓出来的：
+
+    - 第一轮：作者署名行（`BY MADELINE COHEN, …`）与页脚
+      （`20AALLSPECTRUMIWWW.AALLNET.ORG`）被"全大写"吃进来
+      → 限长度、限词数、不许含数字与点号、不许以标点开头；
+    - 第二轮（2026-09-30，中文样本实测）：**中文里夹着 `AI`/`AIGC` 的正文段会被误判**——
+      Python 的 `str.isupper()` 只看"有大小写的字符"，`…生成式AI 驱动下` 里唯一
+      有大小写的就是 `AI`，于是整段被判成全大写。一篇 257 块的文献因此误判出
+      **9 个正文段**当标题。→ **含 CJK 的行走不到这条**（中文小标题另有判据）。
     """
+    if any("\u4e00" <= char <= "\u9fff" for char in line):
+        return False
     if not line.isupper() or not (_ALL_CAPS_MIN <= len(line) <= _ALL_CAPS_MAX):
         return False
     # 以标点开头的一律不算标题：实测 OCR 把作者署名切碎后剩出 `&AMY DIETRICH`
@@ -127,8 +137,20 @@ def _looks_like_heading(line: str) -> bool:
     return _is_all_caps_heading(line)
 
 
-def classify(text: str, block_id: str | None = None) -> str:
-    """给一块文字判类型。`block_id` 用来认"首页最前面那几块"（题名区）。"""
+def classify(
+    text: str,
+    block_id: str | None = None,
+    layout: dict | None = None,
+    body_h: float | None = None,
+) -> str:
+    """给一块文字判类型。
+
+    - `block_id` 用来认"首页最前面那几块"（题名区）；
+    - `layout` + `body_h` 是**版面信号**（2026-09-30 起）：`layout` 是该块自己的量
+      （见 scripts/extract_blocks.py 的契约），`body_h` 是**同一页正文的基准行高**
+      （调用方按页算好传进来——单看一块是不知道"大不大"的）。
+    **给不出信号时（老任务、OCR 认不出的页）行为与以前完全一致**，这是硬要求。
+    """
     line = (text or "").strip()
     if not line:
         return "body"
@@ -136,9 +158,15 @@ def classify(text: str, block_id: str | None = None) -> str:
         return "caption"
     if _looks_like_heading(line):
         return "heading"
-    # 题名区里、且不像句子（行尾没有标点）的短块，按题名处理
+    if _looks_like_heading_by_layout(line, layout, body_h):
+        return "heading"
+    # 题名区里、且不像句子（行尾没有标点）的短块，按题名处理。
+    # 有版面信号时**不让这条兜底规则抢答**——因为"题名区里字号最大的那块"才是真题名
+    # （实测：中文样本首页前几块里，页眉与引用行都是 9pt，真题名 22pt；
+    #  这条兜底会把引用行也判成题名）。批处理里由 `_title_block_id` 精确指定。
     if (
-        _in_title_zone(block_id)
+        not _has_layout(blocks=None, layout=layout)
+        and _in_title_zone(block_id)
         and _TITLE_MIN <= len(line) <= _TITLE_MAX
         and line[-1] not in _TERMINAL
     ):
@@ -146,8 +174,142 @@ def classify(text: str, block_id: str | None = None) -> str:
     return "body"
 
 
-def classify_blocks(blocks: list[dict]) -> list[dict]:
-    """就地给一批块补 `type`（元素形如 `{"block_id", "text", ...}`）。"""
+def _has_layout(blocks, layout: dict | None) -> bool:
+    """这块有没有可用的版面信号（有就交给批处理里的题名判定，不再走文字兜底）。"""
+    return isinstance(layout, dict) and bool(layout.get("unit_h"))
+
+
+def _looks_like_heading_by_layout(
+    line: str, layout: dict | None, body_h: float | None
+) -> bool:
+    """**靠版面量**判标题。阈值全部来自真样本实测（2026-09-30）：
+
+    - 中文样本（`cn_paper.pdf` 257 块）：正文 10.0pt，而 `摘 要`/`1. 引言`/
+      `2. 理论基础`/`3. …机制分析`/`4. …实现路径`/`5. 结论与展望`/`参考文献`
+      **全是 12.0pt = 1.2 倍**；而且这些标题的加粗占比从 0.00 到 1.00 都有
+      （`参考文献` 是 0.00、`3.` 只有 0.14）
+      → **中文排版里"字号大一点"才是稳的信号，"加粗"不稳**。
+    - 化学 arXiv：标题**加粗但字号只有正文的 0.90 倍**（arXiv 惯例），字号判据在这里
+      方向是反的 → **必须两条都留**，不能只留一条。
+    - 反例（用来定上限，都是实测抓到的）：EBSCO 杂志里 8.95 倍的 `L` 是
+      **首字下沉碎片**、1.6 倍的是导语；`BY MADELINE COHEN, …` 是**署名行**
+      （粗体、0.90 倍）→ 所以"太大不算标题"（>3 倍判为版面装饰）、
+      "全大写署名行不算标题"。
+
+    宁可少判几个，也不把正文标成标题——**判不出来时退回文字形状，不猜**。
+    """
+    if not isinstance(layout, dict) or not body_h:
+        return False
+    try:
+        unit_h = float(layout.get("unit_h") or 0)
+        bold = float(layout.get("bold") or 0)
+    except (TypeError, ValueError):
+        return False
+    if unit_h <= 0 or len(line) > _HEADING_MAX or line[-1] in _TERMINAL:
+        return False
+
+    ratio = unit_h / body_h
+    # ① 明显大于正文、但不是"超大装饰"（中文样本靠这条：1.2 倍）
+    if 1.15 <= ratio <= 3.0:
+        return True
+    # ② 加粗 + 接近正文大小（arXiv 靠这条：0.90 倍但粗体）。
+    #    护栏（都是实测抓出来的）：必须**全大写**（否则作者署名行 `Sheng Wu`
+    #    会被吃成标题）、够短、不以 `BY ` 开头、不以标点开头
+    if (
+        bold >= 0.6
+        and 0.85 <= ratio <= 1.15
+        and len(line) <= _ALL_CAPS_MAX
+        and line.isupper()
+    ):
+        head = line.lstrip()
+        if head[:3].upper() == "BY " or not head[:1].isalnum():
+            return False
+        return True
+    return False
+
+
+def _body_height(blocks: list[dict]) -> float | None:
+    """全篇"正文基准行高"：**按字符数加权的 unit_h 中位数**。
+
+    踩过的坑（2026-09-30 实测）：一开始按**页**算，结果被页眉/页脚/图注带偏——
+    某页的"基准"落到 8.5pt，于是 10pt 的**正文长段**被算成"比正文大 1.18 倍"，
+    一篇 257 块的文献误判出 9 个正文段当标题。改成全篇、且**按字符数加权**
+    （长块的 unit_h 更能代表正文）之后，这份样本的基准稳定落在 10.0pt，
+    与人工看字号直方图（199/257 块是 10.0pt）一致。
+
+    取不到任何 unit_h 时返回 None → 分级器自动退回"只看文字形状"。
+    """
+    items: list[tuple[float, int]] = []
     for block in blocks:
-        block["type"] = classify(block.get("text") or "", block.get("block_id"))
+        layout = block.get("layout")
+        if not isinstance(layout, dict):
+            continue
+        try:
+            unit_h = float(layout.get("unit_h") or 0)
+        except (TypeError, ValueError):
+            continue
+        if unit_h > 0:
+            items.append((unit_h, len(block.get("text") or "")))
+    if not items:
+        return None
+    items.sort(key=lambda kv: -kv[1])
+    half = items[: max(3, len(items) // 2)]  # 字数最多的那一半 = 正文候选
+    values = sorted(value for value, _ in half)
+    return values[len(values) // 2]
+
+
+def _title_block_id(blocks: list[dict], body_h: float | None = None) -> str | None:
+    """题名区（首页最前面几块）里**字号最大**的那块＝文献题名；没有合格的就不给题名。
+
+    为什么不是"第一块"：实测这份中文样本里，`p0_b0` 是期刊页眉（9pt）、
+    `p0_b1` 是引用行（9pt），**真正的题名在 `p0_b2`（22pt）**——按"第一块"判会把
+    引用行当题名。
+
+    三条护栏（都是写测试时当场抓出来的，不是设想）：
+    ① **够长**（≥ `_TITLE_MIN`）——否则只有 1 个字符的版面碎片 `L`（94pt）会当选题名；
+    ② **不像句子**（行尾不能是句末标点）——否则一句正文会当选题名；
+    ③ **得比正文明显大**（≥ 1.15 倍）——否则"整页都是正文"的文档也会硬吐一个题名。
+    三条都不满足就返回 None：**宁可不给题名，也不乱给**
+    （前端对没有题名的文档一切照旧）。
+    """
+    zone: list[tuple[float, str, str]] = []
+    for block in blocks:
+        block_id = block.get("block_id") or ""
+        match = _PAGE_ZERO_RE.match(block_id)
+        if not match or int(match.group(1)) > _TITLE_ZONE_BLOCKS:
+            continue
+        layout = block.get("layout")
+        unit_h = 0.0
+        if isinstance(layout, dict):
+            try:
+                unit_h = float(layout.get("unit_h") or 0)
+            except (TypeError, ValueError):
+                unit_h = 0.0
+        zone.append((unit_h, block_id, (block.get("text") or "").strip()))
+    if not zone:
+        return None
+    zone.sort(key=lambda item: -item[0])
+    unit_h, block_id, text = zone[0]
+    if unit_h <= 0 or len(text) < _TITLE_MIN or not text or text[-1] in _TERMINAL:
+        return None
+    if body_h and unit_h < body_h * 1.15:
+        return None
+    return block_id
+
+
+def classify_blocks(blocks: list[dict]) -> list[dict]:
+    """就地给一批块补 `type`（元素形如 `{"block_id", "text", "layout"?}`）。
+
+    **一批一起看**，因为两件事只有看到全篇才知道：
+    "这块字号算不算大"（要跟全篇正文基准比）、"哪块是题名"（要跟首页同区几块比字号）。
+    """
+    body_h = _body_height(blocks)
+    title_id = _title_block_id(blocks, body_h)
+    for block in blocks:
+        block_id = block.get("block_id")
+        text = block.get("text") or ""
+        if title_id and block_id == title_id:
+            block["type"] = "title"
+            continue
+        block["type"] = classify(text, block_id, block.get("layout"), body_h)
     return blocks

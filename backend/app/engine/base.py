@@ -86,6 +86,10 @@ class BlockStatus:
     status: BlockState = BlockState.SUCCESS
     translated: str | None = None
     error: str | None = None
+    # 版面信号（2026-09-30 起的契约，字段含义见 scripts/extract_blocks.py 的说明）：
+    # `{"unit_h": 行高/字号, "bold": 加粗占比 0-1, "y0": 距页顶, "page_h": 页高}`。
+    # 三条取字路各自填自己摸得到的；**摸不到就是 None**，绝不许编。
+    layout: dict | None = None
 
 
 @dataclass
