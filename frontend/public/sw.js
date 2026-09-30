@@ -5,7 +5,7 @@
 // 4) /api、/files 一律直连不缓存（动态内容，绝不缓存）。
 // 改缓存名 = 装新壳：activate 时会把旧缓存整锅删掉（改完前端记得升一位，
 // 否则用户可能一直吃旧的应用壳，刷新也看不到新版本）
-const CACHE_NAME = 'docwise-shell-v3'
+const CACHE_NAME = 'docwise-shell-v4'
 const PRECACHE = [
   '/',
   '/index.html',
