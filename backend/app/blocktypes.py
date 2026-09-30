@@ -3,17 +3,16 @@
 这是阶段 3（中立文档对象模型）的第一小步：先让每块**有类型**，段落精读才分得出
 标题与正文，图注也才有落点；表格 / 公式类型留到 v2。
 
-**判据只用文字形状**（标题的编号、章节名、图注前缀、全大写短行），**不依赖版面信息**。
-这么做是刻意的：
+**判据是"文字形状 + 版面信号"，判定只在后端这一处做**：块上带 `layout`（字号 / 位置，
+见 `scripts/extract_blocks.py` 的契约）时就拿它比一比"这块比正文大不大"，没带就退回
+纯文字形状（编号、章节名、图注前缀、全大写短行）。这么做是刻意的：
 
-- 三条取字路径（PDF 文字层 / 扫描件 OCR / 外部翻译引擎）只有第一条拿得到字号，
-  若在引擎侧各判一遍，三条路的类型口径必然漂移；
+- 三条取字路（PDF 文字层 / 扫描件 OCR / 外部翻译引擎）**谁手里有版面量谁就往上带**，
+  但**判定不跟着走**——三条路各判一遍，类型口径必然漂移；
 - 放后端一处判，**老任务不用重跑也立刻受益**（不用改库、不用回填）；
-- 代价如实说：**不带编号、又不与常见章节名重合的标题会判不出来**，会被当正文；
-  这里**不猜字号**，也不做"前 N 块一定是标题"之外的位置推断。
-
-想升级成真正的版面判定（字号 + 位置 + 加粗），要等引擎侧把每块的版面属性带回来——
-那时这里是同一个入口，换实现不改协议。
+- 代价如实说：**不带编号、又不与常见章节名重合、字号也不比正文大的标题会判不出来**，
+  会被当正文。**判不出来时退回文字形状，不猜**。
+  三条路当前各自给得出什么，见 `docs/代码架构图.md`。
 """
 
 from __future__ import annotations
@@ -30,6 +29,10 @@ BLOCK_TYPES = ("title", "heading", "caption", "body")
 _CAPTION_RE = re.compile(
     r"^(?:fig(?:ure)?|tab(?:le)?|scheme|chart|图|表)\s*[.．]?\s*\d+", re.IGNORECASE
 )
+# 图注编号后面的分隔符：`FIG. 7. Local…` / `Figure 2: Running time.` / `图1、说明`
+_CAPTION_SEP = ".．:：,，、)]）】"
+# 子图标记：`Fig. 8(a–c) shows…` 里的 `(a–c)`
+_CAPTION_SUB_RE = re.compile(r"^\([^)]{0,12}\)")
 # 西文编号标题：1 Introduction / 2.1 Methods / 3.4.1 Notes / A. Geometrical measure
 # （要求编号后紧跟空白，避免把 "2023年正式纳入…" 这种正文当成标题；
 #  最后那支是**字母编号**：arXiv 论文里 `A. xxx` / `B. xxx` 是二级标题，
@@ -105,6 +108,19 @@ _ALL_CAPS_MAX_WORDS = 4
 _ALL_CAPS_MIN = 4
 # 罗马数字编号前缀（I. / II. / IV)）——判全大写标题前先剥掉
 _ROMAN_PREFIX_RE = re.compile(r"^(?:[IVXLC]{1,4}[.、)]\s+)+")
+# 作者缩写串：`A. G. L ohr, O. Smirnova, …`——第二个"单字母 + 点"就是签名，不是标题。
+# 实测（2026-10-01）：化学 arXiv 那份的署名行靠 `A. ` 命中了字母编号标题规则。
+# 真标题长这样：`A. Geometrical measure`（编号后面跟一个完整的词）。
+_INITIALS_RE = re.compile(r"^[A-Z][.)．]\s+[A-Z][.)．]\s")
+
+
+def _looks_like_author_line(line: str) -> bool:
+    """像作者行/缩写串的，**既不当标题也不当题名**。
+
+    实测两份外文首页第一块都是署名行（化学 arXiv 的 `A. G. L ohr, …`、EBSCO 的
+    `BY MADELINE COHEN, …`）——它们短、不像句子，正是"题名兜底"最容易吃进来的东西。
+    """
+    return bool(_INITIALS_RE.match(line)) or line[:3].upper() == "BY "
 
 
 def _in_title_zone(block_id: str | None) -> bool:
@@ -141,11 +157,43 @@ def _is_all_caps_heading(line: str) -> bool:
 def _looks_like_heading(line: str) -> bool:
     if len(line) > _HEADING_MAX or line[-1] in _TERMINAL:
         return False
+    # 作者缩写串先挡掉：`A. G. L ohr, …` 与字母编号标题（`A. Geometrical measure`）
+    # 在正则眼里长得一样，区别是**编号后面跟的是"又一个单字母 + 点"还是完整的词**。
+    # 实测这份署名行曾是全篇唯一的 heading（task 36/37）。
+    if _looks_like_author_line(line):
+        return False
     if _NUMBERED_RE.match(line) or _CJK_NUM_RE.match(line) or _CJK_PAREN_RE.match(line):
         return True
     if line.lower().strip(" .:：") in _SECTION_WORDS:
         return True
     return _is_all_caps_heading(line)
+
+
+def _looks_like_caption(line: str) -> bool:
+    """图注 / 表注：`Figure 1` / `Fig. 3:` / `Table 2` / `图 1` / `表 2` 开头的块。
+
+    2026-10-01 加的一道关：**编号后面紧跟小写拉丁词的是正文，不是图注**。
+    实测化学那份 10 个"图注"里有 2 个其实是正文句子（`Fig. 7 shows both local
+    measures…`、`Fig. 8(a–c) shows the orientation trajectories…`）——它们只是
+    **提到**了图，不是图的题注。
+
+    判据只看"编号后面那一段"（先跳过一层 `(a–c)` 之类的子图标记）：
+
+    - 行尾 / 分隔符（`.．:：,，、)]）】`）→ 图注（`FIG. 7. Local…`）；
+    - 汉字等非 ASCII → 图注（`图1 生成式…`）；
+    - **小写拉丁字母** → **正文**（`Fig. 7 shows…`、`Table 2 in the appendix…`）；
+    - 大写拉丁字母 → 图注（`Figure 1 Overview…` 这种不加标点的图注保住）。
+    """
+    match = _CAPTION_RE.match(line)
+    if not match:
+        return False
+    rest = line[match.end() :].lstrip()
+    sub = _CAPTION_SUB_RE.match(rest)
+    if sub:
+        rest = rest[sub.end() :].lstrip()
+    if not rest or rest[0] in _CAPTION_SEP or not rest[0].isascii():
+        return True
+    return not (rest[0].isalpha() and rest[0].islower())
 
 
 def classify(
@@ -171,7 +219,7 @@ def classify(
     line = (text or "").strip()
     if not line:
         return "body"
-    if _CAPTION_RE.match(line):
+    if _looks_like_caption(line):
         return "caption"
     if _looks_like_heading(line):
         return "heading"
@@ -181,11 +229,13 @@ def classify(
     # 有版面信号时**不让这条兜底规则抢答**——因为"题名区里字号最大的那块"才是真题名
     # （实测：中文样本首页前几块里，页眉与引用行都是 9pt，真题名 22pt；
     #  这条兜底会把引用行也判成题名）。批处理里由 `_title_block_id` 精确指定。
+    # 署名行也不能当题名（实测外文首页第一块就是作者行，见 `_looks_like_author_line`）。
     if (
         not (has_signal if has_signal is not None else _has_layout(layout))
         and _in_title_zone(block_id)
         and _TITLE_MIN <= len(line) <= _TITLE_MAX
         and line[-1] not in _TERMINAL
+        and not _looks_like_author_line(line)
     ):
         return "title"
     return "body"
@@ -280,21 +330,37 @@ def _body_height(blocks: list[dict]) -> float | None:
     return values[len(values) // 2]
 
 
+def _title_eligible(text: str, unit_h: float, body_h: float | None) -> bool:
+    """题名的四条护栏（都是实测抓出来的，不是设想）：
+
+    ① **够长**（≥ `_TITLE_MIN`）——否则只有 1 个字符的版面碎片 `L`（94pt）会当选题名；
+    ② **不像句子**（行尾不能是句末标点）——否则一句正文会当选题名；
+    ③ **得比正文明显大**（≥ 1.15 倍）——否则"整页都是正文"的文档也会硬吐一个题名；
+    ④ **不是图注**——首页大字号图注是常见版式，抢走题名会让真题名降级、图注被标成 title。
+    """
+    if not text or unit_h <= 0 or len(text) < _TITLE_MIN or text[-1] in _TERMINAL:
+        return False
+    if _looks_like_caption(text):
+        return False
+    return not (body_h and unit_h < body_h * 1.15)
+
+
 def _title_block_id(blocks: list[dict], body_h: float | None = None) -> str | None:
-    """题名区（首页最前面几块）里**字号最大**的那块＝文献题名；没有合格的就不给题名。
+    """题名区（首页最前面几块）里**字号最大的那块合格者**＝文献题名；都不合格就不给题名。
 
     为什么不是"第一块"：实测这份中文样本里，`p0_b0` 是期刊页眉（9pt）、
     `p0_b1` 是引用行（9pt），**真正的题名在 `p0_b2`（22pt）**——按"第一块"判会把
     引用行当题名。
 
-    三条护栏（都是写测试时当场抓出来的，不是设想）：
-    ① **够长**（≥ `_TITLE_MIN`）——否则只有 1 个字符的版面碎片 `L`（94pt）会当选题名；
-    ② **不像句子**（行尾不能是句末标点）——否则一句正文会当选题名；
-    ③ **得比正文明显大**（≥ 1.15 倍）——否则"整页都是正文"的文档也会硬吐一个题名。
-    三条都不满足就返回 None：**宁可不给题名，也不乱给**
-    （前端对没有题名的文档一切照旧）。
+    ⚠️ 2026-10-01 修：早先是"**先取字号最大的那块，再检查它合不合格**"。只要题名区里
+    有一块**更大但不合格**的，它就把题名位置**占住**、然后被判不合格 → **整篇一个题名
+    都没有**。实测 EBSCO 那份（`pdf_EBSCO_04.pdf`）：首页的**首字下沉碎片** `L` 是
+    94.2pt，真题名 `Partnering for Progress:` 才 47.4pt——旧写法下这份文献没有题名。
+    现在改成"**先筛掉不合格的，再在合格的里面取最大的**"，四条护栏一条没放松。
+
+    **宁可不给题名，也不乱给**（前端对没有题名的文档一切照旧）。
     """
-    zone: list[tuple[float, str, str]] = []
+    best: tuple[float, str] | None = None
     for block in blocks:
         block_id = block.get("block_id") or ""
         match = _PAGE_ZERO_RE.match(block_id)
@@ -307,19 +373,12 @@ def _title_block_id(blocks: list[dict], body_h: float | None = None) -> str | No
                 unit_h = float(layout.get("unit_h") or 0)
             except (TypeError, ValueError):
                 unit_h = 0.0
-        zone.append((unit_h, block_id, (block.get("text") or "").strip()))
-    if not zone:
-        return None
-    zone.sort(key=lambda item: -item[0])
-    unit_h, block_id, text = zone[0]
-    if unit_h <= 0 or len(text) < _TITLE_MIN or not text or text[-1] in _TERMINAL:
-        return None
-    # 图注不能当题名：首页大字号图注是常见版式，抢走题名会让真题名降级、图注被标成 title
-    if _CAPTION_RE.match(text):
-        return None
-    if body_h and unit_h < body_h * 1.15:
-        return None
-    return block_id
+        text = (block.get("text") or "").strip()
+        if not _title_eligible(text, unit_h, body_h):
+            continue
+        if best is None or unit_h > best[0]:
+            best = (unit_h, block_id)
+    return best[1] if best else None
 
 
 def classify_blocks(blocks: list[dict]) -> list[dict]:
