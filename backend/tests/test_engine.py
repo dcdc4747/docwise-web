@@ -15,37 +15,35 @@ from app.engine import (
     TranslationResult,
     get_engine,
 )
-from app.engine.open_source import _sanitize_proxy_env
 
 
-def test_sanitize_proxy_env_strips_brackets_from_ipv6_entries() -> None:
-    """NO_PROXY 里带方括号的 IPv6 必须洗掉——否则引擎**在导入期**就崩。
+def test_engine_child_env_gets_sanitized_no_proxy(monkeypatch) -> None:
+    """引擎子进程那份环境也要洗过（实现在 `app/netenv.py`）。
 
-    实测（2026-10-08）：`NO_PROXY=127.0.0.1,localhost,::1,[::1]` 时，
-    `import ollama`（pdf2zh 的 translator 顶部就有它，而 ollama 导入期建 httpx 客户端）
-    直接抛 `httpx.InvalidURL: Invalid port: ':1]'` → 引擎一行代码没跑就退出，
-    **表现是任何上传都失败**。去掉方括号后 `::1` 照样匹配，语义等价。
+    纯函数测试在 `test_netenv.py`；这里只钉"接线接对了"：
+    起子进程前确实调了 `sanitize_proxy_env(child_env)`。
     """
-    env = {
-        "NO_PROXY": "127.0.0.1,localhost,::1,[::1]",
-        "no_proxy": "[2001:db8::1]:8080,example.com",
-        # 代理地址里的方括号是**合法且必要**的，不许动
-        "HTTP_PROXY": "http://[::1]:7897",
-        "HTTPS_PROXY": "socks5://127.0.0.1:7897",
-    }
-    _sanitize_proxy_env(env)
+    from app import storage
+    from app.engine import open_source
 
-    assert env["NO_PROXY"] == "127.0.0.1,localhost,::1,::1"
-    assert env["no_proxy"] == "2001:db8::1:8080,example.com"
-    assert env["HTTP_PROXY"] == "http://[::1]:7897"
-    assert env["HTTPS_PROXY"] == "socks5://127.0.0.1:7897"
+    seen: list[dict] = []
 
+    def fake_popen(cmd, env=None, **kwargs):  # noqa: ANN001, ANN003
+        seen.append(dict(env or {}))
+        raise RuntimeError("到此为止：只验环境，不真起引擎")
 
-def test_sanitize_proxy_env_ignores_missing_and_plain_values() -> None:
-    env = {"PATH": "/usr/bin", "NO_PROXY": "127.0.0.1,localhost,::1"}
-    _sanitize_proxy_env(env)
-    assert env["NO_PROXY"] == "127.0.0.1,localhost,::1"
-    assert env["PATH"] == "/usr/bin"
+    monkeypatch.setattr(open_source.subprocess, "Popen", fake_popen)
+    monkeypatch.setenv("NO_PROXY", "127.0.0.1,localhost,::1,[::1]")
+    engine = OpenSourceEngine()
+    engine._env = lambda key: {"PYTHON": "python", "SCRIPT": "s.py"}.get(key)  # type: ignore[method-assign]
+    # 用 storage 的临时产物目录（conftest 已把它指到系统临时区），别往仓库里写日志
+    out_dir = storage.OUTPUTS_DIR / "engine-env-test"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    with pytest.raises(RuntimeError):
+        engine._run_engine_command(["python", "s.py"], out_dir, None)
+
+    assert seen and "[::1]" not in seen[0]["NO_PROXY"]
+    assert seen[0]["NO_PROXY"].endswith("::1")
 
 
 def test_get_engine_default_is_open_source() -> None:
