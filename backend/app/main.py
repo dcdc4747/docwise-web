@@ -9,7 +9,6 @@ E 批起任务路由已拆到 `app/routers/tasks.py`，这里只留"启动/运�
 import logging
 import os
 from contextlib import asynccontextmanager
-from datetime import datetime
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -24,6 +23,7 @@ from .routers.admin import router as admin_router
 from .routers.ask import router as ask_router
 from .routers.auth import router as auth_router
 from .routers.tasks import router as tasks_router
+from .timeutil import utc_now
 from .worker import TaskEventBus, TranslationWorker
 
 setup_logging()
@@ -215,7 +215,9 @@ def _database_writable() -> tuple[bool, str | None]:
             )
             conn.execute(
                 text("INSERT INTO _health_probe(ts) VALUES (:ts)"),
-                {"ts": datetime.now().isoformat(timespec="seconds")},
+                # 口径与全库一致：UTC（见 app/timeutil.py）。这条只是写探针的痕迹，
+                # 不给人看。
+                {"ts": utc_now().isoformat(timespec="seconds")},
             )
             conn.execute(
                 text(

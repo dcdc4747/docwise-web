@@ -4,7 +4,6 @@ import asyncio
 import contextlib
 import logging
 import time
-from datetime import datetime
 from pathlib import Path
 
 from sqlalchemy import delete, select, update
@@ -21,6 +20,7 @@ from .engine import (
     get_engine,
 )
 from .models import Task, TaskBlock, TaskHistory
+from .timeutil import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -252,7 +252,7 @@ class TranslationWorker:
                     # 诚实进度（F 批）：记下真正开跑的时刻，前端据此走秒
                     stage=STAGE_TRANSLATING,
                     eta_seconds=None,
-                    started_at=datetime.now(),
+                    started_at=utc_now(),
                     finished_at=None,
                 )
             )
@@ -316,7 +316,7 @@ class TranslationWorker:
                 "status": TaskState.IN_PROGRESS.value,
                 "progress": 0.0,
                 "stage": STAGE_TRANSLATING,
-                "started_at": datetime.now().isoformat(timespec="seconds"),
+                "started_at": utc_now().isoformat(timespec="seconds"),
             },
         )
         started = time.monotonic()
@@ -481,7 +481,7 @@ class TranslationWorker:
             # 终态：不再有"阶段"与"预计剩余"，耗时由 started_at/finished_at 决定
             task.stage = None
             task.eta_seconds = None
-            task.finished_at = datetime.now()
+            task.finished_at = utc_now()
             _record_history(session, task_id, terminal, result.error)
             session.commit()
             session.refresh(task)
@@ -496,7 +496,7 @@ class TranslationWorker:
             task.error_message = error
             task.stage = None
             task.eta_seconds = None
-            task.finished_at = datetime.now()
+            task.finished_at = utc_now()
             _record_history(session, task_id, TaskState.FAILED.value, error)
             session.commit()
 
@@ -511,6 +511,6 @@ class TranslationWorker:
             task.error_message = "已取消"
             task.stage = None
             task.eta_seconds = None
-            task.finished_at = datetime.now()
+            task.finished_at = utc_now()
             _record_history(session, task_id, TaskState.CANCELLED.value, "用户取消")
             session.commit()

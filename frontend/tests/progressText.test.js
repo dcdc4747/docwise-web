@@ -135,4 +135,15 @@ describe('相对时间（卡片上的"2 天前 / 昨天"）', () => {
     expect(relativeTime('', now)).toBe('')
     expect(relativeTime('不是时间', now)).toBe('')
   })
+
+  it('带时区的时间串按绝对时刻算（后端 2026-10-01 起一律输出 +00:00）', () => {
+    // 不这么做的话：库里是 UTC（`func.now()`），串上不带时区，`new Date()` 按**本地**
+    // 解析 → 卡片上的"上传时间"整体差一个时区（实测刚上传 20 分钟的文献显示「8 小时前」）。
+    // 这条锁的是"串上带时区就按绝对时刻算"这个契约。**两端都用 Z 串**，所以结论与
+    // 跑测机器的时区无关（CI 多半在 UTC 上跑）。
+    const now = Date.parse('2026-09-15T12:00:00Z')
+    expect(relativeTime('2026-09-15T12:00:00Z', now)).toBe('刚刚')
+    expect(relativeTime('2026-09-15T04:00:00Z', now)).toBe('8 小时前')
+    expect(relativeTime('2026-09-15T04:00:00+00:00', now)).toBe('8 小时前')
+  })
 })
