@@ -15,7 +15,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from datetime import datetime
 from pathlib import Path
 from typing import Annotated
 from uuid import uuid4
@@ -38,6 +37,7 @@ from ..deps import (
 from ..engine import TaskState, Tier, is_native_pair
 from ..llm import extract_understanding
 from ..models import AuthTicket, Task, TaskBlock, TaskHistory, TaskUnderstanding, User
+from ..timeutil import iso_utc, utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +88,7 @@ def _elapsed_seconds(task: Task) -> float | None:
     """已耗时：从真正开跑算起；跑完就停在 finished_at（F 批"诚实进度"）。"""
     if task.started_at is None:
         return None
-    end = task.finished_at or datetime.now()
+    end = task.finished_at or utc_now()
     return max(0.0, (end - task.started_at).total_seconds())
 
 
@@ -142,13 +142,16 @@ def _serialize_task(task: Task, blocks: list[TaskBlock] | None = None) -> dict:
         "source_lang": task.source_lang,
         "target_lang": task.target_lang,
         "native": is_native_pair(task.source_lang, task.target_lang),
-        "created_at": task.created_at.isoformat() if task.created_at else None,
+        # 时间戳一律按 UTC 输出、**带时区**（口径见 app/timeutil.py）：
+        # 库里 `created_at` 是 SQLite `func.now()`（UTC），原来不带时区输出，
+        # 前端按本地解析 → 列表页的"上传时间"整体差一个时区（实测显示"8 小时前"）。
+        "created_at": iso_utc(task.created_at),
         # 诚实进度：阶段 + 已耗时 + 引擎自报剩余（都不编造，没有就是 null）
         "stage": task.stage,
         "eta_seconds": task.eta_seconds,
         "elapsed_seconds": _elapsed_seconds(task),
-        "started_at": task.started_at.isoformat() if task.started_at else None,
-        "finished_at": task.finished_at.isoformat() if task.finished_at else None,
+        "started_at": iso_utc(task.started_at),
+        "finished_at": iso_utc(task.finished_at),
         # 阅读位置记忆：null 表示没读过（前端据此显示「开始阅读」而不是「继续读」）
         "last_read_page": task.last_read_page,
         # 诚实性：这批字是文字层抽的还是 OCR 认的（扫描件要在界面上说清楚）
@@ -362,7 +365,7 @@ async def cancel_task(
             error_message="已取消",
             stage=None,
             eta_seconds=None,
-            finished_at=datetime.now(),
+            finished_at=utc_now(),
         )
     )
     if result.rowcount == 0:
