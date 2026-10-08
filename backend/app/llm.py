@@ -8,8 +8,19 @@ import re
 import httpx
 
 from .config import settings
+from .netenv import sanitize_proxy_env
 
 logger = logging.getLogger(__name__)
+
+# 在**创建任何 httpx 客户端之前**把出网环境洗一遍：`NO_PROXY` 里带方括号的 IPv6
+# （`[::1]`）会让 httpx 建 `URLPattern` 时抛 `ValueError`，表现为**提问直接 500**
+# （实测 2026-10-08；同一个坑还让翻译引擎在导入期就崩，见 app/netenv.py）。
+# 放这里是因为它是本进程**唯一**发 HTTP 的地方，导入即生效、早于任何请求。
+_changed_proxy_keys = sanitize_proxy_env()
+if _changed_proxy_keys:
+    logger.info(
+        "已规范出网环境：%s 里的 IPv6 去掉了方括号", "、".join(_changed_proxy_keys)
+    )
 
 _DEEPSEEK_URL = (settings.deepseek_base_url or "https://api.deepseek.com").rstrip("/")
 

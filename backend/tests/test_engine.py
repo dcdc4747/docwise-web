@@ -17,6 +17,35 @@ from app.engine import (
 )
 
 
+def test_engine_child_env_gets_sanitized_no_proxy(monkeypatch) -> None:
+    """引擎子进程那份环境也要洗过（实现在 `app/netenv.py`）。
+
+    纯函数测试在 `test_netenv.py`；这里只钉"接线接对了"：
+    起子进程前确实调了 `sanitize_proxy_env(child_env)`。
+    """
+    from app import storage
+    from app.engine import open_source
+
+    seen: list[dict] = []
+
+    def fake_popen(cmd, env=None, **kwargs):  # noqa: ANN001, ANN003
+        seen.append(dict(env or {}))
+        raise RuntimeError("到此为止：只验环境，不真起引擎")
+
+    monkeypatch.setattr(open_source.subprocess, "Popen", fake_popen)
+    monkeypatch.setenv("NO_PROXY", "127.0.0.1,localhost,::1,[::1]")
+    engine = OpenSourceEngine()
+    engine._env = lambda key: {"PYTHON": "python", "SCRIPT": "s.py"}.get(key)  # type: ignore[method-assign]
+    # 用 storage 的临时产物目录（conftest 已把它指到系统临时区），别往仓库里写日志
+    out_dir = storage.OUTPUTS_DIR / "engine-env-test"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    with pytest.raises(RuntimeError):
+        engine._run_engine_command(["python", "s.py"], out_dir, None)
+
+    assert seen and "[::1]" not in seen[0]["NO_PROXY"]
+    assert seen[0]["NO_PROXY"].endswith("::1")
+
+
 def test_get_engine_default_is_open_source() -> None:
     engine = get_engine()
     assert isinstance(engine, TranslationEngine)
