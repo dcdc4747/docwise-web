@@ -25,9 +25,15 @@ logger = logging.getLogger(__name__)
 # 类型词表（前端按这四个值给样式；新增值要先想好界面上怎么表现）
 BLOCK_TYPES = ("title", "heading", "caption", "body")
 
-# 图注 / 表注：Figure 1 / Fig. 3: / Table 2 / Scheme 1 / 图 1 / 表 2
+# 图注 / 表注：Figure 1 / Fig. 3: / Table 2 / Scheme 1 / Algorithm 1: / 图 1 / 表 2
+# （`algorithm` / `listing` 是 2026-10-01 补的：实测数学 arXiv 那份的
+#  `Algorithm 1: SolvePerturbed 𝐴, 𝑏, 𝑅` 被**版面区域**判成了标题——模型把算法框
+#  标成了 `title`。它其实是浮动体的题注，按图注处理才对，而且图注判据排在标题前面，
+#  正好能压过模型的区域判定。只认"带编号"的形式：`Algorithm Design` 这种章节标题
+#  不会被吃进来。）
 _CAPTION_RE = re.compile(
-    r"^(?:fig(?:ure)?|tab(?:le)?|scheme|chart|图|表)\s*[.．]?\s*\d+", re.IGNORECASE
+    r"^(?:fig(?:ure)?|tab(?:le)?|scheme|chart|algorithm|listing|图|表)\s*[.．]?\s*\d+",
+    re.IGNORECASE,
 )
 # 图注编号后面的分隔符：`FIG. 7. Local…` / `Figure 2: Running time.` / `图1、说明`
 _CAPTION_SEP = ".．:：,，、)]）】"
@@ -36,9 +42,12 @@ _CAPTION_SUB_RE = re.compile(r"^\([^)]{0,12}\)")
 # 西文编号标题：1 Introduction / 2.1 Methods / 3.4.1 Notes / A. Geometrical measure
 # （要求编号后紧跟空白，避免把 "2023年正式纳入…" 这种正文当成标题；
 #  最后那支是**字母编号**：arXiv 论文里 `A. xxx` / `B. xxx` 是二级标题，
-#  实测化学那份 20 多条小节标题全靠这条）
+#  实测化学那份 20 多条小节标题全靠这条。
+#  ⚠️ 光"数字 + 空格 + 任意字符"不够——2026-10-01 实测抓到两条例：算法块的
+#  `5 end`（`end` 小写）与公式碎片 `0 𝜖 1 𝑃 4𝑛 𝜖`（𝜖 是数学小写斜体）。
+#  所以把编号后面那个字符**捕获下来**交给 `_looks_like_numbered_heading` 判。）
 _NUMBERED_RE = re.compile(
-    r"^(?:\d{1,2}(?:\.\d{1,2}){0,3}[.、)．]?|[A-Z][.)．])\s+\S"
+    r"^(?:\d{1,2}(?:\.\d{1,2}){0,3}[.、)．]?|[A-Z][.)．])\s+(\S)"
 )
 # 中文编号标题：一、xxx ／ （一）xxx ／ (1) xxx
 _CJK_NUM_RE = re.compile(r"^[一二三四五六七八九十]+[、.．]\s*\S")
@@ -115,6 +124,38 @@ _ROMAN_PREFIX_RE = re.compile(r"^(?:[IVXLC]{1,4}[.、)]\s+)+")
 # 真标题长这样：`A. Geometrical measure`（编号后面跟一个完整的词）。
 _INITIALS_RE = re.compile(r"^[A-Z][.)．]\s+[A-Z][.)．]\s")
 
+
+def _looks_like_name_list(line: str) -> bool:
+    """`Robin Hunicke, Marc LeBlanc, Robert Zubek` 这种人名列表。
+
+    实测（2026-10-01，sample_01）：这块是**作者行**，但它既没有缩写串、也不以 `BY `
+    开头，12pt vs 正文 10pt 恰好是"明显大于正文"的下限 1.2 倍 → 被判成了标题。
+
+    判据不用"有没有 and"这种语义猜测，纯看形状：
+
+    - 至少一个逗号，**每一段都以大写字母开头**——`Methods, Results, and Discussion`
+      里 `and Discussion` 以小写开头，于是不算人名列表（真标题保住）；
+    - 每段 1–4 个词、整行够短、行尾不是句末标点。
+
+    调用方**还要限定在首页题名区**（见 `_looks_like_author_line`）：正文里出现
+    `Xxx, Yyy` 这种逗号列表的机会远多于题名区。
+    """
+    if "," not in line or len(line) > _HEADING_SHORT_MAX or line[-1] in _TERMINAL:
+        return False
+    parts = [part.strip() for part in line.split(",")]
+    if len(parts) < 2 or any(not part for part in parts):
+        return False
+    for part in parts:
+        words = part.split()
+        if not 1 <= len(words) <= 4:
+            return False
+        for word in words:
+            first = word.lstrip("(（").lstrip()[:1]
+            if not first.isupper():
+                return False
+    return True
+
+
 # ── 版面区域（引擎版面模型给的类别，2026-10-01 任务 A 起）──────────────────────
 # 引擎那边自己跑一次版面模型，把每页 `{cls, bbox, conf}` 原样带回来；
 # 这里**只按坐标贴标签**（双栏页要带 x 才不会串栏）。
@@ -122,13 +163,34 @@ _TITLE_REGION = "title"
 _CAPTION_REGIONS = frozenset({"figure_caption", "table_caption"})
 
 
-def _looks_like_author_line(line: str) -> bool:
+def _looks_like_author_line(line: str, in_title_zone: bool = False) -> bool:
     """像作者行/缩写串的，**既不当标题也不当题名**。
 
     实测两份外文首页第一块都是署名行（化学 arXiv 的 `A. G. L ohr, …`、EBSCO 的
     `BY MADELINE COHEN, …`）——它们短、不像句子，正是"题名兜底"最容易吃进来的东西。
+
+    2026-10-01 扩了一条：**首页题名区里的人名列表**（`Robin Hunicke, Marc LeBlanc,
+    Robert Zubek`）——它 12pt、正文 10pt，正好踩在"明显大于正文"的 1.2 倍上，
+    被判成了标题。名字列表这条**只在题名区生效**（正文里的逗号列表不该被它吃掉）。
     """
-    return bool(_INITIALS_RE.match(line)) or line[:3].upper() == "BY "
+    if _INITIALS_RE.match(line) or line[:3].upper() == "BY ":
+        return True
+    return in_title_zone and _looks_like_name_list(line)
+
+
+def _looks_like_numbered_heading(line: str) -> bool:
+    """编号标题：`1 Introduction` / `1.1 Main Result` / `A. Geometrical measure`。
+
+    2026-10-01 收紧一处（两条例都是实测抓到的）：编号后面那个字符必须**像词的开头**——
+    大写拉丁、汉字、或数字。放过去的是算法块的 `5 end`（`end` 小写）与公式碎片
+    `0 𝜖 1 𝑃 4𝑛 𝜖`（𝜖 是数学小写斜体），它们原来只满足"数字 + 空格 + 任意字符"。
+    保住的：`1 Introduction` / `1.1 Main Result` / `1 引言` / `2.1 3D reconstruction`。
+    """
+    match = _NUMBERED_RE.match(line)
+    if not match:
+        return False
+    first = match.group(1)[:1]
+    return "\u4e00" <= first <= "\u9fff" or first.isupper() or first.isdigit()
 
 
 def _in_title_zone(block_id: str | None) -> bool:
@@ -170,7 +232,11 @@ def _looks_like_heading(line: str) -> bool:
     # 实测这份署名行曾是全篇唯一的 heading（task 36/37）。
     if _looks_like_author_line(line):
         return False
-    if _NUMBERED_RE.match(line) or _CJK_NUM_RE.match(line) or _CJK_PAREN_RE.match(line):
+    if (
+        _looks_like_numbered_heading(line)
+        or _CJK_NUM_RE.match(line)
+        or _CJK_PAREN_RE.match(line)
+    ):
         return True
     if line.lower().strip(" .:：") in _SECTION_WORDS:
         return True
@@ -230,13 +296,14 @@ def classify(
     line = (text or "").strip()
     if not line:
         return "body"
+    in_title_zone = _in_title_zone(block_id)
     # 图注：文字形状（`FIG. 3.`）或**模型框出来的图注区域**（能救回罗马数字表注
     # `TABLE I. …` 这种"数字不是阿拉伯数字"的，实测化学那份 +2 条真表注）
     if _looks_like_caption(line) or region in _CAPTION_REGIONS:
         return "caption"
     if _looks_like_heading(line):
         return "heading"
-    if _looks_like_heading_by_layout(line, layout, body_h):
+    if _looks_like_heading_by_layout(line, layout, body_h, in_title_zone):
         return "heading"
     # 题名区里、且不像句子（行尾没有标点）的短块，按题名处理。
     # 有版面信号时**不让这条兜底规则抢答**——因为"题名区里字号最大的那块"才是真题名
@@ -245,10 +312,10 @@ def classify(
     # 署名行也不能当题名（实测外文首页第一块就是作者行，见 `_looks_like_author_line`）。
     if (
         not (has_signal if has_signal is not None else _has_layout(layout))
-        and _in_title_zone(block_id)
+        and in_title_zone
         and _TITLE_MIN <= len(line) <= _TITLE_MAX
         and line[-1] not in _TERMINAL
-        and not _looks_like_author_line(line)
+        and not _looks_like_author_line(line, in_title_zone)
     ):
         return "title"
     # 最后才是"模型说这块是标题"——放在既有规则**之后**，只做加法：
@@ -269,7 +336,7 @@ def _has_layout(layout: dict | None) -> bool:
 
 
 def _looks_like_heading_by_layout(
-    line: str, layout: dict | None, body_h: float | None
+    line: str, layout: dict | None, body_h: float | None, in_title_zone: bool = False
 ) -> bool:
     """**靠版面量**判标题。阈值全部来自真样本实测（2026-09-30）：
 
@@ -295,6 +362,10 @@ def _looks_like_heading_by_layout(
     except (TypeError, ValueError):
         return False
     if unit_h <= 0 or len(line) > _HEADING_MAX or line[-1] in _TERMINAL:
+        return False
+    # 署名行**两条规则都不许吃**（2026-10-01：人名列表 `Robin Hunicke, Marc LeBlanc,
+    # Robert Zubek` 是 12pt / 正文 10pt = 1.2 倍，正好踩着下面 ① 的下限被判成了标题）
+    if _looks_like_author_line(line, in_title_zone):
         return False
 
     ratio = unit_h / body_h
@@ -368,6 +439,24 @@ def _region_of(
     return best[1] if best else None
 
 
+def _has_capitalized_token(line: str) -> bool:
+    """行里至少有一个"以大写字母 / 汉字开头"的词——即**像个词组**。
+
+    这条是给"版面区域"那条判据用的（2026-10-01 实测）：模型把数学 arXiv 那份的
+    **整个算法框**框成了 `title`，于是框里的 `Algorithm 1: …`（已被图注规则压掉）
+    和算法块结尾 `5 end` 都成了候选。`5 end` 整行没有一个像词的成分（`5` 是数字、
+    `end` 小写），而真标题（`Appendix C: Fourier figures`、`Concluding Thoughts`、
+    `Tech Trends and AI-Driven Pain Points in Law Firms`、中文标题）都至少有一个。
+    """
+    for token in line.split():
+        first = token.lstrip("([{（【「\"'“").lstrip()[:1]
+        if not first:
+            continue
+        if first.isupper() or "\u4e00" <= first <= "\u9fff":
+            return True
+    return False
+
+
 def _looks_like_heading_by_region(line: str, region: str | None) -> bool:
     """模型把这块框成 `title` → 当章节标题。
 
@@ -381,8 +470,13 @@ def _looks_like_heading_by_region(line: str, region: str | None) -> bool:
     护栏沿用已有的两条，不新增阈值：
     ① 不比 `_HEADING_MAX` 长——"标题 + 紧随正文"被并成一段时整段很长，不能整段变标题；
     ② 行尾不是句末标点——问句、整句话不当标题。
+    ③ 署名行不算（2026-10-01：作者行也可能被模型框进 `title`）；
+    ④ 整行得**像个词组**（见 `_has_capitalized_token`）——模型会把整个算法框标成
+       `title`，框里的 `5 end` 就靠这条挡掉。
     """
     if region != _TITLE_REGION or not line:
+        return False
+    if _looks_like_author_line(line) or not _has_capitalized_token(line):
         return False
     return len(line) <= _HEADING_MAX and line[-1] not in _TERMINAL
 

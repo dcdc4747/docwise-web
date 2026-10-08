@@ -17,6 +17,7 @@ import statistics
 from app.blocktypes import (
     BLOCK_TYPES,
     _body_height,
+    _looks_like_heading_by_region,
     classify,
     classify_blocks,
 )
@@ -605,5 +606,80 @@ def test_region_absent_or_broken_never_changes_anything() -> None:
         },
     )
     assert [b["type"] for b in broken] == ["body", "body"]
+
+
+# ── 任务 A2：把量出来的几类错例收掉（2026-10-01）─────────────────────
+# 这些都不是"调参调出来的"，是**在 5 篇真文献上逐块核对**抓到的（数学 arXiv 3 条、
+# sample_01 1 条）。改完做了全库对账：40 个已完成任务只变 6 块、全是纠正——
+# 化学那份 30 条标题、中文 257 块、扫描件、杂志任务**一块没动**。
+
+
+def test_numbered_heading_needs_a_word_start() -> None:
+    """编号标题：编号后面那个词得**像词的开头**（大写拉丁 / 汉字 / 数字）。
+
+    收掉的两条例：算法块的 `5 end`（`end` 小写）与公式碎片 `0 𝜖 1 𝑃 4𝑛 𝜖`
+    （𝜖 是数学小写斜体）——它们原来只满足"数字 + 空格 + 任意字符"。
+    """
+    for bad in ["5 end", "0 𝜖 1 𝑃 4𝑛 𝜖", "12 print(x)"]:
+        assert classify(bad, "p8_b105") == "body", bad
+    # 真编号标题一条都不能掉（含中文编号、以及"编号后面跟数字"的写法）
+    for good in [
+        "1 Introduction",
+        "1.1 Main Result",
+        "2.3 Faster Reconstruction",
+        "1 引言",
+        "2.1 3D reconstruction",
+        "A. Geometrical measure",
+    ]:
+        assert classify(good, "p0_b5") == "heading", good
+
+
+def test_algorithm_caption_is_a_caption_not_a_heading() -> None:
+    """`Algorithm 1: …` 是浮动体题注，不是章节标题。
+
+    实测：数学 arXiv 那份的算法框**被版面模型整块框成了 `title`**，于是框里的
+    `Algorithm 1: SolvePerturbed 𝐴, 𝑏, 𝑅` 靠"区域判据"变成了标题。图注判据排在标题判据
+    前面，把 `algorithm` / `listing` 加进**带编号**的图注前缀就能压过模型的区域判定；
+    `Algorithm Design` 这种章节标题不许被吃掉。
+    """
+    regions = {"8": [_region("title", 0, 0, 999, 999)]}
+    blocks = [
+        _block("p8_b103", "Algorithm 1: SolvePerturbed 𝐴, 𝑏, 𝑅", 10.9),
+        _block("p8_b105", "Algorithm Design", 10.9),
+        _block("p8_b106", "Listing 2: The parser", 10.9),
+    ]
+    classify_blocks(blocks, regions)
+    assert [b["type"] for b in blocks] == ["caption", "body", "caption"]
+
+
+def test_name_list_in_title_zone_is_neither_heading_nor_title() -> None:
+    """首页题名区的**人名列表**既不是标题也不是题名。
+
+    实测（sample_01）：作者行 `Robin Hunicke, Marc LeBlanc, Robert Zubek` 12pt、
+    正文 10pt = 恰好 1.2 倍，正踩在"明显大于正文"的下限上 → 被判成标题。
+    判据不用"有没有 and"猜语义：**逗号分开的每一段都以大写字母开头**才算人名列表，
+    所以真标题 `Methods, Results, and Discussion`（`and Discussion` 小写开头）保住。
+    """
+    layout = {"unit_h": 12.0, "y0": 90.0, "page_h": 792.0}
+    names = "Robin Hunicke, Marc LeBlanc, Robert Zubek"
+    assert classify(names, "p0_b1", layout, 10.0) == "body"
+    # 这条护栏**只在题名区**生效：同样一行挪到正文页里，照旧按版面判（免得误伤正文列表）
+    assert classify(names, "p5_b40", layout, 10.0) == "heading"
+    sections = "Methods, Results, and Discussion"
+    assert classify(sections, "p0_b1", layout, 10.0) == "heading"
+
+
+def test_region_heading_needs_a_word() -> None:
+    """模型把整块框成 `title` 时，框里也得**像个词组**才给标题。
+
+    实测：数学 arXiv 那份整个算法框被框成 `title`，框里的 `5 end` 就成了标题候选；
+    真标题（`Appendix C: Fourier figures`、中文标题）都至少有一个大写 / 汉字开头的词。
+    """
+    assert _looks_like_heading_by_region("5 end", "title") is False
+    assert _looks_like_heading_by_region("Appendix C: Fourier figures", "title") is True
+    assert _looks_like_heading_by_region("七、结论与展望", "title") is True
+    # 署名行即便落在 `title` 区域里也不算标题
+    assert _looks_like_heading_by_region("BY MADELINE COHEN", "title") is False
+
 
 
