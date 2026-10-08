@@ -6,8 +6,9 @@
 会被它当成"端口 `:1]`"→ 抛 `InvalidURL: Invalid port: ':1]'` / `ValueError`。
 机器上装了代理工具时，`NO_PROXY` 里带 `[::1]` 很常见。两个受害者：
 
-1. **翻译引擎子进程**：`pdf2zh/translator.py` 顶部 `import ollama`，ollama 在**导入期**
-   就建 httpx 客户端 → **引擎一行代码没跑就崩，任何上传都失败**
+1. **翻译引擎子进程**：引擎的 `translator.py` 顶部就 `import ollama`，
+   而 ollama 在**导入期**就建 httpx 客户端
+   → **引擎一行代码没跑就崩，任何上传都失败**
    （`app/engine/open_source.py` 在起子进程前调用本模块）；
 2. **后端自己**：`app/llm.py` 用 `httpx.post` 调 DeepSeek → 提问直接 **HTTP 500**
    （`app/llm.py` 在导入时调用本模块，早于任何请求）。
