@@ -15,6 +15,37 @@ from app.engine import (
     TranslationResult,
     get_engine,
 )
+from app.engine.open_source import _sanitize_proxy_env
+
+
+def test_sanitize_proxy_env_strips_brackets_from_ipv6_entries() -> None:
+    """NO_PROXY 里带方括号的 IPv6 必须洗掉——否则引擎**在导入期**就崩。
+
+    实测（2026-10-08）：`NO_PROXY=127.0.0.1,localhost,::1,[::1]` 时，
+    `import ollama`（pdf2zh 的 translator 顶部就有它，而 ollama 导入期建 httpx 客户端）
+    直接抛 `httpx.InvalidURL: Invalid port: ':1]'` → 引擎一行代码没跑就退出，
+    **表现是任何上传都失败**。去掉方括号后 `::1` 照样匹配，语义等价。
+    """
+    env = {
+        "NO_PROXY": "127.0.0.1,localhost,::1,[::1]",
+        "no_proxy": "[2001:db8::1]:8080,example.com",
+        # 代理地址里的方括号是**合法且必要**的，不许动
+        "HTTP_PROXY": "http://[::1]:7897",
+        "HTTPS_PROXY": "socks5://127.0.0.1:7897",
+    }
+    _sanitize_proxy_env(env)
+
+    assert env["NO_PROXY"] == "127.0.0.1,localhost,::1,::1"
+    assert env["no_proxy"] == "2001:db8::1:8080,example.com"
+    assert env["HTTP_PROXY"] == "http://[::1]:7897"
+    assert env["HTTPS_PROXY"] == "socks5://127.0.0.1:7897"
+
+
+def test_sanitize_proxy_env_ignores_missing_and_plain_values() -> None:
+    env = {"PATH": "/usr/bin", "NO_PROXY": "127.0.0.1,localhost,::1"}
+    _sanitize_proxy_env(env)
+    assert env["NO_PROXY"] == "127.0.0.1,localhost,::1"
+    assert env["PATH"] == "/usr/bin"
 
 
 def test_get_engine_default_is_open_source() -> None:

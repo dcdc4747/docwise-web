@@ -4,6 +4,7 @@ import json
 import locale
 import logging
 import os
+import re
 import subprocess
 import tempfile
 import time
@@ -24,6 +25,37 @@ logger = logging.getLogger(__name__)
 
 # 兜底临时目录的前缀（storage.ENGINE_TEMP_PREFIX 与之一致）
 ENGINE_TEMP_PREFIX = "docwise_engine_"
+
+# NO_PROXY 里带方括号的 IPv6 项（`[::1]` / `[2001:db8::1]:8080`）
+_BRACKETED_IPV6_RE = re.compile(r"^\[([0-9A-Fa-f:]+)\](:\d+)?$")
+
+
+def _sanitize_proxy_env(env: dict[str, str]) -> None:
+    """就地把 `NO_PROXY` 里带方括号的 IPv6 写法改成标准写法（`[::1]` → `::1`）。
+
+    为什么非做不可（2026-10-08 实测，不是理论问题）：引擎的
+    `pdf2zh/translator.py` **顶部就 `import ollama`**，而 ollama **在导入期**就建
+    httpx 客户端；httpx 会拿 `NO_PROXY` 的每一项去构造 `URLPattern`，
+    `[::1]` 被它当成"端口 `:1]`" → `httpx.InvalidURL: Invalid port: ':1]'`。
+    后果是**引擎一行代码都没跑就崩了**，表现是任何上传都失败（引擎日志里只有这一条
+    导入期的 traceback）。机器上装了代理工具时，`NO_PROXY` 里带 `[::1]` 很常见。
+
+    为什么只动 `no_proxy` 这一族：`HTTP_PROXY` / `HTTPS_PROXY` 的值本身可能是
+    `http://[::1]:7897`，那种方括号是**合法且必要**的，动不得。
+    NO_PROXY 里的 IPv6 按标准本来就不带方括号，所以去掉是等价改写。
+    Windows 上大小写不敏感、`NO_PROXY` 与 `no_proxy` 可能同时存在（实测 `env:` 枚举
+    会报"相同键重复"），所以按**大小写不敏感**匹配。
+    """
+    for key in list(env):
+        if key.lower() != "no_proxy":
+            continue
+        items = []
+        for item in env[key].split(","):
+            item = item.strip()
+            match = _BRACKETED_IPV6_RE.match(item)
+            items.append(f"{match.group(1)}{match.group(2) or ''}" if match else item)
+        env[key] = ",".join(items)
+
 
 
 class OpenSourceEngine(TranslationEngine):
@@ -112,13 +144,16 @@ class OpenSourceEngine(TranslationEngine):
         - PYTHONUNBUFFERED：**关键**。子进程 stderr 重定向到文件时是块缓冲的，
           而 tqdm 进度条"停在原地"重绘（用 `\\r` 不换行），进度会攒在缓冲里、
           直到进程快结束才一次性落盘——实测过一次，引擎其实 1 秒 1 页地在报进度，
-          我们却只能读到 20 秒前的 `2/10`，前端看着就是"进度条卡死、然后突然完成"。
+          我们却只能读到 20 秒前的 `2/10`，前端看着就是"进度条卡死、然后突然完成"；
+        - 代理环境变量先洗一遍（`_sanitize_proxy_env`）：NO_PROXY 里带方括号的
+          IPv6 会让引擎**在导入期**就崩，任何上传都失败（实测 2026-10-08）。
         """
         log_file = out_dir / "engine.log"
         child_env = os.environ.copy()
         child_env["PYTHONIOENCODING"] = "utf-8"
         child_env["PYTHONUTF8"] = "1"
         child_env["PYTHONUNBUFFERED"] = "1"
+        _sanitize_proxy_env(child_env)
         with log_file.open("w", encoding="utf-8", errors="replace") as handle:
             proc = subprocess.Popen(
                 cmd, env=child_env, stdout=handle, stderr=subprocess.STDOUT
