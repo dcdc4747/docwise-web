@@ -59,6 +59,12 @@ class Task(Base):
     # 与 `task_blocks.layout` 一样**只存原始量、不存判定结果**：判定规则将来改了，
     # 老任务不用重跑引擎就跟着受益。缺失（老任务 / OCR 扫描件）就是 NULL。
     regions: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # 演示库策展（2026-10-08）：`archived_at` 非空 = 这篇不在库里显示，**数据不删**。
+    # 为什么用"藏"而不是"删"：演示时要的只是"列表里都是像样的文献"，
+    # 而早期任务（2026-09-30 之前传的）本来就没有块级译文、也没有版面信号，
+    # 摆在一起会让人以为产品就这样；删掉又不可逆、还要清磁盘产物。
+    # 只影响列表接口（`GET /api/tasks`）；详情/下载/问答照旧可用，便于随时恢复。
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now()
     )
