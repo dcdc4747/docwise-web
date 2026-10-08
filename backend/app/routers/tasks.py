@@ -206,9 +206,17 @@ def list_tasks(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[User, Depends(get_current_user)],
 ):
-    """当前登录用户自己的任务（最多 50 条，新的在前）。"""
+    """当前登录用户自己的任务（最多 50 条，新的在前）。
+
+    **归档的不返回**（`archived_at` 非空＝演示库策展时藏起来的）：列表里只放能代表产品的
+    文献，早期那些没有块级译文/没有版面信号的老任务不摆出来误导人。详情、下载、问答照旧
+    可用——**藏不等于删**，随时能恢复（见 `scripts/curate_demo_library.py`）。
+    """
     rows = db.scalars(
-        select(Task).where(Task.user_id == user.id).order_by(Task.id.desc()).limit(50)
+        select(Task)
+        .where(Task.user_id == user.id, Task.archived_at.is_(None))
+        .order_by(Task.id.desc())
+        .limit(50)
     ).all()
     return [_serialize_task(task) for task in rows]
 
