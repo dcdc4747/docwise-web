@@ -124,6 +124,20 @@ backend/
 - > 翻译引擎（OpenSourceEngine）通过子进程调用，需配置环境变量 `DOCWISE_ENGINE_PYTHON` / `DOCWISE_ENGINE_SCRIPT` / `DOCWISE_ENGINE_SERVICE` 才会运行；未配置则返回错误。**中档引擎（MediumEngine）用独立的前缀 `DOCWISE_ENGINE_MEDIUM_PYTHON` / `DOCWISE_ENGINE_MEDIUM_SCRIPT` / `DOCWISE_ENGINE_MEDIUM_SERVICE`，未配则回退到基础变量。** 这些（及 `DEEPSEEK_*`）写入 `backend/.env` 后，后端启动时自动注入环境（`_inject_engine_env`），无需手动 `$env:`。
 - > **中文文献不翻译**（对象是文献本身，不限于外文）：上传时 `source_lang=zh&target_lang=zh` → `is_native_pair` 命中 → 走 `NativeEngine`，子进程跑仓库自带的 `scripts/extract_blocks.py`（需要 PyMuPDF，用 `DOCWISE_ENGINE_NATIVE_PYTHON`，未配回退 `DOCWISE_ENGINE_PYTHON`）抽文字块，产物 `mono`＝原稿副本、`dual`＝null、每块 `translated`＝null；理解层靠 `translated or text` 照常工作。**`zh → en` 是翻译任务，不走这条路。** 扫描件（没有文字层）**自动改走本地 OCR**（`scripts/ocr_blocks.py`，离线、零成本、模型随包自带）；连 OCR 都认不出内容才如实失败。
 - **代码架构图**：完整的分层 / 模块依赖 / 数据流 / 接入点 / 注意事项见 `docs/代码架构图.md`。**改动代码（尤其模块 / 接口 / 数据结构 / 路由 / 引擎层）后，请同步更新该图**，方便后续 AI 快速理解底层。
+- **⭐ 项目结构图 + 代码知识图谱（codegraph，2026-10-14 起）**：见 `docs/项目结构图_20261014.md`。
+  **开工前先读它**——它回答"东西在哪、谁调用谁、改哪里会波及谁"，并有一份 **`docs/` 文档地图**告诉你哪份是当前权威、哪份是历史。
+
+  它的用法（**数字由命令现场生成、不手抄**——本项目已因"手数"错过三次）：
+
+  ```bash
+  codegraph status                          # 索引规模与构成
+  codegraph impact <函数名>                  # ⭐ 改这个会波及谁（最有用的一条）
+  codegraph explore "<一个流程问题>"          # 流程 + 逐行源码 + 波及面 + 有无测试
+  codegraph files                           # 目录树
+  ```
+
+  ⚠️ **它不是项目依赖、对运行时零影响**：不进后端那 6 个包、不进 `package.json`；索引目录 `.codegraph/` 已进 `.gitignore`（生成物，换台机器 `codegraph init` 一次就有）。**换台机器不装它，项目照样跑。**
+  ⚠️ **别靠"读片段"来理解这个项目**：先 `codegraph impact` 看波及面，再去读那几个文件——在 `App.vue`（2509 行）这种单文件热点上，直接翻文件很容易只看一半就下结论。
 
 ## 测试与验收
 
