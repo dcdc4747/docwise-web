@@ -49,6 +49,13 @@ import {
 } from './blockLabel'
 import { buildHash, currentRoute, navigate, onRouteChange } from './router'
 import {
+  clearTasks,
+  historyError,
+  historyLoading,
+  loadTasks,
+  tasks,
+} from './stores/useTasks'
+import {
   askAnchor,
   askChipsHint,
   askLoading,
@@ -111,9 +118,14 @@ const healthInfo = ref(null)
 
 // ============================================================ L1 库页
 
-const tasks = ref([])
-const historyLoading = ref(false)
-const historyError = ref('')
+// `tasks` / `historyLoading` / `historyError` / `loadTasks` 已搬进 stores/useTasks
+// （阅读区也要按 id 找那一篇，所以它单独一个小 store：两边都依赖它、它不依赖任何 store，环就断了）
+/** 拉列表 + 拉完对"进行中那一条"补详情（后者是 App 级联动，所以留在调用处、不塞进 store）。 */
+async function loadTasksAndSync() {
+  await loadTasks()
+  syncActiveDetail()
+}
+
 /** 有历史时上传卡默认收起，走标题行的「＋ 上传 PDF」展开（形态：库页主角是论文卡片）。 */
 const showUpload = ref(false)
 const selectedTier = ref('medium')
@@ -927,21 +939,6 @@ async function checkBackend() {
   }
 }
 
-async function loadTasks() {
-  historyLoading.value = true
-  historyError.value = ''
-  try {
-    const res = await authFetch('/api/tasks')
-    if (!res.ok) throw new Error(`历史任务加载失败（HTTP ${res.status}）`)
-    tasks.value = await res.json()
-  } catch (err) {
-    historyError.value = err.message || '历史任务加载失败'
-  } finally {
-    historyLoading.value = false
-    syncActiveDetail()
-  }
-}
-
 /** L1 的进行中任务条要有真实页数 / 剩余秒数 → 对"那一条"补详情并轻量轮询。 */
 async function syncActiveDetail() {
   const task = activeTasks.value[0]
@@ -1108,7 +1105,7 @@ async function syncFromRoute() {
     if (!task) {
       // 还没有任务列表（或这一篇不属于当前账号）时，交给后端如实回答：
       // `refreshWorkbench` 对不存在的任务会走既有的报错路径，不在这里硬编一套
-      if (!tasks.value.length && getToken()) await loadTasks()
+      if (!tasks.value.length && getToken()) await loadTasksAndSync()
     }
     const found = tasks.value.find((item) => item.id === id)
     if (!found) {
@@ -1217,7 +1214,7 @@ async function startUpload(file) {
       throw new Error(body.detail || `上传失败（HTTP ${res.status}）`)
     }
     const task = await res.json()
-    await loadTasks()
+    await loadTasksAndSync()
     await openTask(task)
   } catch (err) {
     uploadError.value = err.message || '上传失败，请重试'
@@ -1303,7 +1300,7 @@ function applyEvent(evt) {
     stopElapsedTimer()
     currentTask.value.stage = null
     currentTask.value.eta_seconds = null
-    loadTasks()
+    loadTasksAndSync()
     if (evt.type === 'completed') refreshWorkbench(currentTask.value.id)
   }
 }
@@ -1439,7 +1436,7 @@ async function cancelTask(task) {
     const res = await authFetch(`/api/tasks/${task.id}/cancel`, { method: 'POST' })
     const body = await res.json().catch(() => ({}))
     if (!res.ok) throw new Error(body.detail || `取消失败（HTTP ${res.status}）`)
-    await loadTasks()
+    await loadTasksAndSync()
     if (currentTask.value && currentTask.value.id === task.id) await refreshWorkbench(task.id)
     showToast('已请求取消这篇的翻译')
   } catch (err) {
@@ -1457,7 +1454,7 @@ async function retryTask(task) {
     const res = await authFetch(`/api/tasks/${task.id}/retry`, { method: 'POST' })
     const body = await res.json().catch(() => ({}))
     if (!res.ok) throw new Error(body.detail || `重试失败（HTTP ${res.status}）`)
-    await loadTasks()
+    await loadTasksAndSync()
     if (currentTask.value && currentTask.value.id === task.id) await openTask(body)
     else showToast('已重新排队，进度在库页的任务条上')
   } catch (err) {
@@ -1484,7 +1481,7 @@ async function deleteTask(task) {
       view.value = 'library'
       navigateToHash({ name: 'library' }, { replace: true })
     }
-    await loadTasks()
+    await loadTasksAndSync()
     showToast(`已删除「${task.filename}」——结果文件一并清除，不能恢复`)
   } catch (err) {
     taskActionError.value = err.message || '删除失败'
@@ -1632,7 +1629,7 @@ async function restoreSession() {
   try {
     if (getToken()) {
       authUser.value = await fetchMe()
-      await loadTasks()
+      await loadTasksAndSync()
       // 任务列表就位之后再按地址回原页（顺序不能反：`#/read/12` 要先能在库里找到 12）
       await applyBootRoute()
     }
@@ -1648,7 +1645,7 @@ async function onLoginSuccess({ token, user, remember }) {
   authUser.value = user
   authNotice.value = ''
   showAdmin.value = false
-  await loadTasks()
+  await loadTasksAndSync()
   // 登录后同样按地址回到该在的页（例：分享出去的 `#/read/12`，登录完直接落在那篇上）
   await applyBootRoute()
 }
@@ -1662,7 +1659,7 @@ async function onLogout() {
   }
   authUser.value = null
   currentTask.value = null
-  tasks.value = []
+  clearTasks()
   showAdmin.value = false
   stopProgress()
   // 退出后回库页并清掉地址里的那一篇（否则换个账号登录还会去开上一个账号的任务号）；
@@ -1775,7 +1772,7 @@ function openDeletePanel() {
             <span class="brand-sub">学术文献理解智能体</span>
             <span class="spacer" />
             <span v-if="authNotice" class="tiny" style="color: var(--danger)">{{ authNotice }}</span>
-            <button v-if="libraryEmpty" class="btn ghost sm" @click="loadTasks">我的论文</button>
+            <button v-if="libraryEmpty" class="btn ghost sm" @click="loadTasksAndSync">我的论文</button>
             <!-- 管理后台收进账号菜单（仅管理员可见），不占顶栏主位 -->
             <div class="menu-wrap">
               <button class="btn ghost sm" @click.stop="toggleMenu('acct')">
@@ -1895,7 +1892,7 @@ function openDeletePanel() {
 
               <div v-if="historyError" class="card" style="margin-bottom: 14px; color: var(--danger)">
                 历史任务加载失败：{{ historyError }}
-                <button class="btn sm" style="margin-left: 10px" @click="loadTasks">重试</button>
+                <button class="btn sm" style="margin-left: 10px" @click="loadTasksAndSync">重试</button>
               </div>
 
               <div v-else-if="!taskCards.length" class="card muted">
