@@ -32,6 +32,8 @@ import {
 } from './auth'
 import AdminView from './components/AdminView.vue'
 import AppRail from './components/AppRail.vue'
+import AppStatusBar from './components/AppStatusBar.vue'
+import AppTabbar from './components/AppTabbar.vue'
 import LoginView from './components/LoginView.vue'
 import TaskPanels from './components/TaskPanels.vue'
 import { buildHash, currentRoute, navigate, onRouteChange } from './router'
@@ -392,10 +394,11 @@ function handleUnauthorized() {
         <!-- ==================== 左栏（常驻，260 ⇄ 58） ==================== -->
         <aside class="rail">
           <AppRail :rail-min="railMin" :active-nav="activeNav" @toggle="toggleRail" @select="onRailSelect">
-            <!-- ⭐ 账号区（R7 的 `RailAccount.vue` 挂这个具名插槽）。
-                 本卡只留位置：**插槽里什么都不放**，所以收起 / 展开都不会多出一个空的按钮。
-                 R7 填进来时把 `authUser` / `accountLabel` 经插槽 props 传下去即可 ——
-                 **外壳这一行不用再改**（这正是第 7 步"预留挂载点"要的效果）。 -->
+            <!-- ⭐ 账号区挂载点（R7 的 `RailAccount.vue` 挂在这个具名插槽上）。
+                 第 6 步就留好了座位，第 7 步（本卡）复核仍是**空插槽** —— 收起 / 展开都不会
+                 多出一个空的按钮（空的可聚焦元素会白白多一次 Tab）。
+                 R7 填进来时把 `authUser` / `accountLabel` 交下去即可，
+                 **外壳这一行不用再改**（这正是"预留挂载点"要的效果）。 -->
             <template #account />
           </AppRail>
         </aside>
@@ -429,8 +432,21 @@ function handleUnauthorized() {
           <section v-else-if="currentTask" class="screen-reader">
             <ReadView :peek-summary="peekSummary" />
           </section>
+
+          <!-- ⭐ 底部状态条挂载点（R8 的 `AppStatusBar.vue`）。
+               这里**不传 slots**，所以组件自门控、整条不渲染 —— 不占屏幕、不写假数据。
+               R8 接上 N17（后端 B2 交付）之后，把三个信息位传进来它就出来了 ——
+               **外壳这一行不用再改**（第 7 步"预留挂载点"要的就是这个）。
+               放在 `.dw-main` 里（内容列底部）：它与内容列同宽、在左栏右侧，跟原型一致。 -->
+          <AppStatusBar />
         </div>
       </div>
+
+      <!-- ⭐ 手机底部标签栏挂载点（R6 的 `AppTabbar.vue`）。
+           ⚠️ 放在 `.dw-layout` **之外**：它要横跨整个屏宽（形态 §3.4 的底部标签栏压在左栏上方），
+           放进内容列会缩在左栏右边。同样**不传 tabs** → 自门控、整条不渲染。
+           R6 传 5 个标签进来就出来了，**外壳这一行不用再改**。 -->
+      <AppTabbar />
 
       <!-- 隐藏的文件选择器（上传 / 换档位重译都用它） -->
       <input ref="fileInput" type="file" accept="application/pdf" class="hidden-file" @change="onFilePicked" />
