@@ -1,0 +1,50 @@
+{
+  "_readme": [
+    "接口契约的机器可读清单。人读的版本是 docs/契约_接口_v1_20261014.md —— 两份必须一致。",
+    "检查：cd backend && python scripts/check_contract.py   （CI 上会跑，不一致就红）",
+    "",
+    "anchors = 已冻死的路由，一个个手写。要改必须先改这里，这就是「契约漂移要有人签字」。",
+    "expected_new = 契约里冻了、但代码还没实现的新端点。没实现不算失败；实现了会提示搬进 anchors。",
+    "declared_endpoint_count = 端点总数。故意冗余：加/删端点时这里也要改，",
+    "  防的是「偷偷加了端点却没更新契约」——那是前端对着 mock 写完才发现形状不对的根源。",
+    "",
+    "⚠️ 路径里的参数一律写成 {param}：比对时双方都把 {任意名} 归一化成 {param}，",
+    "  这样「把 task_id 改名成 id」不会误报成新增端点（改名是另一回事，靠 review 抓）。",
+    "",
+    "真实性来源：本清单的 anchors 是由 backend/scripts/check_contract.py --print 打出来的真实路由表逐条核对的，",
+    "  不是从文档抄的 —— 手抄文档正是第一版把 25 个端点写成 23 个的原因。"
+  ],
+  "declared_endpoint_count": 25,
+  "anchors": [
+    { "method": "GET", "path": "/api/health", "note": "真检查（数据库+worker）；无需鉴权" },
+
+    { "method": "POST", "path": "/api/auth/register", "note": "201；首个账号自动成为管理员" },
+    { "method": "POST", "path": "/api/auth/login", "note": "200；401 密码错 / 403 停用 / 429 限流" },
+    { "method": "POST", "path": "/api/auth/demo-login", "note": "仅 DOCWISE_DEMO_AUTOLOGIN=1 时可用" },
+    { "method": "POST", "path": "/api/auth/logout", "note": "204" },
+    { "method": "GET", "path": "/api/auth/me", "note": "user 对象 6 字段；last_login_at 尚未带出（见契约 N30）" },
+    { "method": "POST", "path": "/api/auth/password", "note": "204；不改动已有会话（有意为之）" },
+    { "method": "POST", "path": "/api/auth/ticket", "note": "换临时票据（进度/预览/下载三种带不了请求头的请求）" },
+
+    { "method": "GET", "path": "/api/admin/users", "note": "admin only" },
+    { "method": "GET", "path": "/api/admin/tasks", "note": "admin only" },
+    { "method": "POST", "path": "/api/admin/users/{param}/password", "note": "admin only" },
+    { "method": "POST", "path": "/api/admin/users/{param}/active", "note": "admin only" },
+    { "method": "POST", "path": "/api/admin/users/{param}/role", "note": "admin only" },
+
+    { "method": "GET", "path": "/api/tasks", "note": "裸数组、最多 50 条、归档不返回、无查询参数（本期 N8 才加参数）" },
+    { "method": "GET", "path": "/api/tasks/{param}", "note": "详情；含 blocks[] 与 files_ready" },
+    { "method": "POST", "path": "/api/tasks/upload", "note": "202；multipart（file + tier + source_lang + target_lang）" },
+    { "method": "DELETE", "path": "/api/tasks/{param}", "note": "连子表与磁盘产物一起删" },
+    { "method": "POST", "path": "/api/tasks/{param}/retry", "note": "仅 failed/cancelled" },
+    { "method": "POST", "path": "/api/tasks/{param}/cancel", "note": "真杀掉引擎子进程" },
+    { "method": "POST", "path": "/api/tasks/{param}/reading-position", "note": "body {page: 1..100000}" },
+    { "method": "GET", "path": "/api/tasks/{param}/events", "note": "SSE；?ticket=" },
+    { "method": "GET", "path": "/api/tasks/{param}/files/{param}", "note": "kind ∈ {mono, dual}；GET 与 HEAD 同注册（HEAD 会撞 operation id）" },
+    { "method": "GET", "path": "/api/tasks/{param}/understanding", "note": "读缓存" },
+    { "method": "POST", "path": "/api/tasks/{param}/understanding", "note": "触发计算" },
+
+    { "method": "POST", "path": "/api/tasks/{param}/ask", "note": "返回 source_block_ids（不是 sources），后端已校验过存在性" }
+  ],
+  "expected_new": []
+}
