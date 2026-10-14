@@ -883,3 +883,93 @@ body {
 @media (max-width: 520px) {
   .dw .menu { min-width: min(260px, calc(100vw - 32px)); }
 }
+
+/* ============================================================================
+   [F1] 通用组件 —— 出处芯片 / 诚实提示 / 空态（issue #87）
+   ============================================================================
+   三个组件的样式集中在这里（不是各自 `.vue` 里的 `<style scoped>`），跟本文件既有做法一致：
+   选择器一律带 `.dw ` 前缀，**不污染登录页 / 管理后台**。
+
+   ⚠️ **颜色与字号一律写 token 名，不写字面值**（契约_前端命名与拆分_v1 §4.2）。
+   token 还没落地，所以这里**用 `var(新 token, 已有的同义变量)` 这种"渐进回退"**：
+   今天按老变量渲染（颜色是对的），R1 把 §4.2 的变量落进 `.dw` 段之后**自动换成新值**，
+   这三段一行都不用改。间距/圆角/动效同理 —— `--sp-*` 带 px 兜底（没有兜底会让 padding 直接变 0）。
+   ============================================================================ */
+
+/* ① 出处芯片：`--cite-bg` 底 + `--cite-line` 边 + `--cite-fg` 字 + `--r-sm` 圆角 */
+.dw .cite-stack {
+  /* ⭐ 全站唯一形态：多个出处**纵向排列**（不换形态、不做紧凑版、不做 "+2" 折叠） */
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--sp-1, 4px);
+}
+.dw .cite-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--sp-1, 4px);
+  max-width: 100%;
+  padding: var(--sp-1, 4px) var(--sp-2, 8px);
+  border: 1px solid var(--cite-line, var(--accent-line));
+  border-radius: var(--r-sm, var(--radius));
+  background: var(--cite-bg, var(--accent-soft));
+  color: var(--cite-fg, var(--accent));
+  font: inherit;
+  font-size: var(--fs-meta);
+  line-height: 1.5;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--dur-fast, 120ms) var(--ease, ease),
+    background var(--dur-fast, 120ms) var(--ease, ease);
+}
+.dw .cite-chip:hover { border-color: var(--cite-fg, var(--accent)); }
+/* 键盘焦点态：芯片是键盘可达的（原生 button），焦点必须看得见 */
+.dw .cite-chip:focus-visible {
+  outline: 2px solid var(--cite-fg, var(--accent));
+  outline-offset: 2px;
+}
+.dw .cite-src { font-weight: 600; }
+.dw .cite-quote {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ② 诚实提示：中性灰（`--unknown`，不是红也不是黄）+ 信息图标 */
+.dw .hnote {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-1, 4px);
+  margin: 0;
+  color: var(--unknown, var(--muted));
+  font-size: var(--fs-meta);
+  line-height: 1.6;
+}
+.dw .hnote .ic-inl { flex: none; }
+
+/* ③ 空态：真空给动作 / 筛空了给出口 —— 两种都能一眼分辨 */
+.dw .empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-2, 8px);
+  padding: var(--sp-6, 24px) var(--sp-4, 16px);
+  text-align: center;
+}
+.dw .empty-title {
+  color: var(--ink);
+  font-size: var(--fs-h3);
+  font-weight: 600;
+}
+.dw .empty-desc {
+  margin: 0;
+  max-width: var(--measure, 76ch);
+  color: var(--muted);
+  font-size: var(--fs-ui);
+  line-height: 1.7;
+}
+.dw .empty-ops {
+  display: flex;
+  gap: var(--sp-2, 8px);
+  margin-top: var(--sp-1, 4px);
+}
