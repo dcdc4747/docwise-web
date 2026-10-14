@@ -46,5 +46,47 @@
 
     { "method": "POST", "path": "/api/tasks/{param}/ask", "note": "返回 source_block_ids（不是 sources），后端已校验过存在性" }
   ],
-  "expected_new": []
+  "expected_new": [
+    { "method": "GET", "path": "/api/collections", "note": "N1 集合列表（doc_count 直接成员 / doc_count_deep 含子集合）" },
+    { "method": "POST", "path": "/api/collections", "note": "N2 新建集合；400 同父重名 / 父不存在" },
+    { "method": "PATCH", "path": "/api/collections/{param}", "note": "N3 改名 / 移动；400 成环" },
+    { "method": "DELETE", "path": "/api/collections/{param}", "note": "N4 只删集合，不动文献" },
+
+    { "method": "PUT", "path": "/api/tasks/{param}/collections", "note": "N5 文献归集，全量替换" },
+    { "method": "GET", "path": "/api/tags", "note": "N6 标签列表，?kind? ∈ {topic, method, status}" },
+    { "method": "PUT", "path": "/api/tasks/{param}/tags", "note": "N7 按名字 upsert 标签" },
+
+    { "method": "GET", "path": "/api/smart-collections", "note": "N9 智能集合列表（规则即数据）" },
+    { "method": "POST", "path": "/api/smart-collections", "note": "N10 新建智能集合；400 query 非法" },
+    { "method": "DELETE", "path": "/api/smart-collections/{param}", "note": "N11 400 内置规则不许删" },
+
+    { "method": "POST", "path": "/api/materials", "note": "N12 存为素材卡（快照）；404 块不存在" },
+    { "method": "GET", "path": "/api/materials", "note": "N13 素材列表，?collection_id? &tag? &task_id?" },
+    { "method": "DELETE", "path": "/api/materials/{param}", "note": "N14 软删 7 天" },
+
+    { "method": "POST", "path": "/api/ask-logs", "note": "N15 问答落库；201 {id}" },
+    { "method": "GET", "path": "/api/ask-logs", "note": "N16 问答台账，?task_id?" },
+    { "method": "GET", "path": "/api/memory-events", "note": "N17 台账读取（前端只调 GET），?task_id? &layer? &limit?" },
+    { "method": "POST", "path": "/api/memory-events", "note": "N17 只给服务端内部写（前端不该手工埋点）" },
+
+    { "method": "GET", "path": "/api/drafts", "note": "N18 草稿列表" },
+    { "method": "POST", "path": "/api/drafts", "note": "N18 新建草稿；201 Draft" },
+    { "method": "GET", "path": "/api/drafts/{param}", "note": "N19 草稿详情（含 citations[]）" },
+    { "method": "PATCH", "path": "/api/drafts/{param}", "note": "N19 改标题 / 正文 / 模板" },
+    { "method": "DELETE", "path": "/api/drafts/{param}", "note": "N19 删草稿" },
+    { "method": "POST", "path": "/api/drafts/{param}/citations", "note": "N20 插入引文，落 CSL-JSON；404 素材不存在" },
+    { "method": "GET", "path": "/api/drafts/{param}/citations", "note": "N21 引文列表，每条带 csl_json" },
+    { "method": "DELETE", "path": "/api/drafts/{param}/citations", "note": "N21 删引文" },
+
+    { "method": "POST", "path": "/api/check", "note": "N22 收口检查；CheckReport（unknown 是一等公民，不报百分比）" },
+    { "method": "GET", "path": "/api/check/{param}", "note": "N23 回看某次检查报告" },
+
+    { "method": "GET", "path": "/api/me/storage", "note": "N24 磁盘占用分类" },
+    { "method": "GET", "path": "/api/me/export", "note": "N25 一键导出，?format=zip|md（流式）" },
+    { "method": "GET", "path": "/api/me/ledger", "note": "N26 AI 台账导出，?format=json|csv|md（与 N17 同源，不是第二份数据）" },
+    { "method": "DELETE", "path": "/api/me", "note": "N27 删除账号与全部数据（二次确认 + 引导先导出）" },
+    { "method": "PATCH", "path": "/api/me", "note": "N28 改显示名 {display_name?}" },
+    { "method": "GET", "path": "/api/me/sessions", "note": "N29 登录设备与会话列表" },
+    { "method": "DELETE", "path": "/api/me/sessions/{param}", "note": "N29 逐个吊销会话" }
+  ]
 }

@@ -5,6 +5,7 @@
 // 60 秒有效、绑定"用户+任务+用途"的票据，拼在 URL 上。
 
 import { apiUrl } from './api'
+import { mockResponse } from './mock/contract'
 
 const TOKEN_KEY = 'docwise_token'
 
@@ -46,6 +47,11 @@ function errorMessage(status, body) {
 
 /** 带令牌的 fetch；遇到 401 会清令牌并触发统一回调。 */
 export async function authFetch(path, options = {}) {
+  // 契约 mock（D2 / issue #94）：`localStorage.docwise_mock === '1'` 时，
+  // 契约 §2 的新增端点（N1–N29）由 mock 直接应答；其余请求返回 null，照旧打真后端。
+  // 默认关闭——忘了这行也无所谓，因为开关默认是关的。
+  const mocked = mockResponse(path, options)
+  if (mocked) return mocked
   const response = await fetch(apiUrl(path), {
     ...options,
     headers: { ...(options.headers || {}), ...authHeaders() },
