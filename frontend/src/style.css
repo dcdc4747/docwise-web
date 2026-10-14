@@ -191,7 +191,7 @@ body {
   }
 }
 
-/* ---- 排查用抽屉（⋯ → 详情 / 文档信息 / 问题反馈）：不进形态，保持朴素 ---- */
+/* ---- 排查用抽屉（「更多」菜单 → 详情 / 文档信息 / 问题反馈）：不进形态，保持朴素 ---- */
 .drawer-title {
   display: flex;
   align-items: center;
@@ -561,7 +561,6 @@ body {
   background: #1f2329; color: #fff; cursor: pointer; white-space: nowrap;
 }
 .dw .selchip:hover { background: #000; }
-.dw .selchip::before { content: "💬"; font-size: 11px; }
 
 .dw .assist { flex: 0 0 400px; display: flex; flex-direction: column; min-height: 0; background: #fff; border-left: 1px solid var(--line); }
 .dw .tabs { display: flex; gap: 4px; padding: 10px 14px 0; border-bottom: 1px solid var(--line); }
@@ -778,7 +777,7 @@ body {
 }
 .dw .rc-btn:hover { color: var(--accent); }
 
-/* ⑧ 工具条「🔍 搜索」展开后的小输入行（原型只有一个按钮，真实产品得有个地方输入） */
+/* ⑧ 工具条「搜索」展开后的小输入行（原型只有一个按钮，真实产品得有个地方输入） */
 .dw .search-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; }
 .dw .search-input {
   flex: 1; font: inherit; font-size: 12px; padding: 5px 10px;
@@ -805,8 +804,8 @@ body {
 .dw .running .name-link { cursor: pointer; }
 .dw .running .name-link:hover { color: var(--accent); }
 
-/* ⑬ 手机顶栏：原型只画了「← 文件名 原版」，但手机同样要有下载入口与 ⋯ 菜单，
-   这两颗收成图标按钮（⤓ / ⋯），不新增一行、不撑高顶栏；文件名过长一律省略号 */
+/* ⑬ 手机顶栏：原型只画了「← 文件名 原版」，但手机同样要有下载入口与「更多」菜单，
+   这两颗收成图标按钮（下载 / 更多），不新增一行、不撑高顶栏；文件名过长一律省略号 */
 .dw .ptop-icon { padding: 2px 6px; }
 .dw .reader-top .fname,
 .dw .ptop .fname {
@@ -854,7 +853,6 @@ body {
   background: #1f2329; color: #fff; font-size: 11px; cursor: pointer;
   white-space: nowrap;
 }
-.dw .pdf-chip::before { content: "💬"; font-size: 10px; }
 .dw .pdf-chip:hover { background: #000; }
 
 /* ⑯ 段落精读里那一段也是可点的（点了就选中 + 浮出「就这句提问」）——
@@ -973,3 +971,54 @@ body {
   gap: var(--sp-2, 8px);
   margin-top: var(--sp-1, 4px);
 }
+
+/* ============================================================
+   [R3] 图标 —— sprite（35 个 <symbol id="i-…">）已整段 inline 进 index.html
+   用法与三条纪律照 03_形态与设计/设计参考/图标集_用法.md §二 抄。
+   ⚠️ 类名同时覆盖 `svg.ic` 与 `svg.ico`：踩过坑——左栏一度写成 class="ico"
+   而这里只选 svg.ic，样式完全没生效（看着像"图标没画出来"）。
+   ============================================================ */
+svg.ic, svg.ico {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  /* ★ 关键：自动跟随文字色 / 选中态。改成固定色就不能跟随了，等于退回 emoji 的问题 */
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  /* ★ 关键：svg 默认 inline，会吃到行高，导致上下不匀 */
+  display: block;
+}
+/* 按钮内、芯片内 */
+svg.ic.sm, svg.ico.sm { width: 16px; height: 16px; stroke-width: 1.7; }
+/* 空态、强调处 */
+svg.ic.lg, svg.ico.lg { width: 26px; height: 26px; stroke-width: 1.5; }
+
+/* 行内小图标：诚实提示、划词浮标「就这句提问」、PDF 浮标「就这段提问」上的那颗信息点。
+   与 `.ic` 的区别只有两条：更小（14），且**不设 display:block** ——
+   它们要跟一行文字同行，block 会把按钮的行盒撑破。 */
+svg.ic-inl {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vertical-align: -2px;
+}
+
+/* ⚠️ 带图标的按钮要单独给一次布局：`.ic` 必须是 `display:block`（用法 §二的两条纪律之一），
+   而 block 一放进按钮就会把后面的文字挤到下一行 —— 实测截图抓到过（顶栏被撑高、标签断行）。
+   按用法 §二的规矩"容器用 flex + gap，不要用 margin"，这里**只加一个 `.btn-ic`**，
+   老的 `.btn` 一个字没动。 */
+.dw .btn-ic {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1, 4px);
+}
+
+

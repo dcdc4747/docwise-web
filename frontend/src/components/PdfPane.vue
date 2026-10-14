@@ -587,6 +587,7 @@ watch(paneEl, (el) => {
           :style="chipBox.style"
           @click.stop="askPicked"
         >
+          <svg class="ic-inl" aria-hidden="true"><use href="#i-info" /></svg>
           就这段提问
         </button>
       </div>

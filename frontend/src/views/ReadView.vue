@@ -1,11 +1,11 @@
 <template>
   <!-- 桌面工具条：< 1024px 整条不渲染（手机端的顶栏是 .ptop，原型就是这么分开的）；
-       手机要用的下载 / ⋯ 跟着搬到 .ptop 上，功能一个不少 -->
+       手机要用的下载 / 更多 跟着搬到 .ptop 上，功能一个不少 -->
   <div v-if="!isNarrow" class="reader-top">
     <button class="btn ghost sm" @click="backToLibrary">← 我的论文</button>
     <span class="fname">{{ currentTask.filename }}</span>
-    <!-- 档位只读；想换档请在 ⋯ 里以其他档位重新翻译（会新建任务） -->
-    <span class="chip" title="上传时选定；想换档请在 ⋯ 里以其他档位重新翻译（会新建任务）">
+    <!-- 档位只读；想换档请在「更多」菜单里以其他档位重新翻译（会新建任务） -->
+    <span class="chip" title="上传时选定；想换档请在「更多」里以其他档位重新翻译（会新建任务）">
       {{ currentTask.native ? '中文文献 · 不翻译' : tierTextMap[currentTask.tier] || currentTask.tier }}
     </span>
     <div class="menu-wrap">
@@ -19,11 +19,13 @@
       </div>
     </div>
     <span class="spacer" />
-    <button class="btn ghost sm" @click="toggleSearch">🔍 搜索</button>
+    <button class="btn ghost sm btn-ic" @click="toggleSearch"><Icon name="search" class="sm" /> 搜索</button>
     <span v-if="pageChipText" class="chip">{{ pageChipText }}</span>
     <!-- 下载入口只有一个，命名统一为「下载译稿」，两项在里面选 -->
     <div class="menu-wrap">
-      <button class="btn ghost sm" @click.stop="toggleMenu('dl')">⤓ 下载译稿 ▾</button>
+      <button class="btn ghost sm btn-ic" title="下载译稿" @click.stop="toggleMenu('dl')">
+        <Icon name="download" class="sm" /> 下载译稿 ▾
+      </button>
       <div class="menu" :class="{ open: openMenu === 'dl' }">
         <button v-for="item in downloadOptions" :key="item.key" @click="runDownload(item)">
           {{ item.label }}
@@ -32,7 +34,9 @@
     </div>
     <!-- 单层级、6 项、任意两项不共享动词 -->
     <div class="menu-wrap">
-      <button class="btn ghost sm" @click.stop="toggleMenu('more')">⋯</button>
+      <button class="btn ghost sm" title="更多" @click.stop="toggleMenu('more')">
+        <Icon name="more" class="sm" />
+      </button>
       <div class="menu" :class="{ open: openMenu === 'more' }">
         <button @click="openPanel('info', currentTask)">文档信息</button>
         <button :disabled="!canRetryCurrent" @click="retryCurrent">重试翻译（本档）</button>
@@ -140,6 +144,7 @@
             @mouseup.stop
             @click="askSelectedSentence"
           >
+            <svg class="ic-inl" aria-hidden="true"><use href="#i-info" /></svg>
             就这句提问
           </button>
         </div>
@@ -175,7 +180,9 @@
         </button>
         <!-- 下载入口只有一个名字（「下载译稿 ▾」），手机上不例外 -->
         <div class="menu-wrap">
-          <button class="btn ghost sm ptop-icon" title="下载译稿" @click.stop="toggleMenu('dl')">⤓</button>
+          <button class="btn ghost sm ptop-icon" title="下载译稿" @click.stop="toggleMenu('dl')">
+            <Icon name="download" class="sm" />
+          </button>
           <div class="menu" :class="{ open: openMenu === 'dl' }">
             <button v-for="item in downloadOptions" :key="item.key" @click="runDownload(item)">
               {{ item.label }}
@@ -183,7 +190,9 @@
           </div>
         </div>
         <div class="menu-wrap">
-          <button class="btn ghost sm ptop-icon" title="更多" @click.stop="toggleMenu('more')">⋯</button>
+          <button class="btn ghost sm ptop-icon" title="更多" @click.stop="toggleMenu('more')">
+            <Icon name="more" class="sm" />
+          </button>
           <div class="menu" :class="{ open: openMenu === 'more' }">
             <button @click="openPanel('info', currentTask)">文档信息</button>
             <button :disabled="!canRetryCurrent" @click="retryCurrent">重试翻译（本档）</button>
@@ -477,6 +486,7 @@
  * `lastQuestion`，而"摘要留在外壳"是上一轮定下的（放进 `useUi` 会绕成环），
  * 所以由 `App.vue` 算好、当 prop 传进来。
  */
+import Icon from '../components/Icon.vue'
 import PdfPane from '../components/PdfPane.vue'
 import {
   askChipsHint,
