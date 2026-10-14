@@ -9,6 +9,9 @@
  *    并明确断言旧结构类名不得再出现——结构退化会红，而不是靠人眼发现。
  */
 
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -165,6 +168,15 @@ function jsonOf(data) {
   return { ok: true, status: 200, json: async () => data }
 }
 
+/**
+ * 读一份 `src/` 下的源码（按"判据"钉源码的用例才需要）。
+ * ⚠️ 不用 `new URL(..., import.meta.url)`：happy-dom 环境里 `import.meta.url` 不是 `file:` URL，会直接抛。
+ * vitest 的 cwd 就是 `frontend/`，所以从 `src/` 起拼即可。
+ */
+function srcText(rel) {
+  return readFileSync(resolve(process.cwd(), 'src', rel), 'utf8')
+}
+
 function stubFetch(options = {}) {
   const tasks = options.tasks || [TASK]
   const detail = options.detail || TASK_DETAIL
@@ -237,11 +249,15 @@ function buttonByText(wrapper, text) {
   return wrapper.findAll('button').find((b) => b.text().includes(text))
 }
 
-/** reader-top 里的下拉菜单没有 id，靠"触发按钮的文字"找它。 */
-function menuWrapByButton(wrapper, text) {
+/**
+ * reader-top 里的下拉菜单没有 id，靠"触发按钮"找它。
+ * ⚠️ R3（图标体系）之后这两颗触发按钮是**图标按钮**（没有可见文字），
+ * 所以改用 `title` 定位 —— 用文本找会在图标化之后一律落空。
+ */
+function menuWrapByTitle(wrapper, title) {
   return wrapper
     .findAll('.reader-top .menu-wrap')
-    .find((m) => m.find('button.btn').exists() && m.find('button.btn').text() === text)
+    .find((m) => m.find('button.btn').exists() && m.find('button.btn').attributes('title') === title)
 }
 
 /** 打开一篇论文的阅读工作区：完成态点卡片按钮，进行中点任务条上的文件名。 */
@@ -505,8 +521,8 @@ describe('App.vue 页面渲染', () => {
     expect(top.find('.fname').text()).toBe('paper.pdf')
     expect(top.text()).toContain('中档 · 平衡')
     expect(buttonByText(top, '← 我的论文')).toBeTruthy()
-    expect(buttonByText(top, '⤓ 下载译稿 ▾')).toBeTruthy()
-    expect(buttonByText(top, '🔍 搜索')).toBeTruthy()
+    expect(buttonByText(top, '下载译稿')).toBeTruthy()
+    expect(buttonByText(top, '搜索')).toBeTruthy()
     expect(wrapper.find('.thin-bar').exists()).toBe(true)
     expect(wrapper.find('.thin-bar > i').exists()).toBe(true)
     expect(wrapper.find('.note-line').exists()).toBe(true)
@@ -595,7 +611,7 @@ describe('App.vue 页面渲染', () => {
     }
   })
 
-  it('「⋯」菜单照原型是单层级 6 项；下载入口只有一个「下载译稿 ▾」两项', async () => {
+  it('「更多」菜单照原型是单层级 6 项；下载入口只有一个「下载译稿 ▾」两项', async () => {
     const { task, detail } = completedFixture()
     globalThis.fetch = stubFetch({ tasks: [task], detail })
     wrapper = mountApp()
@@ -603,8 +619,8 @@ describe('App.vue 页面渲染', () => {
     await buttonByText(wrapper, '继续读').trigger('click')
     await flushPromises()
 
-    const more = menuWrapByButton(wrapper, '⋯')
-    expect(more, 'reader-top 里没有 ⋯ 菜单').toBeTruthy()
+    const more = menuWrapByTitle(wrapper, '更多')
+    expect(more, 'reader-top 里没有「更多」菜单').toBeTruthy()
     const items = more.findAll('.menu button').map((b) => b.text())
     expect(items).toEqual([
       '文档信息',
@@ -618,7 +634,7 @@ describe('App.vue 页面渲染', () => {
     expect(more.find('.menu button.danger').text()).toBe('删除…')
     expect(items.filter((t) => t.includes('重新翻译')).length).toBe(0)
 
-    const dl = menuWrapByButton(wrapper, '⤓ 下载译稿 ▾')
+    const dl = menuWrapByTitle(wrapper, '下载译稿')
     expect(dl, 'reader-top 里没有「下载译稿」菜单').toBeTruthy()
     expect(dl.findAll('.menu button').map((b) => b.text())).toEqual(['下载双语稿', '下载纯中文稿'])
 
@@ -632,6 +648,56 @@ describe('App.vue 页面渲染', () => {
     expect(dl.find('.menu').classes()).toContain('open')
     await wrapper.find('.dw').trigger('click')
     expect(dl.find('.menu').classes()).not.toContain('open')
+  })
+
+  // ======================================================== M0：R3 图标体系 + emoji 清理
+
+  it('R3：会渲染成 emoji 的字符一个都不上屏，换上来的是 sprite 里的真图标', async () => {
+    const { task, detail } = completedFixture()
+    globalThis.fetch = stubFetch({ tasks: [task], detail })
+    wrapper = mountApp()
+    await flushPromises()
+    await buttonByText(wrapper, '继续读').trigger('click')
+    await flushPromises()
+
+    // ① U+1F50D 搜索 / U+2913 下载 / U+22EF 更多 / U+1F4AC 信息泡 —— 它们在 Windows 上会变彩色，
+    //    正是"廉价感"的来源；样式与模板里都不许再出现
+    const html = wrapper.html()
+    for (const ch of ['🔍', '⤓', '⋯', '💬']) {
+      expect(html, `渲染出的 HTML 里仍有 ${ch}`).not.toContain(ch)
+    }
+
+    // ② 换上来的是 index.html 里 inline 的 sprite（35 个 <symbol id="i-…">）真引用
+    const uses = wrapper.findAll('svg use').map((u) => u.attributes('href'))
+    expect(uses.length, '一个 <use> 都没有——图标没接上').toBeGreaterThan(0)
+    expect(uses.every((h) => /^#i-[\w-]+$/.test(h))).toBe(true)
+    expect(uses).toContain('#i-search')
+    expect(uses).toContain('#i-download')
+    expect(uses).toContain('#i-more')
+    // 划词浮标与 PDF 浮标上那颗信息点：原来靠 style.css 的 content:"💬" 画出来。
+    // 它们只在"有选区 / 点了 PDF 段"时才渲染，所以这里按**源码**钉住接线；
+    // CSS 那一侧（content: 不许再有 emoji）由下一条用例钉。
+    expect(srcText('views/ReadView.vue')).toContain('href="#i-info"')
+    expect(srcText('components/PdfPane.vue')).toContain('href="#i-info"')
+
+    for (const leak of SOURCE_LEAKS) {
+      expect(wrapper.text()).not.toContain(leak)
+    }
+  })
+
+  it('R3：style.css 的 content: 里不许再有会渲染成 emoji 的字符（.selchip / .pdf-chip 那两处真会上屏）', () => {
+    const css = srcText('style.css')
+    const declared = [...css.matchAll(/content:\s*"([^"]*)"/g)].map((m) => m[1])
+    expect(declared.length, '一条 content: 都没扫到，判据本身失效了').toBeGreaterThan(0)
+    // 会渲染成彩色 emoji 的区段：杂项符号与表情（U+2600–27BF）、杂项符号与箭头字母
+    //（U+2B00–2BFF）、表情符号主区与补充区（U+1F000–1FAFF）、变体选择符（U+FE0F）
+    const emojiLike = /[\u2600-\u27BF\u2B00-\u2BFF\u{1F000}-\u{1FAFF}\uFE0F]/u
+    for (const value of declared) {
+      expect(
+        emojiLike.test(value),
+        `style.css 的 content: 里有会渲染成 emoji 的字符：${JSON.stringify(value)}`,
+      ).toBe(false)
+    }
   })
 
   it('出处只说「第 X 页 ·「这一句的开头…」」——不说第几段；点击必高亮那一段', async () => {
@@ -1261,11 +1327,12 @@ describe('App.vue 页面渲染', () => {
     // 两条顶栏叠在一起会把首屏挤掉一百多像素（这是照原型比对时抓出来的偏差）
     expect(wrapper.find('.reader-top').exists()).toBe(false)
     expect(wrapper.find('.thin-bar').exists()).toBe(false)
-    // 但下载与 ⋯ 一个都不能少：它们跟着搬到手机顶栏上（入口名字不变）
+    // 但下载与「更多」一个都不能少：它们跟着搬到手机顶栏上（入口名字不变）。
+    // R3 之后这两颗是图标按钮（没有可见文字），所以按 title 定位。
     expect(mobile.findAll('.ptop .menu-wrap').length).toBe(2)
     const mobileMore = mobile
       .findAll('.ptop .menu-wrap')
-      .find((m) => m.find('button').text() === '⋯')
+      .find((m) => m.find('button').attributes('title') === '更多')
     expect(mobileMore.findAll('.menu button').map((b) => b.text())).toEqual([
       '文档信息',
       '重试翻译（本档）',
@@ -1276,7 +1343,7 @@ describe('App.vue 页面渲染', () => {
     ])
     const mobileDl = mobile
       .findAll('.ptop .menu-wrap')
-      .find((m) => m.find('button').text() === '⤓')
+      .find((m) => m.find('button').attributes('title') === '下载译稿')
     expect(mobileDl.findAll('.menu button').map((b) => b.text())).toEqual(['下载双语稿', '下载纯中文稿'])
 
     // 手机上的「原版」真的能看图：切到 pdf.js 视图（同一份产物，不是另做一套渲染），再切回段落视图

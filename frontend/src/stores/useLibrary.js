@@ -437,7 +437,7 @@ export function pickTierForRetranslate(tier) {
   setNote(`已选「${tierTextMap[tier]}」——在弹出的选择框里挑同一份 PDF 即可新建任务，原任务保留。`)
 }
 
-// 顶部「⋯」菜单 6 项：文档信息 / 重试翻译（本档）/ 换档位重译… / 详情 / 问题反馈… / 删除…
+// 顶部「更多」菜单 6 项：文档信息 / 重试翻译（本档）/ 换档位重译… / 详情 / 问题反馈… / 删除…
 // 规矩：永远单层级、不超过 7 项、任意两项的动作名不许共享动词。
 export const canRetryCurrent = computed(() => RETRYABLE_STATES.includes(currentTask.value?.status))
 

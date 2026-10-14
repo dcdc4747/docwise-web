@@ -311,7 +311,7 @@ export const docEmptyText = computed(() => {
     return task.error_message ? `这次翻译没成功：${task.error_message}` : '这次翻译没成功。'
   }
   if (task.status === 'cancelled') {
-    return '这次翻译已取消；要重来的话点右上角「⋯」→「重试翻译（本档）」。'
+    return '这次翻译已取消；要重来的话点右上角「…」→「重试翻译（本档）」。'
   }
   return '这篇文献还没有可读的段落块。'
 })
