@@ -47,7 +47,6 @@ import {
   parseBlockId,
   sourceLabel,
 } from './blockLabel'
-import { buildHash, currentRoute, navigate, onRouteChange } from './router'
 import { NConfigProvider, NSpin, zhCN, dateZhCN } from 'naive-ui'
 
 // ============================================================ 屏与账号
@@ -1227,124 +1226,14 @@ async function openTask(task, options = {}) {
   docMode.value = 'paragraph'
   resetWorkbench()
   assistTab.value = options.tab || 'ask'
-  // 地址跟着状态走：进了阅读工作区就把它写进 hash（刷新 / 后退才不会丢页）。
-  // `replace` 由调用方决定——库页点进来是"新的一步"（可后退），
-  // 而删除任务后自动跳转之类不希望用户退回去的，才用 replace。
-  if (!options.skipHash) {
-    navigateToHash({ name: 'read', params: { taskId: task.id } }, { replace: options.replaceHash })
-  }
   await refreshWorkbench(task.id)
   if (ACTIVE_STATES.includes(task.status)) startProgress(task.id)
   if (await applyResumePosition()) showToast(`已回到第 ${task.last_read_page} 页`)
 }
 
 function backToLibrary() {
-  closeMenus()
-  // 两件事分开做，**不互相依赖**：
-  // ① 状态直接设对（就算地址已经是 `#/`，也保证真的回到库页）；
-  // ② 地址跟着改。②里若目标与当前相同会提前返回——**所以①必须有**，
-  //    否则"地址没变"就顺带把"回库页"也吞掉了（踩过：测试真红过一条）。
   view.value = 'library'
-  navigateToHash({ name: 'library' })
-}
-
-// ============================================================ 哈希路由
-//
-// 分工：**状态是唯一真源，地址跟着状态走**。
-// - 主动切页（点卡片 / 点返回）→ 先改状态，再把地址写上（上面两处）；
-// - 被动切页（用户按后退、改地址栏、刷新）→ 地址变了，`syncFromRoute` 把状态对上。
-//
-// ⚠️ **防来回触发**：写地址时把目标 hash 记进 `expectedHash`，
-// 紧接着到达的那一次 `hashchange` 一看目标一致就知道"是我们自己写的"，直接返回、不重复加载。
-// 这个不能省：`openTask` 会真的去拉数据，重复触发就是白白拉两遍。
-
-/** 我们自己刚写下的 hash（= 正在等待的那个 hashchange）。 */
-let expectedHash = ''
-/** 路由订阅的取消函数（组件卸载时要调，否则监听会越积越多）。 */
-let stopRouteWatch = null
-/** 启动时的"回原页"只做一次——不能让后续任何一次登录都重新跳一次。 */
-let bootRouteApplied = false
-
-/** 改地址，并记下这是"我们自己写的"（广播与去重都在 router.js 里，这里只管接线）。 */
-function navigateToHash(target, { replace = false } = {}) {
-  const hash = buildHash(target.name, target.params || {})
-  if (window.location.hash === hash) return
-  expectedHash = hash
-  navigate(target.name, target.params || {}, { replace })
-}
-
-/** 地址 → 状态的唯一入口。**它只做"该显示什么"，不自己拼地址**（那会绕开 `expectedHash` 防抖）。 */
-async function syncFromRoute() {
-  const route = currentRoute()
-
-  if (route.name === 'library') {
-    if (view.value !== 'library') view.value = 'library'
-    return
-  }
-
-  if (route.name === 'read') {
-    const id = route.params.taskId
-    // `router.js` 已经把不合法的任务号挡在外面（落库页），所以走到这里必有 id；
-    // 这一段是防御性的：真出现了也别硬编一个号去请求，如实说 + 回库页（replace，免得后退打转）
-    if (!id) {
-      showToast('这条地址里没有有效的论文编号，已回到「我的论文」')
-      navigateToHash({ name: 'library' }, { replace: true })
-      return
-    }
-    if (view.value === 'reader' && currentTask.value?.id === id) return
-    const task = tasks.value.find((item) => item.id === id)
-    if (!task) {
-      // 还没有任务列表（或这一篇不属于当前账号）时，交给后端如实回答：
-      // `refreshWorkbench` 对不存在的任务会走既有的报错路径，不在这里硬编一套
-      if (!tasks.value.length && getToken()) await loadTasks()
-    }
-    const found = tasks.value.find((item) => item.id === id)
-    if (!found) {
-      showToast('找不到这篇文献——可能已被删除，或不属于当前账号')
-      navigateToHash({ name: 'library' }, { replace: true })
-      return
-    }
-    // 状态已经是它了就不重复加载（这是防抖的最后一道，也是刷新时唯一的入口）
-    if (view.value === 'reader' && currentTask.value?.id === id) return
-    await openTask(found, { skipHash: true })
-    return
-  }
-
-  // 已经声明、但这一期还没做的页面（#/write、#/memory、#/process、#/me、#/admin）。
-  // **不假装能打开**：如实说 + 指出它要做的事，然后回库页，绝不白屏。
-  const NOT_BUILT_YET = {
-    write: '起草页',
-    memory: '记忆页',
-    process: '处理过程页',
-    me: '个人中心',
-    admin: '管理后台',
-  }
-  if (NOT_BUILT_YET[route.name]) {
-    showToast(`${NOT_BUILT_YET[route.name]}还没做（形态 v2 的分期任务），先回「我的论文」`)
-    navigateToHash({ name: 'library' }, { replace: true })
-  }
-}
-
-/** 订阅地址变化。 */
-function startRouteWatch() {
-  if (stopRouteWatch) return
-  stopRouteWatch = onRouteChange((route) => {
-    const hash = buildHash(route.name, route.params || {})
-    if (hash === expectedHash) {
-      expectedHash = '' // 是我们自己写的那一次，状态早就改好了
-      return
-    }
-    syncFromRoute()
-  })
-}
-
-/** 启动时按地址回到该在的页（刷新不丢页 / PWA 从主屏进来回到原处）。只做一次。 */
-async function applyBootRoute() {
-  if (bootRouteApplied) return
-  bootRouteApplied = true
-  const route = currentRoute()
-  if (route.name === 'library') return
-  await syncFromRoute()
+  closeMenus()
 }
 
 /** 首屏三枚标签：打开最近一篇能读的论文并切到对应副页签；一篇都没有就直说并把上传卡点亮。 */
@@ -1668,9 +1557,7 @@ async function deleteTask(task) {
     if (currentTask.value && currentTask.value.id === task.id) {
       stopProgress()
       currentTask.value = null
-      // 同 backToLibrary：状态直接设对，地址跟着改（地址没变也不能把"回库页"吞掉）
       view.value = 'library'
-      navigateToHash({ name: 'library' }, { replace: true })
     }
     await loadTasks()
     showToast(`已删除「${task.filename}」——结果文件一并清除，不能恢复`)
@@ -1786,7 +1673,6 @@ onMounted(async () => {
   window.addEventListener('resize', syncNarrow)
   window.addEventListener('keydown', onGlobalKeydown)
   setUnauthorizedHandler(handleUnauthorized)
-  startRouteWatch()
   await checkBackend()
   await restoreSession()
 })
@@ -1801,7 +1687,6 @@ function onGlobalKeydown(event) {
 onUnmounted(() => {
   window.removeEventListener('resize', syncNarrow)
   window.removeEventListener('keydown', onGlobalKeydown)
-  if (stopRouteWatch) stopRouteWatch()
   stopProgress()
   if (activeTimer) clearInterval(activeTimer)
   if (noteTimer) clearTimeout(noteTimer)
@@ -1820,8 +1705,6 @@ async function restoreSession() {
     if (getToken()) {
       authUser.value = await fetchMe()
       await loadTasks()
-      // 任务列表就位之后再按地址回原页（顺序不能反：`#/read/12` 要先能在库里找到 12）
-      await applyBootRoute()
     }
   } catch {
     authUser.value = null
@@ -1836,8 +1719,6 @@ async function onLoginSuccess({ token, user, remember }) {
   authNotice.value = ''
   showAdmin.value = false
   await loadTasks()
-  // 登录后同样按地址回到该在的页（例：分享出去的 `#/read/12`，登录完直接落在那篇上）
-  await applyBootRoute()
 }
 
 async function onLogout() {
@@ -1852,10 +1733,6 @@ async function onLogout() {
   tasks.value = []
   showAdmin.value = false
   stopProgress()
-  // 退出后回库页并清掉地址里的那一篇（否则换个账号登录还会去开上一个账号的任务号）；
-  // 同时把"启动只做一次"的闸放开，让下一个账号登录时还能按地址落位。
-  navigateToHash({ name: 'library' }, { replace: true })
-  bootRouteApplied = false
 }
 
 function handleUnauthorized() {
