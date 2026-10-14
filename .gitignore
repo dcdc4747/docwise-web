@@ -17,6 +17,11 @@ __pycache__/
 # 本地工具脚本
 .tools/
 
+# 代码知识图谱索引（codegraph）：本地 SQLite 索引，随文件变化自动同步
+# —— 它是**生成物**，不进仓库；换台机器 `codegraph init` 一次就有
+.codegraph/
+.codegraph-wsl/
+
 # Node / 前端
 node_modules/
 dist/
