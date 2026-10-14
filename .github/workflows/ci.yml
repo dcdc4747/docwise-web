@@ -27,6 +27,12 @@ jobs:
       - name: 代码风格检查（ruff）
         run: uv run ruff check .
 
+      # 契约闸：代码里的路由必须与 backend/.contract/api.json 冻死的契约一致。
+      # 与 pytest 里那条 test_contract.py 是同一件事——这里单独列一步是为了在 CI 页面上
+      # 一眼看见"是契约漂移了"还是"是测试挂了"。
+      - name: 接口契约与代码一致性（契约闸）
+        run: uv run python scripts/check_contract.py
+
       - name: 单元测试（pytest）
         run: uv run pytest -q
 
