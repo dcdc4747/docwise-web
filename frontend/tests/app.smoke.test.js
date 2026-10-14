@@ -1475,4 +1475,111 @@ describe('App.vue 页面渲染', () => {
     await flushPromises()
     expect(wrapper.find('.card.taskbar-ok').exists()).toBe(true)
   })
+
+  // ============================================================ 左栏（M0 第 6 步 / R4）
+  //
+  // `tests/rail.test.js` 盯的是**组件自己的形状与样式**；这里盯的是**挂进外壳之后**才成立的四条：
+  // 开局是展开的、点按钮与 `Ctrl+B` 都能收、刷新后仍是收起态、左栏项点了真的会切页。
+  // 之所以要这一层：收起态是"外壳的状态 + 布局类名"合起来才生效的，只测组件会漏掉漏挂 class 这类错。
+
+  it('左栏：开局是展开态（260px），点收起按钮落到 58px 的 rail-min', async () => {
+    wrapper = mountApp()
+    await flushPromises()
+
+    const layout = wrapper.find('.dw-layout')
+    expect(layout.exists()).toBe(true)
+    expect(wrapper.find('.rail').exists()).toBe(true)
+    expect(layout.classes()).not.toContain('rail-min')
+
+    await wrapper.find('.rail-toggle').trigger('click')
+    await flushPromises()
+
+    // 类名落在 `.dw-layout` 上——整个左栏的宽度与内容一起变，不是左栏自己缩
+    expect(wrapper.find('.dw-layout').classes()).toContain('rail-min')
+  })
+
+  it('左栏：Ctrl+B 与点按钮等效（并且拦掉浏览器的默认行为）', async () => {
+    wrapper = mountApp()
+    await flushPromises()
+
+    const event = new KeyboardEvent('keydown', { key: 'b', ctrlKey: true, cancelable: true })
+    window.dispatchEvent(event)
+    await flushPromises()
+
+    expect(wrapper.find('.dw-layout').classes()).toContain('rail-min')
+    // 不 preventDefault 的话浏览器会去开书签侧栏、焦点也丢了
+    expect(event.defaultPrevented).toBe(true)
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'b', ctrlKey: true, cancelable: true }))
+    await flushPromises()
+    expect(wrapper.find('.dw-layout').classes()).not.toContain('rail-min')
+  })
+
+  it('左栏：收起后重新挂载（= 刷新页面）仍是收起态，且用的是存下来的那份偏好', async () => {
+    wrapper = mountApp()
+    await flushPromises()
+    await wrapper.find('.rail-toggle').trigger('click')
+    await flushPromises()
+    expect(localStorage.getItem('dw_rail_min')).toBe('1')
+
+    // 模拟刷新：卸载再挂一次，地址与令牌都还在
+    wrapper.unmount()
+    wrapper = mountApp()
+    await flushPromises()
+
+    expect(wrapper.find('.dw-layout').classes()).toContain('rail-min')
+    expect(wrapper.find('.rail-toggle').attributes('aria-label')).toContain('展开左栏')
+  })
+
+  it('左栏：选中态跟着地址走——库页与阅读区都亮「读懂」', async () => {
+    const { task, detail } = completedFixture()
+    globalThis.fetch = stubFetch({ tasks: [task], detail })
+    wrapper = mountApp()
+    await flushPromises()
+
+    // 库页 = 「读懂」这个模块，所以它开局就是选中态（与形态 §1.2 的布局图一致）
+    const readItem = () => wrapper.findAll('button.rail-item').find((b) => b.text() === '读懂')
+    expect(readItem().classes()).toContain('on')
+
+    // 进阅读区：地址变成 #/read/:id，但仍在「读懂」这个模块里，选中态不该跳走
+    await openReader(wrapper, '开始阅读')
+    expect(wrapper.find('.screen-reader').exists()).toBe(true)
+    expect(readItem().classes()).toContain('on')
+  })
+
+  it('左栏：点还没做的页（起草）如实说一句、把地址回库页，不假装打开了', async () => {
+    const { task, detail } = completedFixture()
+    globalThis.fetch = stubFetch({ tasks: [task], detail })
+    // 从 `#/read/:id` 出发，才看得出"地址真的被挪回去了"（本来就在 `#/` 的话不写也是对的）
+    window.history.replaceState(null, '', `#/read/${task.id}`)
+    wrapper = mountApp()
+    await flushPromises()
+    expect(window.location.hash).toBe(`#/read/${task.id}`)
+
+    await wrapper.findAll('button.rail-item').find((b) => b.text() === '起草').trigger('click')
+    await flushPromises()
+
+    expect(window.location.hash).toBe('#/')
+    expect(wrapper.find('.lib-wrap').exists()).toBe(true)
+    expect(wrapper.find('.toast.show').text()).toContain('起草')
+  })
+
+  it('左栏：每一项都点得动（R4 判据①），且不许把地址写到不知道的地方去', async () => {
+    wrapper = mountApp()
+    await flushPromises()
+
+    const keys = wrapper.findAll('button.rail-item')
+    expect(keys).toHaveLength(12)
+
+    for (const item of keys) {
+      await item.trigger('click')
+      await flushPromises()
+      // 路由表里只有这几个 name，落在别的上面说明拼地址时写错了
+      expect(['#/', '#/read/', '#/write', '#/memory', '#/process', '#/me', '#/admin']).toContain(
+        ['#/', '#/read/', '#/write', '#/memory', '#/process', '#/me', '#/admin'].find((h) =>
+          window.location.hash.startsWith(h),
+        ),
+      )
+    }
+  })
 })

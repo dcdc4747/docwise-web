@@ -31,6 +31,7 @@ import {
   setUnauthorizedHandler,
 } from './auth'
 import AdminView from './components/AdminView.vue'
+import AppRail from './components/AppRail.vue'
 import LoginView from './components/LoginView.vue'
 import TaskPanels from './components/TaskPanels.vue'
 import { buildHash, currentRoute, navigate, onRouteChange } from './router'
@@ -57,15 +58,20 @@ import {
 } from './stores/useReader'
 import { clearTasks, tasks } from './stores/useTasks'
 import {
+  activeNav,
   closeMenus,
   disposeUi,
+  loadRailMin,
   openMenu,
+  railClass,
+  railMin,
   runToastUndo,
   setNote,
   showToast,
   syncNarrow,
   toast,
   toggleMenu,
+  toggleRail,
 } from './stores/useUi'
 import LibraryView from './views/LibraryView.vue'
 import ReadView from './views/ReadView.vue'
@@ -152,6 +158,11 @@ function navigateToHash(target, { replace = false } = {}) {
 /** 地址 → 状态的唯一入口。**它只做"该显示什么"，不自己拼地址**（那会绕开 `expectedHash` 防抖）。 */
 async function syncFromRoute() {
   const route = currentRoute()
+  // 左栏选中态跟着地址走。**在这里同步而不是散在各处 go**：`syncFromRoute` 是
+  // "地址变了"的唯一入口（主动切页 / 后退 / 刷新都汇到这里），一处就够了。
+  // ⚠️ 库页算「读懂」这个模块（形态 §1.2 的布局图：读懂 → 书单 → 选一篇进阅读区），
+  // 所以 `library` 与 `read` 都亮「读懂」；下段的「全部文献」要等 R5 把首页换成"我的库"再分。
+  activeNav.value = route.name === 'library' ? 'read' : route.name
 
   if (route.name === 'library') {
     if (view.value !== 'library') view.value = 'library'
@@ -223,9 +234,53 @@ async function applyBootRoute() {
   await syncFromRoute()
 }
 
+// ============================================================ 左栏导航
+//
+// ⚠️ 左栏是**哑组件**（`components/AppRail.vue` 不 import 任何 store、不读 location.hash），
+// 所以"点了去哪个地址"这一层映射留在外壳 —— 契约 §0.5：**`location.hash` 只在 `router.js` 里读写**。
+
+/**
+ * 左栏每一项落到哪。`go` 给 `navigateToHash` 的目标；`note` 是**还没做的页**的诚实说法
+ * （形态 v2 的分期任务：M1 知识库 / M3 起草 / M4 收口 / M5 处理过程 / M7 记忆）。
+ * ⚠️ 两者**必须给一个**：既没有 `go` 也没有 `note` 的项点了会像没反应（判据①是"都能点"）。
+ */
+const RAIL_TARGETS = {
+  read: { go: { name: 'library' } },
+  write: { note: '起草页（形态 v2 的 M3）还没做，先回「我的论文」' },
+  check: { note: '收口（形态 v2 的 M4）还没做，先回「我的论文」' },
+  'lib-all': { go: { name: 'library' } },
+  'lib-collections': { note: '集合（形态 v2 的 M1 知识库）还没做，先回「我的论文」' },
+  'lib-tags': { note: '标签（形态 v2 的 M1 知识库）还没做，先回「我的论文」' },
+  'lib-todo': { note: '待读是智能集合，随 M1 知识库一起做，先回「我的论文」' },
+  'lib-materials': { note: '素材卡（形态 v2 的 M2）还没做，先回「我的论文」' },
+  'lib-drafts': { note: '草稿（形态 v2 的 M3 起草）还没做，先回「我的论文」' },
+  'lib-refs': { note: '引用列表（形态 v2 的 M3 起草）还没做，先回「我的论文」' },
+  memory: { note: '记忆页（形态 v2 的 M7）还没做，先回「我的论文」' },
+  process: { note: '处理过程页（形态 v2 的 M5）还没做，先回「我的论文」' },
+}
+
+/** 点左栏一项：**先动状态，地址跟着状态走**（与 `backToLibrary` 同一个规矩）。 */
+function onRailSelect(key) {
+  const target = RAIL_TARGETS[key]
+  if (!target) return
+  closeMenus()
+  if (target.note) showToast(target.note)
+
+  // ⚠️ **顺序不能反**（`backToLibrary` 那条注释讲的就是这个坑）：
+  // `navigateToHash` 会把目标 hash 记进 `expectedHash`，紧接着到达的 `hashchange`
+  // 一看目标一致，就断定"这是我们自己写的那次、状态早就改好了" → **直接 return，不调 `syncFromRoute`**。
+  // 所以"只写地址、不设状态"会让界面**停在原地**（地址变了、屏没变）—— 第一次实现就踩了，
+  // 靠"点起草之后 `#/` 变了但 `.lib-wrap` 还不存在"这条用例抓出来。
+  // 本期左栏能真正打开的目标只有库页，所以状态就在这一处显式设对。
+  view.value = 'library'
+  navigateToHash(target.go || { name: 'library' })
+}
+
 // ============================================================ 账号与会话
 
 onMounted(async () => {
+  // 收起态先读回来（刷新后仍是收起的样子 —— R4 判据④）
+  loadRailMin()
   syncNarrow()
   window.addEventListener('resize', syncNarrow)
   window.addEventListener('keydown', onGlobalKeydown)
@@ -235,8 +290,18 @@ onMounted(async () => {
   await restoreSession()
 })
 
-/** Esc 取消段落精读里的选中（和 PDF 视图一个手感）。 */
+/**
+ * 全局快捷键：`Esc` 取消段落精读里的选中；`Ctrl+B`（macOS `Cmd+B`）收起 / 展开左栏。
+ *
+ * ⚠️ `Ctrl+B` 要与主流编辑器一致（形态 §1.2b）。`preventDefault()` 必须调：
+ * 浏览器把 `Ctrl+B` 占给了书签侧栏，不拦的话地址栏会跳出去、焦点丢失。
+ */
 function onGlobalKeydown(event) {
+  if ((event.ctrlKey || event.metaKey) && (event.key === 'b' || event.key === 'B')) {
+    event.preventDefault()
+    toggleRail()
+    return
+  }
   if (event.key !== 'Escape') return
   selChip.value = null
   pickedBlockId.value = ''
@@ -323,35 +388,49 @@ function handleUnauthorized() {
     <div v-else class="dw" @click="closeMenus">
       <AdminView v-if="showAdmin" class="admin-page" />
 
-      <template v-else>
-        <!-- ==================== L1 库页 ==================== -->
-        <section v-if="view === 'library'">
-          <div class="topbar">
-            <span class="brand">docwise</span>
-            <span class="brand-sub">学术文献理解智能体</span>
-            <span class="spacer" />
-            <span v-if="authNotice" class="tiny" style="color: var(--danger)">{{ authNotice }}</span>
-            <button v-if="libraryEmpty" class="btn ghost sm" @click="loadTasksAndSync">我的论文</button>
-            <!-- 管理后台收进账号菜单（仅管理员可见），不占顶栏主位 -->
-            <div class="menu-wrap">
-              <button class="btn ghost sm" @click.stop="toggleMenu('acct')">
-                {{ authUser.username }} ▾
-              </button>
-              <div class="menu" :class="{ open: openMenu === 'acct' }">
-                <button @click="setNote('当前账号：' + accountLabel)">{{ accountLabel }}</button>
-                <button v-if="isAdmin" @click="showAdmin = true">管理后台</button>
-                <button @click="onLogout">退出</button>
+      <div v-else class="dw-layout" :class="railClass">
+        <!-- ==================== 左栏（常驻，260 ⇄ 58） ==================== -->
+        <aside class="rail">
+          <AppRail :rail-min="railMin" :active-nav="activeNav" @toggle="toggleRail" @select="onRailSelect">
+            <!-- ⭐ 账号区（R7 的 `RailAccount.vue` 挂这个具名插槽）。
+                 本卡只留位置：**插槽里什么都不放**，所以收起 / 展开都不会多出一个空的按钮。
+                 R7 填进来时把 `authUser` / `accountLabel` 经插槽 props 传下去即可 ——
+                 **外壳这一行不用再改**（这正是第 7 步"预留挂载点"要的效果）。 -->
+            <template #account />
+          </AppRail>
+        </aside>
+
+        <!-- ==================== 右侧内容列 ==================== -->
+        <div class="dw-main">
+          <!-- ==================== L1 库页 ==================== -->
+          <section v-if="view === 'library'">
+            <div class="topbar">
+              <span class="brand">docwise</span>
+              <span class="brand-sub">学术文献理解智能体</span>
+              <span class="spacer" />
+              <span v-if="authNotice" class="tiny" style="color: var(--danger)">{{ authNotice }}</span>
+              <button v-if="libraryEmpty" class="btn ghost sm" @click="loadTasksAndSync">我的论文</button>
+              <!-- 管理后台收进账号菜单（仅管理员可见），不占顶栏主位 -->
+              <div class="menu-wrap">
+                <button class="btn ghost sm" @click.stop="toggleMenu('acct')">
+                  {{ authUser.username }} ▾
+                </button>
+                <div class="menu" :class="{ open: openMenu === 'acct' }">
+                  <button @click="setNote('当前账号：' + accountLabel)">{{ accountLabel }}</button>
+                  <button v-if="isAdmin" @click="showAdmin = true">管理后台</button>
+                  <button @click="onLogout">退出</button>
+                </div>
               </div>
             </div>
-          </div>
-          <LibraryView />
-        </section>
+            <LibraryView />
+          </section>
 
-        <!-- ==================== L2 阅读工作区 ==================== -->
-        <section v-else-if="currentTask" class="screen-reader">
-          <ReadView :peek-summary="peekSummary" />
-        </section>
-      </template>
+          <!-- ==================== L2 阅读工作区 ==================== -->
+          <section v-else-if="currentTask" class="screen-reader">
+            <ReadView :peek-summary="peekSummary" />
+          </section>
+        </div>
+      </div>
 
       <!-- 隐藏的文件选择器（上传 / 换档位重译都用它） -->
       <input ref="fileInput" type="file" accept="application/pdf" class="hidden-file" @change="onFilePicked" />

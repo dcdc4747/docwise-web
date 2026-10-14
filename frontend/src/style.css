@@ -432,7 +432,18 @@ body {
 .dw .tiny { font-size: 12px; }
 
 /* ---------- L1 库页 ---------- */
-.dw .lib-wrap { max-width: 1080px; margin: 0 auto; padding: 28px 24px 56px; }
+/* ⚠️ [M0] 起 `.lib-wrap` 不再是"整页里的一段"，而是**右内容列里那个可滚的区**
+   （`flex: 1` 占满、自己 `overflow-y: auto`）。四个取值都是从"整页块"改成"列内区块"，
+   选择器与类名一个字没动（契约 §3.1：老类名只能改样式、不能改名）。 */
+.dw .lib-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  /* ⚠️ 必须显式给宽度：一个 `overflow` 不是 visible 的块会按"收缩适应"算宽度，
+     不写这一条它会缩到内容宽、`margin: 0 auto` 也就不居中了 */
+  width: 100%;
+  max-width: 1080px; margin: 0 auto; padding: 28px 24px 56px;
+}
 .dw .hero { text-align: center; padding: 40px 0 28px; }
 .dw .hero h1 { margin: 0 0 6px; font-size: 30px; letter-spacing: .3px; }
 /* 副标语不再用蓝色（蓝色只留一处强调） */
@@ -495,7 +506,9 @@ body {
 .dw .taskbar-ok .ok-text { color: #15803d; font-weight: 600; }
 
 /* ---------- L2 阅读工作区 ---------- */
-.dw .screen-reader { height: 100vh; height: 100dvh; display: flex; flex-direction: column; }
+/* ⚠️ [M0] 原来靠 `100vh` 撑满整屏；现在它左边多了常驻左栏，高度改由右内容列的
+   flex 分配（再用 `100vh` 会比可用高度高，底部被截掉）。选择器与类名没动。 */
+.dw .screen-reader { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .dw .reader-top {
   display: flex; align-items: center; gap: 10px;
   padding: 10px 18px; background: var(--surface); border-bottom: 1px solid var(--line);
@@ -1020,5 +1033,217 @@ svg.ic-inl {
   align-items: center;
   gap: var(--sp-1, 4px);
 }
+
+/* ============================================================================
+   [M0] 左栏 —— 两段式骨架 + 可收起（issue #86 第 6 步 / 任务卡 R4）
+   ============================================================================
+   形态依据：产品形态说明_v2 §1.2（两段式布局图）/ §1.2b（260 ⇄ 58、Ctrl+B、状态记住、tooltip）
+   与设计规范 §4.2（左栏宽度）、§6.2 白名单 #3（左栏收起 = `--dur-base` 宽度过渡）、
+   §7.6 第 5 条（收起态 tooltip 要能被键盘 focus 触发）。
+
+   类名一律 `.rail-` 前缀（契约 §3.1）。**只加自己这一段，不重排别人的段**（契约 §3.3）。
+   ⚠️ 左栏是 v2 形态，深色面（`--rail`）；`.dw` 命名空间内的其它东西一个字没动。
+   ============================================================================ */
+
+/* 左栏是 `.dw` 的第一个子元素，与右侧内容列并排。
+   ⚠️ 滚动条**不裁在 `.rail` 上**（原生 `overflow-y:auto` 会把 `overflow-x` 也算成 auto，
+   收起态的 tooltip 是绝对定位、会伸到栏外右侧 → 会被裁掉）。所以滚动放在 `.rail-main` 上，
+   而 `.rail-main` 只在**收起态**才需要滚（展开态内容比视口矮）。 */
+.dw .rail {
+  flex: 0 0 var(--rail-w);
+  display: flex;
+  flex-direction: column;
+  padding: var(--sp-3) var(--sp-2) var(--sp-2);
+  background: var(--rail);
+  color: #c3cbdb;
+  /* 形态 §6.2 白名单 #3：收起 / 展开只动宽度，`--dur-base`（180ms，≤200ms） */
+  transition: flex-basis var(--dur-base) var(--ease);
+}
+.dw .rail-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  scrollbar-color: #2a3a5c transparent;
+}
+
+/* ⚠️ 左栏**只有在窗口真的很矮时才滚动**，这里有一个量出来的取舍：
+   一个 `overflow: auto` 的容器会**裁掉**收起态 tooltip（绝对定位伸到栏外右侧，实测被裁）。
+   左栏内容自然高度实测 **≈690px**（13 项 + 段标题 + 品牌 + 底部两条 + 状态文字）。
+   · 窗口高度 ≥ 741px：内容装得下 → **不滚动** → tooltip 完整可见（这是常态）；
+   · 窗口高度 ≤ 740px：内容装不下 → 开滚动 → **tooltip 会被裁**。
+   取舍的理由：tooltip 是**收起态的辅助信息**（名字在展开态看得到），而底部那几条
+   （账号区 / 记忆 / 处理过程）**被推出屏幕外就真的点不到了**。两害相权取其轻。
+   `740px` 这个数不是拍的：`690 + .rail 的上下 padding(12+8) + 33px 余量`。
+   ⚠️ 别为了"更干净"把这一条合并到上面的基础规则里 —— 那会让 tooltip 在所有窗口高度下都失效。 */
+@media (max-height: 740px) {
+  .dw .rail-main { overflow-y: auto; }
+}
+
+.dw .rail-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-1) var(--sp-1) var(--sp-3);
+}
+.dw .rail-brand {
+  flex: 1;
+  min-width: 0;
+  color: #fff;
+  font-weight: 700;
+  font-size: var(--fs-h3);
+  letter-spacing: 0.2px;
+}
+.dw .rail-brand span {
+  display: block;
+  color: #7c88a3;
+  font-weight: 400;
+  font-size: var(--fs-micro);
+  letter-spacing: 0;
+}
+.dw .rail-toggle {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid #2a3a5c;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: #8b97b1;
+  cursor: pointer;
+  transition: color var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease);
+}
+.dw .rail-toggle:hover { color: #fff; border-color: var(--accent); background: #1b2740; }
+
+/* 段（做什么 / 我的库） */
+.dw .rail-sec { padding: var(--sp-1) 0; }
+.dw .rail-sec-t {
+  padding: var(--sp-2) var(--sp-2) var(--sp-1);
+  color: #5f6c88;
+  font-size: var(--fs-micro);
+  letter-spacing: 0.5px;
+}
+
+/* 导航项：与原型同一套 hover / 选中态（R7 判据④要求账号区也走这一套，不许另搞） */
+.dw .rail-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  padding: var(--sp-2) var(--sp-2);
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: #c3cbdb;
+  font: inherit;
+  font-size: var(--fs-ui);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+}
+.dw .rail-item:hover { background: #1b2740; color: #fff; }
+.dw .rail-item.on { background: var(--accent); color: #fff; }
+/* §7.6 第 1 条：不给鼠标点击加焦点环，只在键盘导航时显示；
+   `outline: none` 必须配 `:focus-visible` 的可见替代 */
+.dw .rail-item:focus { outline: none; }
+.dw .rail-item:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--rail), 0 0 0 4px var(--accent);
+}
+.dw .rail-toggle:focus { outline: none; }
+.dw .rail-toggle:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--rail), 0 0 0 4px var(--accent);
+}
+/* 名字一律不换行（展开态 260 装得下；收起态整条藏起来） */
+.dw .rail-lbl {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dw .rail-foot { margin-top: auto; padding-top: var(--sp-2); }
+.dw .rail-div { height: 1px; background: #1e2a44; margin: var(--sp-2) var(--sp-2); }
+/* 「本地优先 · 服务自持」：状态文字，**不可点**（没有 hover、没有 pointer） */
+.dw .rail-sw {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2);
+  color: #7c88a3;
+  font-size: var(--fs-micro);
+}
+
+/* ============================================================
+   收起态（58px，只剩图标）—— 形态 §1.2b
+   ⚠️ 开关类 `rail-min` 落在 **`.dw-layout`** 上（`.dw` 的**子**元素），不是 `.dw` 自己，
+   所以这一整段的选择器必须是**后代**形式 `.dw ` + `.rail-min …`，
+   **不能**把两者复合成一个选择器（`.dw` 与 `.rail-min` 中间不加空格）。
+   第一版就是复合写法：浏览器里收起态一点效果都没有（`dw-layout rail-min` 类名在、宽度照旧 260px），
+   而 209 条用例全绿 —— 因为用例只断言"类名挂上了"。**这类错只有浏览器量得出来。**
+   ⚠️ 开关放在 `.dw-layout` 上而不是 `.dw` 上是有意的：`.dw` 还套着管理后台（`AdminView`），
+   开关不该跟着它跑。
+   ============================================================ */
+.dw .rail-min .rail { flex-basis: var(--rail-w-min); padding: var(--sp-3) var(--sp-2); }
+/* 名字 / 段标题 / 状态文字 / 品牌副行全部不显示；**品牌主字也不显示**（58px 放不下） */
+.dw .rail-min .rail-lbl,
+.dw .rail-min .rail-sec-t,
+.dw .rail-min .rail-brand span {
+  display: none;
+}
+.dw .rail-min .rail-brand { font-size: 0; }
+.dw .rail-min .rail-head { padding: var(--sp-1) 0 var(--sp-3); justify-content: center; }
+.dw .rail-min .rail-item { justify-content: center; padding: var(--sp-2) 0; }
+.dw .rail-min .rail-sec { padding: var(--sp-1) 0; }
+.dw .rail-min .rail-div { margin: var(--sp-2) 0; }
+.dw .rail-min .rail-sw { justify-content: center; padding: var(--sp-2) 0; }
+.dw .rail-min .rail-foot { padding-top: var(--sp-2); }
+
+/* ⭐ 收起态 tooltip：**CSS 实现，不是原生 `title`**（R1：`title` 延迟不可控，
+   演示视频里来不及出现）。名字从 `data-tip` 取，位置在图标右侧、垂直居中。
+   ⚠️ `:hover` 与 `:focus-visible` **两条都要有**（§7.6 第 5 条：键盘用户看不到 hover）。 */
+.dw .rail-min .rail-item:hover::after,
+.dw .rail-min .rail-item:focus-visible::after {
+  content: attr(data-tip);
+  position: absolute;
+  left: calc(100% + var(--sp-2));
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 80;
+  padding: var(--sp-1) var(--sp-2);
+  border-radius: var(--r-sm);
+  background: #101b2e;
+  color: #fff;
+  font-size: var(--fs-meta);
+  font-weight: 400;
+  white-space: nowrap;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+}
+
+/* ============================================================
+   布局：左栏（常驻）+ 右侧内容列
+   ⚠️ `.dw` 由"整页块"变成"左栏 + 内容列的 flex 行"，所以这里给布局三条。
+   右侧内容列自己滚（左栏因此可以常驻不动，阅读时让出的横向空间才真的有用）。
+   ============================================================ */
+.dw-layout {
+  display: flex;
+  height: 100vh;
+  height: 100dvh; /* 手机浏览器地址栏收起 / 展开时 100vh 会多出一截 */
+  overflow: hidden;
+}
+.dw-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
 
 
