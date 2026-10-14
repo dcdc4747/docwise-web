@@ -257,6 +257,10 @@ describe('App.vue 页面渲染', () => {
 
   beforeEach(() => {
     localStorage.clear()
+    // 地址也要清干净（M0 加了哈希路由之后）：每个用例从库页开始，
+    // 而且**必须走 replaceState**——直接赋 #/ 会真的发一次 hashchange，
+    // 通知到上一个还没卸载干净的监听方，串成"单跑能过、一起跑就红"的假故障
+    window.history.replaceState(null, '', '#/')
     // 功能测试默认"已登录"：直接放一张令牌，App 挂载时会用它 restoreSession
     localStorage.setItem('docwise_token', 'test-token')
     setViewportWidth(1440)
@@ -279,6 +283,57 @@ describe('App.vue 页面渲染', () => {
 
     const text = wrapper.text()
     expect(text).toContain('登录')
+    for (const leak of SOURCE_LEAKS) {
+      expect(text).not.toContain(leak)
+    }
+  })
+
+  // ======================================================== M0：哈希路由接线
+
+  it('路由：进阅读区会写地址；按那个地址挂载会直接回到那一篇（刷新不丢页）', async () => {
+    // 这一步的主要收益就是"刷新 / 从主屏进来还在原来那一篇"，
+    // 所以必须验**两段**：① 进去时地址被写上；② 拿那个地址冷启动能落回同一篇。
+    const fx = completedFixture()
+    globalThis.fetch = stubFetch({ tasks: [fx.task], detail: fx.detail })
+    wrapper = mountApp()
+    await flushPromises()
+
+    await buttonByText(wrapper, '继续读').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.screen-reader').exists()).toBe(true)
+    expect(window.location.hash).toBe(`#/read/${fx.task.id}`)
+
+    // 模拟刷新：卸载后带着同一个地址重新挂载（不清地址，正好是"刷新"的语义）
+    wrapper.unmount()
+    wrapper = mountApp()
+    await flushPromises()
+    expect(wrapper.find('.screen-reader').exists()).toBe(true)
+    expect(wrapper.text()).toContain(fx.task.filename)
+  })
+
+  it('路由：点「← 我的论文」回库页，地址也回到 #/', async () => {
+    const fx = completedFixture()
+    globalThis.fetch = stubFetch({ tasks: [fx.task], detail: fx.detail })
+    wrapper = mountApp()
+    await flushPromises()
+    await buttonByText(wrapper, '继续读').trigger('click')
+    await flushPromises()
+
+    await buttonByText(wrapper, '← 我的论文').trigger('click')
+    await flushPromises()
+    expect(window.location.hash).toBe('#/')
+    expect(wrapper.find('.lib-wrap').exists()).toBe(true)
+  })
+
+  it('路由：未知地址落到库页，不白屏也不印源码', async () => {
+    const fx = completedFixture()
+    globalThis.fetch = stubFetch({ tasks: [fx.task], detail: fx.detail })
+    window.history.replaceState(null, '', '#/garbage')
+    wrapper = mountApp()
+    await flushPromises()
+
+    expect(wrapper.find('.lib-wrap').exists()).toBe(true)
+    const text = wrapper.text()
     for (const leak of SOURCE_LEAKS) {
       expect(text).not.toContain(leak)
     }
@@ -1069,6 +1124,14 @@ describe('App.vue 页面渲染', () => {
 
     const none = completedFixture()
     globalThis.fetch = stubFetch({ tasks: [none.task], detail: none.detail })
+    // 重挂之前**必须先卸载**上一个实例：M0 加了哈希路由之后，两个活着的实例会抢同一个
+    // `window.location.hash`（一个改地址、另一个的路由订阅跟着响应），断言就会打到别人身上。
+    // 以前没这要求只是因为那时没人碰 window.location。
+    wrapper.unmount()
+    // 卸载**不会**把地址还原：上一个实例进阅读区时把 hash 写成了 `#/read/7`，
+    // 而新实例挂载后会按地址"回到原页"（这正是 M0 路由要的行为）。
+    // 所以重挂之前要把地址退回库页，否则第二个实例一上来就渲染成阅读页。
+    window.history.replaceState(null, '', '#/')
     wrapper = mountApp()
     await flushPromises()
     await buttonByText(wrapper, '继续读').trigger('click')
