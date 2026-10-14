@@ -1,5 +1,5 @@
 /**
- * 界面零碎事：菜单 / 提示条 / toast / 窄屏判断 / 手机抽屉 / 段落字号与「就这段提问」的浮出。
+ * 界面零碎事：菜单 / 提示条 / toast / 窄屏判断 / 手机抽屉 / 段落字号与「就这段提问」的浮出 / 左栏收起态。
  *
  * **为什么单独一个模块**：这些状态全站都要用（库页、阅读区、左栏、手机端），
  * 以前它们和"论文数据""问答线程"一起挤在 `App.vue` 的 1819 行脚本里 ——
@@ -140,6 +140,60 @@ export function stepFont(delta) {
 
 export function syncNarrow() {
   isNarrow.value = window.innerWidth < 1024
+}
+
+// ============================================================ 左栏（常驻导航）
+//
+// 形态 v2 §1.2b：左栏 **260 ⇄ 58**，顶部一颗按钮切换、`Ctrl+B` 等效、**收起态记住**。
+// ⚠️ **收起态不是"模块指示器"**（那条论证形态 §1.2b 已撤回）——它唯一的理由是**阅读时让出横向空间**。
+//
+// 状态放这里而不是 AppRail.vue：`Ctrl+B` 的监听在外壳（与 Esc 那一条挨着），
+// 而左栏的外层容器（`.dw-layout`）与左栏自己都要读同一份状态 —— 两处读一份，才不会各变各的。
+//
+// ⚠️ 开关类挂在 **`.dw-layout`**（`.dw` 的子元素）上，不是 `.dw` 自己：
+// `.dw` 里还套着管理后台（`AdminView`），开关不该跟着它跑。因此 `style.css` 里收起态的
+// 选择器必须是**后代**形式（`.dw ` + `.rail-min …`），不能把两者复合成一个选择器 ——
+// 详见 `[M0]` 段那段注释，那是踩出来的（写错了浏览器里一点效果都没有，而用例全绿）。
+
+/** localStorage 键。**测试里有断言依赖这个字面值**，改它要一起改用例。 */
+export const RAIL_MIN_KEY = 'dw_rail_min'
+
+/** 收起态（true = 58px 图标态）。 */
+export const railMin = ref(false)
+
+/** 当前选中的导航项 key（由外壳按地址算出来塞进来，rail 自己不读地址）。 */
+export const activeNav = ref('read')
+
+/** 收起态下 `.dw` 要挂的类（与 `.rail` 的宽度过渡同一处开关）。 */
+export const railClass = computed(() => (railMin.value ? 'rail-min' : ''))
+
+/**
+ * 读回上次的收起态。
+ *
+ * ⚠️ **必须容错**：隐私模式 / 禁 cookie 的浏览器里 `localStorage` 一读就抛，
+ * 那时按"展开"渲染即可——**不能因为读不到偏好就白屏**。
+ */
+export function loadRailMin() {
+  try {
+    railMin.value = localStorage.getItem(RAIL_MIN_KEY) === '1'
+  } catch {
+    railMin.value = false
+  }
+}
+
+/** 写下收起态（同样容错：写不进去就只影响"下次记住"，不影响本次交互）。 */
+export function persistRailMin() {
+  try {
+    localStorage.setItem(RAIL_MIN_KEY, railMin.value ? '1' : '0')
+  } catch {
+    /* 存不了就算了，本次会话内的收起仍然生效 */
+  }
+}
+
+/** 切换收起 / 展开（顶部按钮与 `Ctrl+B` 走同一个函数，保证两条路行为一致）。 */
+export function toggleRail() {
+  railMin.value = !railMin.value
+  persistRailMin()
 }
 
 // ============================================================ 阅读区副页签
