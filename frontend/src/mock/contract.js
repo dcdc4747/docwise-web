@@ -1,0 +1,925 @@
+/**
+ * 契约 mock —— **后端一行没写时，前端也能把版式和交互做完**（D2 / issue #94）。
+ *
+ * 为什么有这个文件：前后端开发时互不依赖，靠的是「契约 + mock」这一对。
+ * 契约（`docs/契约_接口_v1_20261014.md`）冻住接口形状；mock 让前端立刻能跑起来。
+ * **没有 mock，"契约先行"就是一句空话**——前端只能干等后端。
+ *
+ * 三条纪律（写在最前面，因为它就是这个文件唯一的风险点）：
+ * ① ⚠️ **形状必须与契约逐字段一致**——**mock 写错 = 契约失效**，两边一起错还看不出来。
+ *    `tests/contract-mock.test.js` 里有一张"每个端点该有哪些字段"的表，逐条盯着；
+ * ② ⚠️ **只 mock 新增的 N1–N29**（基线那 25 个端点已经能用真的，mock 它们只会掩盖真实问题）；
+ * ③ ⚠️ **mock 由写契约的人维护，使用方不许各自改**。发现 mock 与契约不一致 →
+ *    在 issue #94 下评论，**别改 mock 去迁就自己的代码**（那样两边都错）。
+ *
+ * 开关：`localStorage.docwise_mock === '1'`（**默认关闭**——不然会有人拿假数据当真的调试）。
+ * 打开后走 `mockResponse()`：**是 N1–N29 的请求**返回假数据，**其余（基线端点）原样放行**
+ * （基线端点必须继续打真后端，否则整个应用没法用）。
+ *
+ * ⚠️ 契约没写形状、这里替它定的收口（都只是"最省事的合理取值"，契约一改这里就跟着改）：
+ * - `N4.moved_to_parent`：被上移到父集合的条目数（直接文献 + 子集合），契约只给了字段名；
+ * - `N14 / N21 / N27 / N29` 的 DELETE：`200 {deleted: true, ...}`（契约只写了 200）；
+ * - `N19` 的 DELETE：返回被删掉的那条 `Draft`（契约这一行写的是 `200 Draft`）；
+ * - `N21` 的 DELETE：清空该草稿的引文（契约没写删哪一条）；
+ * - `N26.ledger` 的 json 形状：`{items}`，与 N17 同源同形状（契约只写了"同源导出"）；
+ * - `N28` 的响应：`user` 对象 6 字段（与 `/api/auth/me` 一致）；
+ * - `N29` 的会话对象：`auth_sessions` 表里除 `token_hash` 之外的列；
+ * - `N22/N23` 的报告内容：**固定示例**（契约冻的是形状，不是结论——报告结论得由真后端算）。
+ */
+
+/** 开关的 localStorage 键（值是字符串 `'1'`，别的值一律当关闭）。 */
+export const MOCK_FLAG_KEY = 'docwise_mock'
+
+/**
+ * ⭐ mock 支持的 (method, path) 清单 —— **与 `backend/.contract/api.json` 的 `expected_new` 对账**
+ * （`tests/contract-mock.test.js` 里那条用例就是干这个的）。
+ *
+ * 对账的意义：后端一实现某个端点、把清单动一下，**mock 侧会被提醒**——
+ * 不然 mock 会继续"对"，而真接口已经变了。
+ *
+ * 路径参数写成 `{名字}`；对账时双方都把 `{任意名}` 归一化成 `{param}`（改名不算新增端点）。
+ * ⚠️ **N8 不在表里**：它是给基线端点 `/api/tasks` 加查询参数，**不是新端点**，也不该被 mock。
+ * ⚠️ **N17 只有 GET 是真的给前端用的**（POST 是服务端内部埋点，见 `memory-events` 那条处理）。
+ */
+export const MOCK_ROUTES = [
+  { n: 'N1', method: 'GET', path: '/api/collections' },
+  { n: 'N2', method: 'POST', path: '/api/collections' },
+  { n: 'N3', method: 'PATCH', path: '/api/collections/{id}' },
+  { n: 'N4', method: 'DELETE', path: '/api/collections/{id}' },
+  { n: 'N5', method: 'PUT', path: '/api/tasks/{task_id}/collections' },
+  { n: 'N6', method: 'GET', path: '/api/tags' },
+  { n: 'N7', method: 'PUT', path: '/api/tasks/{task_id}/tags' },
+  { n: 'N9', method: 'GET', path: '/api/smart-collections' },
+  { n: 'N10', method: 'POST', path: '/api/smart-collections' },
+  { n: 'N11', method: 'DELETE', path: '/api/smart-collections/{id}' },
+  { n: 'N12', method: 'POST', path: '/api/materials' },
+  { n: 'N13', method: 'GET', path: '/api/materials' },
+  { n: 'N14', method: 'DELETE', path: '/api/materials/{id}' },
+  { n: 'N15', method: 'POST', path: '/api/ask-logs' },
+  { n: 'N16', method: 'GET', path: '/api/ask-logs' },
+  { n: 'N17', method: 'GET', path: '/api/memory-events' },
+  { n: 'N17', method: 'POST', path: '/api/memory-events' },
+  { n: 'N18', method: 'GET', path: '/api/drafts' },
+  { n: 'N18', method: 'POST', path: '/api/drafts' },
+  { n: 'N19', method: 'GET', path: '/api/drafts/{id}' },
+  { n: 'N19', method: 'PATCH', path: '/api/drafts/{id}' },
+  { n: 'N19', method: 'DELETE', path: '/api/drafts/{id}' },
+  { n: 'N20', method: 'POST', path: '/api/drafts/{id}/citations' },
+  { n: 'N21', method: 'GET', path: '/api/drafts/{id}/citations' },
+  { n: 'N21', method: 'DELETE', path: '/api/drafts/{id}/citations' },
+  { n: 'N22', method: 'POST', path: '/api/check' },
+  { n: 'N23', method: 'GET', path: '/api/check/{run_id}' },
+  { n: 'N24', method: 'GET', path: '/api/me/storage' },
+  { n: 'N25', method: 'GET', path: '/api/me/export' },
+  { n: 'N26', method: 'GET', path: '/api/me/ledger' },
+  { n: 'N27', method: 'DELETE', path: '/api/me' },
+  { n: 'N28', method: 'PATCH', path: '/api/me' },
+  { n: 'N29', method: 'GET', path: '/api/me/sessions' },
+  { n: 'N29', method: 'DELETE', path: '/api/me/sessions/{id}' },
+]
+
+// ---------------------------------------------------------------------------
+// 假数据（**明显是假的**，不伪装成真内容；形状照契约）
+// ---------------------------------------------------------------------------
+
+const SEED_AT = '2026-10-14T02:00:00Z'
+
+/** 一个空 ZIP 的字节（只有 EOCD：22 字节）——**结构合法、能被解开、里面是空的**。
+ *  为什么不用一段随便的字符串：那会给出一个"打不开的文件"，比给空包更糟。 */
+const EMPTY_ZIP = '\u0050\u004b\u0005\u0006' + '\u0000'.repeat(18)
+
+function seed() {
+  return {
+    user: {
+      id: 1,
+      username: 'demo',
+      display_name: '演示账号',
+      role: 'admin',
+      is_active: true,
+      created_at: SEED_AT,
+    },
+    // 给智能集合算 count 用的两篇文献（只放算得动的那几个字段）
+    tasks: [
+      { id: 42, filename: 'EBSCO_05-mono.pdf', reading_status: 'todo', native: false, text_source: 'text-layer', tags: ['RAG'] },
+      { id: 43, filename: 'Nature_2024_review.pdf', reading_status: 'reading', native: false, text_source: 'ocr', tags: ['双盲实验'] },
+    ],
+    collections: [
+      { id: 1, name: '毕业论文', parent_id: null, sort: 0 },
+      { id: 2, name: '文献综述', parent_id: 1, sort: 0 },
+      { id: 3, name: '方法对比', parent_id: null, sort: 1 },
+    ],
+    task_collections: { 42: [1], 43: [2] },
+    tags: [
+      { id: 1, name: 'RAG', kind: 'topic' },
+      { id: 2, name: '双盲实验', kind: 'method' },
+      { id: 3, name: '待复现', kind: 'status' },
+    ],
+    task_tags: { 42: [{ name: 'RAG', kind: 'topic' }], 43: [{ name: '双盲实验', kind: 'method' }] },
+    smart_collections: [
+      { id: 1, name: '待读', query: { all: [{ field: 'reading_status', op: 'eq', value: 'todo' }] }, builtin: true },
+      { id: 2, name: '在读', query: { all: [{ field: 'reading_status', op: 'eq', value: 'reading' }] }, builtin: true },
+      { id: 3, name: '已读', query: { all: [{ field: 'reading_status', op: 'eq', value: 'done' }] }, builtin: true },
+      { id: 4, name: '扫描件', query: { all: [{ field: 'text_source', op: 'eq', value: 'ocr' }] }, builtin: false },
+    ],
+    materials: [
+      {
+        id: 1,
+        text_quote: '（mock 原文）读者信任一个答案，取决于能否跳回它出处的那句话。',
+        translated_quote: 'Readers trust an answer when they can jump back to the sentence it came from.',
+        page: 3,
+        source_name: 'EBSCO_05-mono.pdf',
+        note: '选题依据',
+        task_id: 42,
+        block_id: 'p2_b7',
+        deleted_at: null,
+        created_at: SEED_AT,
+      },
+      {
+        id: 2,
+        text_quote: '（mock 原文）这条素材卡的源文献已被删除，只剩快照。',
+        translated_quote: null,
+        page: 11,
+        source_name: '已删除的文献.pdf',
+        note: null,
+        task_id: null,
+        block_id: null,
+        deleted_at: null,
+        created_at: SEED_AT,
+      },
+    ],
+    ask_logs: [
+      {
+        id: 1,
+        task_id: 42,
+        question: '这篇的方法和基线比强在哪？',
+        answer: '（mock 回答）强在把译文与原文段落对齐，答案可以跳回原句。',
+        source_block_ids: ['p2_b7'],
+        created_at: SEED_AT,
+      },
+    ],
+    memory_events: [
+      {
+        id: 1,
+        task_id: 42,
+        layer: 'L0',
+        stage: 'translate',
+        actor: 'api',
+        tool: 'engine',
+        summary: '正文发往模型 API 翻译（mock）',
+        payload: { blocks: 42 },
+        created_at: SEED_AT,
+      },
+      {
+        id: 2,
+        task_id: 42,
+        layer: 'L0',
+        stage: 'extract',
+        actor: 'local',
+        tool: 'engine',
+        summary: '本地取字（mock）',
+        payload: { blocks: 42, text_source: 'text-layer' },
+        created_at: SEED_AT,
+      },
+    ],
+    drafts: [
+      {
+        id: 1,
+        title: '开题报告（mock）',
+        body_md: '# 开题报告\n\n（mock 正文）[1] 说明了出处的意义。\n',
+        template_id: null,
+        created_at: SEED_AT,
+        updated_at: SEED_AT,
+      },
+    ],
+    citations: [
+      {
+        id: 1,
+        draft_id: 1,
+        material_id: 1,
+        order: 1,
+        csl_json: {
+          id: 'material-1',
+          type: 'article-journal',
+          title: 'EBSCO_05-mono.pdf',
+          'container-title': 'EBSCO_05-mono.pdf',
+          page: '3',
+          issued: { 'date-parts': [[2026]] },
+        },
+        anchor: { block_id: 'p2_b7', offset: 12 },
+        created_at: SEED_AT,
+      },
+    ],
+    check_runs: {
+      12: {
+        run_id: 12,
+        step: { lang: 'zh', citation_style: 'numeric' },
+        findings: [
+          {
+            id: 'f1',
+            kind: 'missing_citation',
+            severity: 'report',
+            sentence: '（mock）研究表明，出处锚点显著提升阅读效率。',
+            reason: '命中词：研究表明；前方 8 字内无豁免词',
+            suggest: { material_id: 1, page: 3, quote: '（mock）读者信任一个答案…' },
+            rule_ref: '§3.3 ②A 类',
+          },
+          {
+            id: 'f2',
+            kind: 'format',
+            severity: 'unknown',
+            sentence: '（mock）参考文献区只有 3 条。',
+            reason: '未能识别引用制式（稿件未含版式信息）',
+            suggest: null,
+            rule_ref: '§2.7 未知档',
+          },
+        ],
+        summary: { reported: 1, unknown: 1 },
+      },
+    },
+    sessions: [
+      { id: 1, created_at: SEED_AT, expires_at: '2026-11-13T02:00:00Z', last_seen_at: SEED_AT, user_agent: 'Chrome / Windows（mock）' },
+      { id: 2, created_at: SEED_AT, expires_at: '2026-11-13T02:00:00Z', last_seen_at: SEED_AT, user_agent: 'Safari / iPhone（mock）' },
+    ],
+    next_id: { collections: 4, smart_collections: 5, materials: 3, ask_logs: 2, drafts: 2, citations: 2, check_runs: 13 },
+  }
+}
+
+let state = seed()
+
+/** 把假数据恢复到初始状态（单测之间互不影响；手动调试也能用）。 */
+export function resetMockState() {
+  state = seed()
+}
+
+/** 开关是否打开（**只认字符串 `'1'`**，`'true'` / `'on'` 一律当关闭）。 */
+export function isMockEnabled() {
+  try {
+    return localStorage.getItem(MOCK_FLAG_KEY) === '1'
+  } catch {
+    // 隐私模式 / 非浏览器环境：没有 localStorage 就当关闭
+    return false
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 工具
+// ---------------------------------------------------------------------------
+
+function ok(body, status = 200, extra = {}) {
+  return { status, body, ...extra }
+}
+
+function fail(status, detail) {
+  return { status, body: { detail } }
+}
+
+/** `{param}` 段按"任意一段"匹配；其余段必须逐字相同。 */
+function matchPath(pattern, path) {
+  const want = pattern.split('/')
+  const got = path.split('/')
+  if (want.length !== got.length) return null
+  const params = {}
+  for (let i = 0; i < want.length; i += 1) {
+    if (want[i].startsWith('{')) {
+      if (!got[i]) return null
+      params[want[i].slice(1, -1)] = decodeURIComponent(got[i])
+      continue
+    }
+    if (want[i] !== got[i]) return null
+  }
+  return params
+}
+
+function methodOf(options) {
+  return String((options && options.method) || 'GET').toUpperCase()
+}
+
+function stripTrailingSlash(path) {
+  return path.length > 1 && path.endsWith('/') ? path.slice(0, -1) : path
+}
+
+/** 收 `/api/x?y=1` 与绝对地址两种写法（`apiUrl()` 拼出来的可能是绝对的）。 */
+function parseTarget(target) {
+  const raw = String(target || '')
+  const url = new URL(raw, 'http://mock.local')
+  return { path: stripTrailingSlash(url.pathname), query: url.searchParams }
+}
+
+function parseBody(options) {
+  const body = options && options.body
+  if (typeof body !== 'string') return {} // FormData / undefined（基线端点的上传）都当空
+  try {
+    const parsed = JSON.parse(body)
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+function intOf(value) {
+  // ⚠️ 别直接 Number()：`Number(null) === 0`，会把"没传这个参数"当成"传了 0"，
+  // 于是"没筛集合"变成"筛集合 0"，列表直接空掉（踩过一次）。
+  if (value === null || value === undefined || value === '') return null
+  const n = Number(value)
+  return Number.isInteger(n) ? n : null
+}
+
+// ---------------------------------------------------------------------------
+// 集合计数：`doc_count` 只数直接成员；`doc_count_deep` 含子集合
+// ⚠️ 语义定死（契约 §2.1 / 数据模型 §2.1）：**子集合的文献不算在父集合里**
+// ---------------------------------------------------------------------------
+
+function directCount(collectionId) {
+  return Object.values(state.task_collections).filter((ids) => ids.includes(collectionId)).length
+}
+
+function childIds(collectionId) {
+  return state.collections.filter((item) => item.parent_id === collectionId).map((item) => item.id)
+}
+
+function deepCount(collectionId) {
+  return directCount(collectionId) + childIds(collectionId).reduce((sum, id) => sum + deepCount(id), 0)
+}
+
+function collectionView(collection) {
+  return {
+    id: collection.id,
+    name: collection.name,
+    parent_id: collection.parent_id,
+    sort: collection.sort,
+    doc_count: directCount(collection.id),
+    doc_count_deep: deepCount(collection.id),
+  }
+}
+
+function descendantIds(collectionId) {
+  return childIds(collectionId).flatMap((id) => [id, ...descendantIds(id)])
+}
+
+// ---------------------------------------------------------------------------
+// 智能集合：`query` 是数据不是代码 —— 这里真的按规则算 count（在本地的假数据上）
+// ---------------------------------------------------------------------------
+
+const QUERY_FIELDS = ['reading_status', 'tag', 'collection', 'native', 'text_source']
+const QUERY_OPS = ['eq', 'in', 'not_in']
+
+function taskValue(task, field) {
+  if (field === 'tag') return task.tags || []
+  if (field === 'collection') return state.task_collections[task.id] || []
+  return task[field]
+}
+
+function matchCondition(task, condition) {
+  const actual = taskValue(task, condition.field)
+  const expected = condition.value
+  if (condition.op === 'eq') return Array.isArray(actual) ? actual.includes(expected) : actual === expected
+  if (condition.op === 'in') return (Array.isArray(expected) ? expected : [expected]).some((v) => (Array.isArray(actual) ? actual.includes(v) : actual === v))
+  return !(Array.isArray(expected) ? expected : [expected]).some((v) => (Array.isArray(actual) ? actual.includes(v) : actual === v))
+}
+
+function ruleCount(query) {
+  const conditions = (query && query.all) || []
+  return state.tasks.filter((task) => conditions.every((condition) => matchCondition(task, condition))).length
+}
+
+function queryValid(query) {
+  const conditions = query && query.all
+  if (!Array.isArray(conditions) || !conditions.length) return false
+  return conditions.every(
+    (item) =>
+      item &&
+      QUERY_FIELDS.includes(item.field) &&
+      QUERY_OPS.includes(item.op) &&
+      Object.prototype.hasOwnProperty.call(item, 'value'),
+  )
+}
+
+function smartCollectionView(item) {
+  return { id: item.id, name: item.name, query: item.query, count: ruleCount(item.query), builtin: item.builtin }
+}
+
+// ---------------------------------------------------------------------------
+// 素材卡 / 引文
+// ---------------------------------------------------------------------------
+
+function materialView(material) {
+  return {
+    id: material.id,
+    text_quote: material.text_quote,
+    translated_quote: material.translated_quote,
+    page: material.page,
+    source_name: material.source_name,
+    note: material.note,
+    task_id: material.task_id,
+    block_id: material.block_id,
+    deleted_at: material.deleted_at,
+    created_at: material.created_at,
+  }
+}
+
+/** CSL-JSON 1.0.2 单条 item：**只填快照里真有的**（作者/DOI 这些快照里没有的，不编）。 */
+function cslFromMaterial(material) {
+  return {
+    id: `material-${material.id}`,
+    type: 'article-journal',
+    title: material.source_name,
+    'container-title': material.source_name,
+    page: String(material.page),
+    ...(material.note ? { note: material.note } : {}),
+  }
+}
+
+function citationView(citation) {
+  return {
+    id: citation.id,
+    draft_id: citation.draft_id,
+    material_id: citation.material_id,
+    order: citation.order,
+    csl_json: citation.csl_json,
+    anchor: citation.anchor,
+  }
+}
+
+function draftView(draft) {
+  return {
+    id: draft.id,
+    title: draft.title,
+    body_md: draft.body_md,
+    template_id: draft.template_id,
+    updated_at: draft.updated_at,
+    citations: state.citations.filter((item) => item.draft_id === draft.id).map(citationView),
+  }
+}
+
+function citationsOf(draftId) {
+  return state.citations
+    .filter((item) => item.draft_id === draftId)
+    .sort((a, b) => a.order - b.order)
+    .map(citationView)
+}
+
+// ---------------------------------------------------------------------------
+// 台账（N17 / N26 同源：**只有一份 memory_events**）
+// ---------------------------------------------------------------------------
+
+function memoryEvents(taskId, layer, limit) {
+  let rows = state.memory_events
+  if (taskId !== '') rows = rows.filter((item) => String(item.task_id) === String(taskId))
+  if (layer) rows = rows.filter((item) => item.layer === layer)
+  const max = Number(limit)
+  return Number.isFinite(max) && max > 0 ? rows.slice(0, max) : rows
+}
+
+const LEDGER_HEADER = 'created_at,layer,stage,actor,tool,summary'
+
+function ledgerCsv(rows) {
+  const cell = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`
+  const lines = rows.map((item) =>
+    [item.created_at, item.layer, item.stage, item.actor, item.tool, item.summary].map(cell).join(','),
+  )
+  return [LEDGER_HEADER, ...lines].join('\n')
+}
+
+function ledgerMarkdown(rows) {
+  const lines = rows.map((item) => `| ${item.created_at} | ${item.stage} | ${item.actor} | ${item.summary} |`)
+  return ['| 时间 | 环节 | 数据流向 | 说明 |', '|---|---|---|---|', ...lines].join('\n')
+}
+
+function exportMarkdown() {
+  return [
+    '# docwise 数据导出（mock）',
+    '',
+    '⚠️ 这是 mock 生成的假导出，用来把"导出"这条交互做完。',
+    '- 文献：2 篇',
+    '- 素材卡：2 条',
+    '- 草稿：1 篇',
+  ].join('\n')
+}
+
+// ---------------------------------------------------------------------------
+// 每个端点的处理（键 = `METHOD 路径`）
+// ---------------------------------------------------------------------------
+
+const HANDLERS = {
+  // ---- §2.1 集合
+  'GET /api/collections': () => ok({ items: state.collections.map(collectionView) }),
+
+  'POST /api/collections': ({ body }) => {
+    const name = String(body.name ?? '').trim()
+    if (!name || name.length > 64) return fail(400, '名字要 1–64 个字')
+    const parentId = body.parent_id === undefined || body.parent_id === null ? null : intOf(body.parent_id)
+    if (parentId !== null && !state.collections.some((item) => item.id === parentId)) {
+      return fail(400, '父集合不存在')
+    }
+    if (state.collections.some((item) => item.parent_id === parentId && item.name === name)) {
+      return fail(400, '同一个父集合下不许重名')
+    }
+    const created = { id: state.next_id.collections, name, parent_id: parentId, sort: 0 }
+    state.next_id.collections += 1
+    state.collections.push(created)
+    return ok(collectionView(created), 201)
+  },
+
+  'PATCH /api/collections/{id}': ({ params, body }) => {
+    const collection = state.collections.find((item) => item.id === Number(params.id))
+    if (!collection) return fail(404, '集合不存在')
+    if (body.name !== undefined) {
+      const name = String(body.name).trim()
+      if (!name || name.length > 64) return fail(400, '名字要 1–64 个字')
+      collection.name = name
+    }
+    if (body.parent_id !== undefined) {
+      const parentId = body.parent_id === null ? null : intOf(body.parent_id)
+      if (parentId !== null && !state.collections.some((item) => item.id === parentId)) {
+        return fail(400, '父集合不存在')
+      }
+      // ⚠️ 成环挡在服务端（契约 §2.1）：不许把自己移进自己的后代
+      if (parentId === collection.id || (parentId !== null && descendantIds(collection.id).includes(parentId))) {
+        return fail(400, '不许把集合移进自己的后代')
+      }
+      collection.parent_id = parentId
+    }
+    if (body.sort !== undefined) collection.sort = intOf(body.sort) ?? collection.sort
+    return ok(collectionView(collection))
+  },
+
+  'DELETE /api/collections/{id}': ({ params }) => {
+    const id = Number(params.id)
+    const collection = state.collections.find((item) => item.id === id)
+    if (!collection) return fail(404, '集合不存在')
+    // ⚠️ 先算再删：`directCount` 读的是关联表，关联清空之后算出来永远是 0（踩过一次）
+    const moved = childIds(id).length + directCount(id)
+    const children = state.collections.filter((item) => item.parent_id === id)
+    children.forEach((child) => {
+      child.parent_id = collection.parent_id
+    })
+    state.collections = state.collections.filter((item) => item.id !== id)
+    // 挂在这个集合上的文献：**只删集合，不动文献**（它们回到父集合）
+    Object.values(state.task_collections).forEach((ids) => {
+      const index = ids.indexOf(id)
+      if (index >= 0) ids.splice(index, 1)
+    })
+    return ok({ deleted: true, moved_to_parent: moved })
+  },
+
+  // ---- §2.2 归集与标签
+  'PUT /api/tasks/{task_id}/collections': ({ params, body }) => {
+    const taskId = Number(params.task_id)
+    const ids = Array.isArray(body.collection_ids) ? body.collection_ids.map(intOf) : null
+    if (!ids || ids.some((id) => id === null)) return fail(400, 'collection_ids 要是整数数组')
+    const unknown = ids.find((id) => !state.collections.some((item) => item.id === id))
+    if (unknown !== undefined) return fail(400, `集合不存在：${unknown}`)
+    state.task_collections[taskId] = [...new Set(ids)]
+    return ok({ collection_ids: state.task_collections[taskId] })
+  },
+
+  'GET /api/tags': ({ query }) => {
+    const kind = query.get('kind') || ''
+    const rows = state.tags.filter((tag) => !kind || tag.kind === kind)
+    return ok({
+      items: rows.map((tag) => ({
+        id: tag.id,
+        name: tag.name,
+        kind: tag.kind,
+        doc_count: Object.values(state.task_tags).filter((list) => list.some((item) => item.name === tag.name)).length,
+      })),
+    })
+  },
+
+  'PUT /api/tasks/{task_id}/tags': ({ params, body }) => {
+    const taskId = Number(params.task_id)
+    const wanted = Array.isArray(body.tags) ? body.tags : []
+    const invalid = wanted.find((tag) => !tag || !String(tag.name || '').trim() || !['topic', 'method', 'status'].includes(tag.kind))
+    if (invalid) return fail(400, 'tags 要形如 [{name, kind}]，kind ∈ {topic, method, status}')
+    const saved = wanted.map((tag) => {
+      const name = String(tag.name).trim()
+      let row = state.tags.find((item) => item.name === name && item.kind === tag.kind)
+      if (!row) {
+        row = { id: state.tags.length + 1, name, kind: tag.kind }
+        state.tags.push(row)
+      }
+      return { id: row.id, name: row.name, kind: row.kind }
+    })
+    state.task_tags[taskId] = saved.map((tag) => ({ name: tag.name, kind: tag.kind }))
+    return ok({ tags: saved })
+  },
+
+  // ---- §2.3 智能集合
+  'GET /api/smart-collections': () => ok({ items: state.smart_collections.map(smartCollectionView) }),
+
+  'POST /api/smart-collections': ({ body }) => {
+    const name = String(body.name ?? '').trim()
+    if (!name || name.length > 64) return fail(400, '名字要 1–64 个字')
+    if (!queryValid(body.query)) {
+      return fail(400, `query 要是 {all: [{field, op, value}]}，field ∈ {${QUERY_FIELDS.join(', ')}}，op ∈ {${QUERY_OPS.join(', ')}}`)
+    }
+    const created = { id: state.next_id.smart_collections, name, query: body.query, builtin: false }
+    state.next_id.smart_collections += 1
+    state.smart_collections.push(created)
+    return ok(smartCollectionView(created), 201)
+  },
+
+  'DELETE /api/smart-collections/{id}': ({ params }) => {
+    const id = Number(params.id)
+    const row = state.smart_collections.find((item) => item.id === id)
+    if (!row) return fail(404, '智能集合不存在')
+    if (row.builtin) return fail(400, '内置规则不许删')
+    state.smart_collections = state.smart_collections.filter((item) => item.id !== id)
+    return ok({ deleted: true, id })
+  },
+
+  // ---- §2.4 素材卡
+  'POST /api/materials': ({ body }) => {
+    const taskId = intOf(body.task_id)
+    const blockId = String(body.block_id ?? '').trim()
+    const task = state.tasks.find((item) => item.id === taskId)
+    // 契约 §2.4：404「块不存在」。mock 这边只认得假数据里那两篇文献的块
+    if (!task || !blockId) return fail(404, '块不存在')
+    const pageMatch = /^p(\d+)_b\d+$/.exec(blockId)
+    const created = {
+      id: state.next_id.materials,
+      // 快照字段：真后端是"创建时深拷贝原文/译文/页码/文献名"
+      text_quote: `（mock 原文）${task.filename} 的 ${blockId} 这一段。`,
+      translated_quote: task.native ? null : `（mock 译文）${task.filename} 的 ${blockId} 这一段。`,
+      page: pageMatch ? Number(pageMatch[1]) + 1 : 1, // block_id 里页序从 0 起，显示要 +1
+      source_name: task.filename,
+      note: body.note ? String(body.note) : null,
+      task_id: task.id,
+      block_id: blockId,
+      deleted_at: null,
+      created_at: new Date().toISOString(),
+    }
+    state.next_id.materials += 1
+    state.materials.push(created)
+    return ok(materialView(created), 201)
+  },
+
+  'GET /api/materials': ({ query }) => {
+    const taskId = query.get('task_id') || ''
+    const collectionId = intOf(query.get('collection_id'))
+    const tag = query.get('tag') || ''
+    let rows = state.materials.filter((item) => item.deleted_at === null) // 软删的不出现在列表
+    if (taskId) rows = rows.filter((item) => String(item.task_id) === String(taskId))
+    if (collectionId !== null) {
+      rows = rows.filter((item) => (state.task_collections[item.task_id] || []).includes(collectionId))
+    }
+    if (tag) {
+      rows = rows.filter((item) => (state.task_tags[item.task_id] || []).some((entry) => entry.name === tag))
+    }
+    return ok({ items: rows.map(materialView) })
+  },
+
+  'DELETE /api/materials/{id}': ({ params }) => {
+    const material = state.materials.find((item) => item.id === Number(params.id))
+    if (!material) return fail(404, '素材不存在')
+    material.deleted_at = new Date().toISOString() // 软删 7 天（设计规范 §7.7）
+    return ok({ deleted: true, id: material.id, deleted_at: material.deleted_at })
+  },
+
+  // ---- §2.5 问答落库与台账
+  'POST /api/ask-logs': ({ body }) => {
+    if (!Array.isArray(body.source_block_ids)) return fail(400, 'source_block_ids 要是字符串数组')
+    const created = {
+      id: state.next_id.ask_logs,
+      task_id: intOf(body.task_id),
+      question: String(body.question ?? ''),
+      answer: String(body.answer ?? ''),
+      source_block_ids: body.source_block_ids.map(String),
+      created_at: new Date().toISOString(),
+    }
+    state.next_id.ask_logs += 1
+    state.ask_logs.push(created)
+    return ok({ id: created.id }, 201) // 契约就是这个形状：201 {id}
+  },
+
+  'GET /api/ask-logs': ({ query }) => {
+    const taskId = query.get('task_id') || ''
+    const rows = taskId ? state.ask_logs.filter((item) => String(item.task_id) === String(taskId)) : state.ask_logs
+    return ok({ items: rows })
+  },
+
+  'GET /api/memory-events': ({ query }) => {
+    const rows = memoryEvents(query.get('task_id') || '', query.get('layer') || '', query.get('limit') || '')
+    return ok({ items: rows })
+  },
+
+  'POST /api/memory-events': () =>
+    // ⚠️ 契约 §2.5：这个 POST 只给服务端内部用（写入方是服务端，不是前端手工埋点）。
+    // 所以 mock 这里**故意不返回假数据**——前端真去调它，说明埋点写错了地方。
+    fail(405, 'N17 的 POST 只给服务端内部用（契约 §2.5）：前端只调 GET，不许手工埋点'),
+
+  // ---- §2.6 起草
+  'GET /api/drafts': () => ok({ items: state.drafts.map(draftView) }),
+
+  'POST /api/drafts': ({ body }) => {
+    const title = String(body.title ?? '').trim()
+    if (!title || title.length > 200) return fail(400, '标题要 1–200 个字')
+    const created = {
+      id: state.next_id.drafts,
+      title,
+      body_md: '',
+      template_id: body.template_id ? String(body.template_id) : null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }
+    state.next_id.drafts += 1
+    state.drafts.push(created)
+    return ok(draftView(created), 201)
+  },
+
+  'GET /api/drafts/{id}': ({ params }) => {
+    const draft = state.drafts.find((item) => item.id === Number(params.id))
+    return draft ? ok(draftView(draft)) : fail(404, '草稿不存在')
+  },
+
+  'PATCH /api/drafts/{id}': ({ params, body }) => {
+    const draft = state.drafts.find((item) => item.id === Number(params.id))
+    if (!draft) return fail(404, '草稿不存在')
+    if (body.title !== undefined) {
+      const title = String(body.title).trim()
+      if (!title || title.length > 200) return fail(400, '标题要 1–200 个字')
+      draft.title = title
+    }
+    if (body.body_md !== undefined) draft.body_md = String(body.body_md)
+    if (body.template_id !== undefined) draft.template_id = body.template_id === null ? null : String(body.template_id)
+    draft.updated_at = new Date().toISOString()
+    return ok(draftView(draft))
+  },
+
+  'DELETE /api/drafts/{id}': ({ params }) => {
+    const draft = state.drafts.find((item) => item.id === Number(params.id))
+    if (!draft) return fail(404, '草稿不存在')
+    const view = draftView(draft)
+    state.citations = state.citations.filter((item) => item.draft_id !== draft.id)
+    state.drafts = state.drafts.filter((item) => item.id !== draft.id)
+    return ok(view)
+  },
+
+  'POST /api/drafts/{id}/citations': ({ params, body }) => {
+    const draft = state.drafts.find((item) => item.id === Number(params.id))
+    if (!draft) return fail(404, '草稿不存在')
+    const material = state.materials.find((item) => item.id === intOf(body.material_id) && item.deleted_at === null)
+    if (!material) return fail(404, '素材不存在')
+    const order = citationsOf(draft.id).length + 1
+    const created = {
+      id: state.next_id.citations,
+      draft_id: draft.id,
+      material_id: material.id,
+      order,
+      // ⭐ 插入时就生成并落库：CSL-JSON 是 M4 格式检查的唯一输入
+      csl_json: cslFromMaterial(material),
+      anchor: { block_id: material.block_id, offset: intOf(body.anchor && body.anchor.offset) ?? 0 },
+      created_at: new Date().toISOString(),
+    }
+    state.next_id.citations += 1
+    state.citations.push(created)
+    return ok(citationView(created), 201)
+  },
+
+  'GET /api/drafts/{id}/citations': ({ params }) => {
+    const draftId = Number(params.id)
+    if (!state.drafts.some((item) => item.id === draftId)) return fail(404, '草稿不存在')
+    return ok({ items: citationsOf(draftId) })
+  },
+
+  'DELETE /api/drafts/{id}/citations': ({ params }) => {
+    const draftId = Number(params.id)
+    if (!state.drafts.some((item) => item.id === draftId)) return fail(404, '草稿不存在')
+    const removed = citationsOf(draftId).length
+    state.citations = state.citations.filter((item) => item.draft_id !== draftId)
+    return ok({ deleted: true, count: removed })
+  },
+
+  // ---- §2.7 收口检查
+  'POST /api/check': ({ body }) => {
+    if (!body.draft_id || typeof body.doc_text !== 'string') return fail(400, '要 {draft_id, doc_text}')
+    const runId = state.next_id.check_runs
+    state.next_id.check_runs += 1
+    const template = state.check_runs[12]
+    // 报告内容是**固定示例**：契约冻的是形状，结论得由真后端算出来
+    const report = { ...structuredClone(template), run_id: runId }
+    state.check_runs[runId] = report
+    return ok(report)
+  },
+
+  'GET /api/check/{run_id}': ({ params }) => {
+    const report = state.check_runs[Number(params.run_id)]
+    return report ? ok(structuredClone(report)) : fail(404, '这次检查记录不存在')
+  },
+
+  // ---- §2.8 我的数据与台账
+  'GET /api/me/storage': () =>
+    ok({
+      total_bytes: 1288490188,
+      by_kind: { uploads: 402653184, outputs: 805306368, backups: 67108864, db: 12582912 },
+      location: '（mock）data/',
+    }),
+
+  'GET /api/me/export': ({ query }) => {
+    const format = query.get('format') || 'zip'
+    if (format === 'md') {
+      return ok(exportMarkdown(), 200, { contentType: 'text/markdown; charset=utf-8', filename: 'docwise-export.md' })
+    }
+    if (format === 'zip') {
+      // 空 ZIP（结构合法）：mock 不造内容，但也不给一个打不开的假文件
+      return ok(EMPTY_ZIP, 200, { contentType: 'application/zip', filename: 'docwise-export.zip' })
+    }
+    return fail(400, 'format 只支持 zip / md')
+  },
+
+  'GET /api/me/ledger': ({ query }) => {
+    const format = query.get('format') || 'json'
+    const rows = memoryEvents('', '', '')
+    if (format === 'json') return ok({ items: rows }) // 与 N17 同源同形状
+    if (format === 'csv') return ok(ledgerCsv(rows), 200, { contentType: 'text/csv; charset=utf-8', filename: 'docwise-ledger.csv' })
+    if (format === 'md') return ok(ledgerMarkdown(rows), 200, { contentType: 'text/markdown; charset=utf-8', filename: 'docwise-ledger.md' })
+    return fail(400, 'format 只支持 json / csv / md')
+  },
+
+  'DELETE /api/me': () => ok({ deleted: true, id: state.user.id }),
+
+  'PATCH /api/me': ({ body }) => {
+    if (body.display_name !== undefined) {
+      const name = String(body.display_name ?? '').trim()
+      if (!name || name.length > 64) return fail(400, '显示名要 1–64 个字')
+      state.user.display_name = name
+    }
+    return ok({ ...state.user })
+  },
+
+  'GET /api/me/sessions': () => ok({ items: state.sessions.map((item) => ({ ...item })) }),
+
+  'DELETE /api/me/sessions/{id}': ({ params }) => {
+    const id = Number(params.id)
+    if (!state.sessions.some((item) => item.id === id)) return fail(404, '会话不存在')
+    state.sessions = state.sessions.filter((item) => item.id !== id)
+    return ok({ deleted: true, id })
+  },
+}
+
+function lookup(method, path) {
+  for (const route of MOCK_ROUTES) {
+    if (route.method !== method) continue
+    const params = matchPath(route.path, path)
+    if (params) return { route, params }
+  }
+  return null
+}
+
+/**
+ * 这个请求命中了清单里的哪一条路由（没命中返回 null）。
+ *
+ * 给"清单里每条路由都得有用例"这类对账用：用例写的是具体路径（`/api/drafts/1`），
+ * 要反查它落在哪条模式（`/api/drafts/{id}`）上。
+ */
+export function mockRouteFor(method, path) {
+  const { path: pathname } = parseTarget(path)
+  const hit = lookup(String(method).toUpperCase(), pathname)
+  return hit ? hit.route : null
+}
+
+/**
+ * mock 的入口（契约 §4 冻的签名）：返回 `{status, body}`；
+ * 带文件的端点再带 `contentType` / `filename`。
+ *
+ * ⚠️ **没覆盖的路径直接抛错**（`tests/contract-mock.test.js` 专门盯着这条）——
+ * **不许静默返回空对象**：那会让前端以为"接口就是空的"，比报错难查得多。
+ */
+export function mockFetch(path, options = {}) {
+  const { path: pathname, query } = parseTarget(path)
+  const method = methodOf(options)
+  const hit = lookup(method, pathname)
+  if (!hit) {
+    throw new Error(
+      `契约 mock 没覆盖这个请求：${method} ${pathname}
+（mock 只覆盖契约 §2 里的新增端点 N1–N29，基线端点照旧打真后端；
+ 清单见 src/mock/contract.js 的 MOCK_ROUTES——要加端点先改契约再改这里）`,
+    )
+  }
+  const handler = HANDLERS[`${method} ${hit.route.path}`]
+  return handler({ params: hit.params, query, body: parseBody(options), path: pathname })
+}
+
+/**
+ * 给请求层用的一层薄适配：**开关关着、或不是 mock 覆盖的路径 → 返回 null（原样放行）**。
+ *
+ * 为什么"不是 mock 覆盖的路径"要放行而不是抛错：基线那 25 个端点**必须继续打真后端**，
+ * 否则开关一开整个应用就没法用了。抛错只保留在 `mockFetch()` 上（你显式问它要一个
+ * mock 却没覆盖时才该炸）。
+ */
+export function mockResponse(path, options = {}) {
+  if (!isMockEnabled()) return null
+  const { path: pathname } = parseTarget(path)
+  if (!lookup(methodOf(options), pathname)) return null
+  const result = mockFetch(path, options)
+  const headers = {}
+  if (result.contentType) headers['Content-Type'] = result.contentType
+  else if (result.body !== null && result.body !== undefined && typeof result.body !== 'string') {
+    headers['Content-Type'] = 'application/json'
+  }
+  const body =
+    result.status === 204 || result.body === null || result.body === undefined || typeof result.body === 'string'
+      ? result.body ?? null
+      : JSON.stringify(result.body)
+  return new Response(body, { status: result.status, headers })
+}
