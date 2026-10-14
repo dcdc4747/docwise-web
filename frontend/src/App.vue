@@ -48,6 +48,53 @@ import {
   sourceLabel,
 } from './blockLabel'
 import { buildHash, currentRoute, navigate, onRouteChange } from './router'
+import {
+  askAnchor,
+  askChipsHint,
+  askLoading,
+  askParagraph,
+  askPreset,
+  askQuestion,
+  askThread,
+  askTurns,
+  composerPlaceholder,
+  copyAnswer,
+  initAsk,
+  lastQuestion,
+  probePoint,
+  quickChips,
+  resetAsk,
+  retryTurn,
+  submitAsk,
+} from './stores/useAsk'
+import {
+  assistBodyClass,
+  assistBodyEl,
+  assistClass,
+  assistTab,
+  closeMenus,
+  cycleSheet,
+  disposeUi,
+  isNarrow,
+  locatedHint,
+  menuNote,
+  openMenu,
+  pdocScale,
+  pdocStyle,
+  pgChipFor,
+  runToastUndo,
+  scrollThreadToEnd,
+  setAssistBody,
+  setNote,
+  sheetGripText,
+  sheetState,
+  showToast,
+  stepFont,
+  syncNarrow,
+  toast,
+  toggleMenu,
+  togglePgChip,
+} from './stores/useUi'
 import { NConfigProvider, NSpin, zhCN, dateZhCN } from 'naive-ui'
 
 // ============================================================ 屏与账号
@@ -61,50 +108,6 @@ const demoAutologin = ref(false)
 const showAdmin = ref(false)
 const backendStatus = ref('checking')
 const healthInfo = ref(null)
-
-// ============================================================ 菜单 / 提示 / toast
-
-/** 当前展开的下拉菜单（单层级、互斥展开、点外关闭）——对应原型里的 .menu.open。 */
-const openMenu = ref('')
-const menuNote = ref('')
-let noteTimer = null
-
-function toggleMenu(name) {
-  openMenu.value = openMenu.value === name ? '' : name
-}
-function closeMenus() {
-  openMenu.value = ''
-}
-/** 菜单项 / 动作的一句话说明（原型用同一机制把 data-note 显示在 .note-line 上）。 */
-function setNote(text, holdMs = 6000) {
-  menuNote.value = text || ''
-  if (noteTimer) clearTimeout(noteTimer)
-  if (!text) return
-  noteTimer = setTimeout(() => {
-    menuNote.value = ''
-  }, holdMs)
-}
-
-const toast = ref({ show: false, text: '', undoLabel: '' })
-let toastTimer = null
-let toastUndo = null
-
-function showToast(text, undo = null, holdMs = 3000) {
-  toast.value = { show: true, text, undoLabel: undo ? undo.label : '' }
-  toastUndo = undo || null
-  if (toastTimer) clearTimeout(toastTimer)
-  toastTimer = setTimeout(() => {
-    toast.value = { show: false, text: '', undoLabel: '' }
-    toastUndo = null
-  }, holdMs)
-}
-function runToastUndo() {
-  const action = toastUndo
-  toast.value = { show: false, text: '', undoLabel: '' }
-  toastUndo = null
-  if (toastTimer) clearTimeout(toastTimer)
-  if (action && action.run) action.run()
-}
 
 // ============================================================ L1 库页
 
@@ -261,8 +264,8 @@ const bannerMeta = computed(() => {
 const currentTask = ref(null)
 /** 左栏三选一：段落精读（自己的 DOM，锚点才成立）/ 纯中文 PDF / 双语 PDF。 */
 const docMode = ref('paragraph')
-/** 右助手三个副页签：问答 ｜ 导读 ｜ 术语（页签数不再增加）。 */
-const assistTab = ref('ask')
+// `assistTab`（右助手当前副页签）已搬进 stores/useUi —— 它属于"界面零碎事"，
+// 而且问答那边（点「就这条追问」、手机点段号）也要切页签，放那边两边都能用。
 const assistTabs = [
   { key: 'ask', label: '问答' },
   { key: 'guide', label: '导读' },
@@ -270,6 +273,12 @@ const assistTabs = [
 ]
 
 const blocks = ref([])
+
+// 把问答线程要用的外部依赖交给它（`stores/useAsk.js` 不 import 别的 store —— 那样会绕成环）。
+// ⚠️ 这三样**将来会搬进 `stores/useReader.js`**，那时这里换成从 reader 取的引用即可，
+// `useAsk` 内部一行都不用改。函数声明会提升，所以这里引用下面的 `loadBlocks` 是安全的。
+initAsk({ blocks, currentTask, loadBlocks })
+
 /** 从段落精读切到 PDF 时要落在第几页（1 起；0/1 = 从头）。 */
 const pdfStartPage = ref(0)
 /** 段落精读里"当前读到第几页"（滚动时更新）——切到 PDF 模式要接着读，不能每次都回第 1 页。 */
@@ -534,10 +543,8 @@ const honestNote = ref('')
 let flashTimer = null
 
 const docPaneEl = ref(null)
-const assistBodyEl = ref(null)
-function setAssistBody(el) {
-  assistBodyEl.value = el
-}
+// `assistBodyEl` / `setAssistBody` 已搬进 stores/useUi（助手容器的模板 ref 由那边持有，
+// 点出处与提问后的"滚到底"也在那边）。这里只用 import 进来的那两个。
 
 const pageEls = new Map()
 function setPageEl(page, el) {
@@ -759,143 +766,6 @@ const termsEmptyText = computed(() => {
   return '正在生成术语表（与导读一同产出），请稍候…'
 })
 
-// ============================================================ 问答线程
-
-const askQuestion = ref('')
-const askLoading = ref(false)
-/** 提问锚点：划词（桌面）或点段号（手机）带上的那一段。 */
-const askAnchor = ref(null)
-let turnSeq = 0
-const askThread = ref([])
-
-/** 出处标签在渲染前就把人话坐标算好（模板里不出现函数调用）；相邻行同样先合并成一句。 */
-const askTurns = computed(() =>
-  askThread.value.map((turn) => ({
-    ...turn,
-    sources: mergeSourceRuns(turn.sourceIds || [], blocks.value).map((run) => {
-      const label = labelOf(run.id, run.text)
-      return { id: run.id, ids: run.ids, text: run.text, label, found: Boolean(label) }
-    }),
-  })),
-)
-
-const quickChips = [
-  { label: '局限与不足', q: '这项研究有什么局限？' },
-  { label: '未来工作', q: '论文提到的未来工作是什么？' },
-  { label: '用了哪些数据', q: '研究用了哪些数据或样本？' },
-  { label: '主要结果', q: '主要结果是什么？' },
-  { label: '结论可靠吗', q: '这些结论有多可靠？' },
-]
-const askChipsHint =
-  '导读已覆盖的五个要点（研究问题 / 方法 / 结论 / 创新点 / 贡献）在「导读」页签里，术语解释在「术语」页签里——这里只放它们都没答的提问'
-
-const lastQuestion = computed(() => {
-  const turns = askThread.value
-  for (let i = turns.length - 1; i >= 0; i -= 1) {
-    if (turns[i].question) return turns[i].question
-  }
-  return ''
-})
-
-const composerPlaceholder = '就这篇论文提问，或先划词再问…'
-
-function patchTurn(id, patch) {
-  askThread.value = askThread.value.map((turn) => (turn.id === id ? { ...turn, ...patch } : turn))
-}
-
-function scrollThreadToEnd() {
-  nextTick(() => {
-    const body = assistBodyEl.value
-    if (body) body.scrollTop = body.scrollHeight
-  })
-}
-
-async function submitAsk() {
-  const question = (askQuestion.value || '').trim()
-  if (!question || askLoading.value || !currentTask.value) return
-  if (!blocks.value.length) await loadBlocks(currentTask.value.id)
-  askQuestion.value = ''
-  askLoading.value = true
-  const id = ++turnSeq
-  askThread.value = [
-    ...askThread.value,
-    { id, question, answer: '', sourceIds: [], mode: '', loading: true, error: '', errorDetail: '', copied: false },
-  ]
-  scrollThreadToEnd()
-  try {
-    const res = await authFetch(`/api/tasks/${currentTask.value.id}/ask`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        question,
-        // 形态：提问锚点与出处是同一个坐标系——把划词 / 点段号选中的那段带给后端
-        focus_block_ids: askAnchor.value && askAnchor.value.blockId ? [askAnchor.value.blockId] : [],
-      }),
-    })
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}))
-      // 后端说清了原因就用它的原话（例：「该任务没有可提问的文本」）——
-      // 别拿"网络或服务繁忙"盖上去，那是把我们自己的问题说成用户的网不好。
-      const why = String(body.detail || '').trim()
-      patchTurn(id, {
-        loading: false,
-        error: why || '没答出来，服务没有给出原因。',
-        errorDetail: why ? '' : `HTTP ${res.status}`,
-      })
-      return
-    }
-    const data = await res.json()
-    patchTurn(id, {
-      loading: false,
-      answer: data.answer || '',
-      sourceIds: Array.isArray(data.source_block_ids) ? data.source_block_ids : [],
-      mode: data.mode || '',
-    })
-  } catch (err) {
-    patchTurn(id, {
-      loading: false,
-      // 走到这里才是真的没发出去 / 服务没响应，这时说"网络"才是对的
-      error: '没答出来：请求没发出去，或服务没响应。',
-      errorDetail: err.message || '',
-    })
-  } finally {
-    askLoading.value = false
-    askAnchor.value = null
-    scrollThreadToEnd()
-  }
-}
-
-function retryTurn(turn) {
-  askThread.value = askThread.value.filter((item) => item.id !== turn.id)
-  askQuestion.value = turn.question
-  submitAsk()
-}
-
-function askPreset(question) {
-  askQuestion.value = question
-  return submitAsk()
-}
-
-/** 导读卡「就这条追问」：带着这条要点的出处段落去问，答案同样标出处。 */
-function probePoint(point) {
-  const anchorId = point.sources.length ? point.sources[0].id : ''
-  askAnchor.value = anchorId ? { blockId: anchorId, text: point.text } : null
-  askQuestion.value = `关于「${point.label}」这条，能再展开说一点吗？`
-  assistTab.value = 'ask'
-  if (isNarrow.value && sheetState.value === 'peek') sheetState.value = 'half'
-  submitAsk()
-}
-
-async function copyAnswer(turn) {
-  try {
-    if (navigator.clipboard) await navigator.clipboard.writeText(turn.answer || '')
-    patchTurn(turn.id, { copied: true })
-    setTimeout(() => patchTurn(turn.id, { copied: false }), 1500)
-  } catch {
-    setNote('这个浏览器不让读剪贴板——手动选中复制即可')
-  }
-}
-
 // ============================================================ 术语定位（命中后回填）
 
 const termLocate = ref({})
@@ -915,66 +785,6 @@ async function locateTerm(item) {
     [item.term]: label ? `已定位 · ${label}` : '已定位（位置待定）',
   }
   traceTo(hit.block_id)
-}
-
-// ============================================================ 手机端：段落视图 + 抽屉三档
-
-const isNarrow = ref(false)
-const sheetState = ref('peek')
-const locatedHint = ref('')
-const pdocScale = ref(1)
-/** 手机上点段号浮出的「就这段提问」挂在哪一段（热区只有段号本身）。 */
-const pgChipFor = ref('')
-
-const sheetGripText = computed(() => {
-  if (sheetState.value === 'peek') return '上拖展开（半屏 → 近全屏）'
-  if (sheetState.value === 'full') return '下拖回到半屏'
-  return '上拖到近全屏'
-})
-
-const peekSummary = computed(() =>
-  lastQuestion.value
-    ? `当前问题：${lastQuestion.value}`
-    : '读到有问题的地方，点段落浮出「就这段提问」',
-)
-
-const assistClass = computed(() => {
-  if (!isNarrow.value) return ['assist']
-  return [
-    'sheet',
-    sheetState.value === 'peek' ? 'peek' : '',
-    sheetState.value === 'full' ? 'full' : '',
-  ]
-})
-
-const assistBodyClass = computed(() => (isNarrow.value ? 'sbody' : 'tabbody'))
-
-const pdocStyle = computed(() => ({ '--pdoc-scale': String(pdocScale.value) }))
-
-function cycleSheet() {
-  const order = ['peek', 'half', 'full']
-  sheetState.value = order[(order.indexOf(sheetState.value) + 1) % order.length]
-}
-
-/** 手机端点段号：浮出 / 收起「就这段提问」。段落本身就是锚点，不用划词、不用文本匹配。 */
-function togglePgChip(row) {
-  if (row.index === null) return
-  const id = row.block.block_id
-  pgChipFor.value = pgChipFor.value === id ? '' : id
-}
-
-function askParagraph(row) {
-  askAnchor.value = { blockId: row.block.block_id, text: row.source }
-  pgChipFor.value = ''
-  askQuestion.value = '就这段提问：这段在讲什么？'
-  assistTab.value = 'ask'
-  sheetState.value = 'half'
-  submitAsk()
-}
-
-function stepFont(delta) {
-  const next = Math.round((pdocScale.value + delta * 0.1) * 10) / 10
-  pdocScale.value = Math.min(1.4, Math.max(0.85, next))
 }
 
 /**
@@ -1025,10 +835,15 @@ const mobileLangLabel = computed(() => {
   return hasBlockTranslations.value ? '中英对照' : '原文'
 })
 
-function syncNarrow() {
-  if (typeof window === 'undefined') return
-  isNarrow.value = window.innerWidth < 1024
-}
+// `syncNarrow` / `isNarrow` 已搬进 stores/useUi（窄屏判断是界面零碎事）
+
+/** 手机抽屉收起时那一行摘要（要显示"当前问题"，所以依赖 useAsk 的 lastQuestion，
+ *  这也正是它不放进 useUi 的原因——放进去两个 store 就绕成环了）。 */
+const peekSummary = computed(() =>
+  lastQuestion.value
+    ? `当前问题：${lastQuestion.value}`
+    : '读到有问题的地方，点段落浮出「就这段提问」',
+)
 
 // ============================================================ 阅读位置记忆
 
@@ -1194,10 +1009,7 @@ async function refreshWorkbench(taskId) {
 
 function resetWorkbench() {
   understandReset()
-  askThread.value = []
-  askQuestion.value = ''
-  askLoading.value = false
-  askAnchor.value = null
+  resetAsk()
   selChip.value = null
   pickedBlockId.value = ''
   blocks.value = []
@@ -1803,9 +1615,10 @@ onUnmounted(() => {
   window.removeEventListener('keydown', onGlobalKeydown)
   if (stopRouteWatch) stopRouteWatch()
   stopProgress()
+  // 提示条 / note 的定时器现在归 stores/useUi 管，由它自己收尾
+  // （原来在本地声明，搬走之后这里再 clear 就会报 `noteTimer is not defined`）
+  disposeUi()
   if (activeTimer) clearInterval(activeTimer)
-  if (noteTimer) clearTimeout(noteTimer)
-  if (toastTimer) clearTimeout(toastTimer)
   if (flashTimer) clearTimeout(flashTimer)
   if (dropHintTimer) clearTimeout(dropHintTimer)
 })
