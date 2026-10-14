@@ -23,7 +23,8 @@ export const historyError = ref('')
  * 从后端把列表拉进 `tasks`。
  *
  * ⚠️ **它只负责"取数据"**：原实现里 `finally` 还调了一次 `syncActiveDetail()`（对进行中那条补详情），
- * 那是 App 级的联动、会反向依赖阅读区，所以**没搬进来**——App.vue 在 `loadTasks()` 之后自己调。
+ * 那个联动要读阅读区，所以**没搬进来**——`stores/useLibrary` 在 `loadTasks()` 之后自己调，
+ * 包成 `loadTasksAndSync()`。
  */
 export async function loadTasks() {
   historyLoading.value = true
@@ -54,4 +55,32 @@ export function patchTask(task) {
 export function clearTasks() {
   tasks.value = []
   historyError.value = ''
+}
+
+// ============================================================ 任务的状态与文案
+//
+// 库页、阅读区、弹层三处要用**同一套**写法（形态硬约定："档位只有一个写法"）。
+// 放在这个最小的叶子 store 里：谁都能直接 import，谁也不会跟谁绕成环。
+
+export const ACTIVE_STATES = ['pending', 'in_progress']
+export const RETRYABLE_STATES = ['failed', 'cancelled']
+export const TERMINAL_STATES = ['completed', 'failed', 'cancelled']
+
+export const statusTextMap = {
+  pending: '排队中',
+  in_progress: '翻译中',
+  completed: '已完成',
+  failed: '失败',
+  cancelled: '已取消',
+}
+
+/** 状态胶囊配色（照原型：已完成=绿、失败=红、已取消=橙、其余=灰）。 */
+export const statusChipMap = { completed: 'ok', failed: 'fail', cancelled: 'warn' }
+
+/** 档位只有一个写法（形态硬约定）：选择处、工具条、卡片一律用这一套。 */
+export const tierTextMap = {
+  fast: '快档 · 最快',
+  medium: '中档 · 平衡',
+  // 历史任务里若出现过精档，如实显示"未开放"，不写"最准"——那个能力还没做
+  precise: '精档（未开放）',
 }
