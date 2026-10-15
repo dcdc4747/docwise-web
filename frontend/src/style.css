@@ -1245,5 +1245,83 @@ svg.ic-inl {
   overflow-y: auto;
 }
 
+/* ============================================================================
+   [M2] 素材卡 —— `MaterialCard.vue`（issue #110 / 任务卡：卡②）
+   ============================================================================
+   本段是这一张卡的**自己那一段**：只加 `.mat-` 前缀的规则，不动上面任何人的段。
+   颜色 / 字号 / 间距一律写 token 名（契约_前端命名与拆分_v1 §4.2），不写字面值。
+
+   三种状态靠三个类区分（组件侧同时给出，样式侧只负责"一眼可辨"）：
+   正常 · `.is-orphan`（源文献已删，快照仍在）· `.is-deleted`（软删，7 天内可撤销）。
+   ============================================================================ */
+
+.dw .mat-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+
+/* 源文献已删：**不报警、不加红**，只是把边框收轻一点 + 贴着一条中性灰的诚实提示 */
+.dw .mat-card.is-orphan { border-color: var(--line-soft); }
+
+/* 软删：整卡退到背景里（虚线边 + 降透明度），但**不隐藏**——7 天撤销窗口要靠它看得见 */
+.dw .mat-card.is-deleted {
+  border-style: dashed;
+  background: var(--surface-2);
+  opacity: 0.72;
+}
+.dw .mat-badge {
+  margin: 0;
+  color: var(--warn-ink);
+  font-size: var(--fs-meta);
+  font-weight: 600;
+}
+
+.dw .mat-quote {
+  margin: 0;
+  color: var(--ink);
+  font-size: var(--fs-ui);
+  line-height: 1.7;
+}
+.dw .mat-trans {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--fs-meta);
+  line-height: 1.7;
+}
+.dw .mat-note {
+  margin: 0;
+  color: var(--accent);
+  font-size: var(--fs-meta);
+}
+
+.dw .mat-cite { display: flex; }
+
+/* ⭐ 冻结态（`task_id` 为 null = 不能回跳）：**置灰、不可点、看起来就不像活链**。
+   `inert` 已经在组件侧挡掉鼠标与键盘，这里只负责"别让它继续蓝着"——
+   死链做成活链样式，是这一版最不能接受的一种谎。 */
+.dw .mat-frozen .cite-chip {
+  border-color: var(--line);
+  background: var(--surface-2);
+  color: var(--unknown);
+  cursor: default;
+}
+
+.dw .mat-ops {
+  display: flex;
+  gap: var(--sp-2);
+}
+
+/* 自跑模式（`?demo=mock`）：三种状态纵向排开，方便截图与样式评审 */
+.dw .mat-demo {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
 
 
