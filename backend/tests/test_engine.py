@@ -1,3 +1,4 @@
+import json
 import sys
 from pathlib import Path
 
@@ -191,3 +192,136 @@ def test_fast_engine_uses_base_env_only(monkeypatch, tmp_path) -> None:
     )
 
     assert result.status == TaskState.COMPLETED
+
+
+# ---------- 文档结构（M6 / C1）：引擎侧给什么、后端就存什么 ----------
+
+
+def _run_fake_engine_with_payload(monkeypatch, payload: dict) -> TranslationResult:
+    """起一个假引擎（只写 result.json），验证"引擎 → TranslationResult"这条接线。
+
+    产物目录用 `storage.OUTPUTS_DIR`（conftest 已指到临时区），不往仓库里写。
+    """
+    from uuid import uuid4
+
+    from app import storage
+
+    workdir = storage.OUTPUTS_DIR / f"structure_{uuid4().hex}"
+    workdir.mkdir(parents=True, exist_ok=True)
+    payload_file = workdir / "payload.json"
+    payload_file.write_text(
+        json.dumps(payload, ensure_ascii=False), encoding="utf-8"
+    )
+
+    runner = workdir / "runner.py"
+    runner.write_text(
+        "import argparse, json, pathlib\n"
+        "p = argparse.ArgumentParser()\n"
+        "for name in ('input', 'output', 'lang-in', 'lang-out', 'service', 'thread'):\n"
+        "    p.add_argument('--' + name)\n"
+        "args = p.parse_args()\n"
+        "out = pathlib.Path(args.output)\n"
+        "(out / 'mono.pdf').write_bytes(b'pdf')\n"
+        "(out / 'dual.pdf').write_bytes(b'pdf')\n"
+        f"payload = json.loads(pathlib.Path({str(payload_file)!r})"
+        ".read_text(encoding='utf-8'))\n"
+        "payload['mono'] = str(out / 'mono.pdf')\n"
+        "payload['dual'] = str(out / 'dual.pdf')\n"
+        "(out / 'result.json').write_text(json.dumps(payload), encoding='utf-8')\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("DOCWISE_ENGINE_PYTHON", sys.executable)
+    monkeypatch.setenv("DOCWISE_ENGINE_SCRIPT", str(runner))
+    monkeypatch.setenv("DOCWISE_ENGINE_SERVICE", "demo")
+
+    return OpenSourceEngine().translate(
+        TranslateRequest(source_path=workdir / "a.pdf", output_dir=workdir / "out")
+    )
+
+
+def _completed_payload(**extra) -> dict:
+    payload = {
+        "status": "completed",
+        "blocks": [{"block_id": "b1", "text": "hello"}],
+    }
+    payload.update(extra)
+    return payload
+
+
+def test_engine_reads_structure_from_result_json(monkeypatch) -> None:
+    """引擎给了 structure：原样带回来，后端不加判定、不重算层级。"""
+    structure = {
+        "headings": [{"block_id": "p1_b5", "level": 2, "text": "2.1. 技术接受模型"}],
+        "references": {
+            "count": 1,
+            "entries": [{"index": 1, "text": "F. Hund, Z. Phys. 43, 805 (1927)."}],
+        },
+    }
+
+    result = _run_fake_engine_with_payload(
+        monkeypatch, _completed_payload(structure=structure)
+    )
+
+    assert result.status == TaskState.COMPLETED
+    assert result.structure == structure
+
+
+def test_engine_without_structure_is_none(monkeypatch) -> None:
+    """老产物 / 引擎那条路还没接上：structure 是 None，**不抛异常、不补默认值**。"""
+    result = _run_fake_engine_with_payload(monkeypatch, _completed_payload())
+
+    assert result.status == TaskState.COMPLETED
+    assert result.structure is None
+
+
+@pytest.mark.parametrize("bad", [[1, 2], "headings", 42, None, True])
+def test_engine_structure_wrong_type_is_none(monkeypatch, bad) -> None:
+    """形状不对（不是对象）就当没有——坏数据不许把任务搞失败。"""
+    result = _run_fake_engine_with_payload(
+        monkeypatch, _completed_payload(structure=bad)
+    )
+
+    assert result.status == TaskState.COMPLETED
+    assert result.structure is None
+
+
+def test_worker_persists_structure_to_task_row() -> None:
+    """C1 判据①：结构结果落到库里。
+
+    worker 把引擎给的 structure **原样**写进 `tasks.structure`。
+    """
+    from helpers import TEST_USER_ID
+
+    from app.db import SessionLocal
+    from app.models import Task
+    from app.worker import TaskEventBus, TranslationWorker
+
+    structure = {
+        "headings": [{"block_id": "b1", "level": 1, "text": "Introduction"}],
+        "references": {"count": 2, "entries": [{"index": 1, "text": "ref one"}]},
+    }
+
+    with SessionLocal() as session:
+        task = Task(filename="a.pdf", user_id=TEST_USER_ID, status="in_progress")
+        session.add(task)
+        session.commit()
+        task_id = task.id
+
+    worker = TranslationWorker(TaskEventBus())
+    worker._persist_result(
+        task_id,
+        TranslationResult(
+            task_id=str(task_id),
+            translated_path=None,
+            status=TaskState.COMPLETED,
+            progress=1.0,
+            structure=structure,
+        ),
+    )
+
+    with SessionLocal() as session:
+        saved = session.get(Task, task_id)
+        assert saved is not None
+        assert saved.structure == structure
+        assert saved.status == TaskState.COMPLETED.value
+

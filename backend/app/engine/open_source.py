@@ -209,6 +209,14 @@ class OpenSourceEngine(TranslationEngine):
                 if isinstance(payload.get("regions"), dict)
                 else None
             ),
+            # 文档结构（M6 / C1）：引擎侧解析器给就给（标题层级 + 参考文献条目），
+            # 给不出（老产物 / 还没接的引擎）就是 None——**缺了不许当失败**，
+            # 界面按既有行为退回，绝不抛异常。
+            structure=(
+                payload.get("structure")
+                if isinstance(payload.get("structure"), dict)
+                else None
+            ),
         )
 
     @staticmethod

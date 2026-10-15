@@ -112,6 +112,13 @@ class TranslationResult:
     # 所以后端按"块首行中心点落在哪个区域里"来贴类别）。
     # **摸不到就是 None**（老任务、扫描件那条路），分级器自动退回文字形状 + 字号。
     regions: dict | None = None
+    # **文档结构**（2026-10-15，M6 / C1）：引擎侧结构解析器把
+    # `{"headings": [{"block_id", "level", "text"}],
+    #   "references": {"count", "entries": [{"index", "text"}]}}`
+    # 带回来。与 `regions` 同一口径：**只存原始量、不存判定结果**——层级是解析器给的，
+    # 后端不重算；判级仍归 `blocktypes.py`。
+    # **摸不到就是 None**（老任务、引擎那条路还没接上），界面退回现有行为，绝不抛异常。
+    structure: dict | None = None
 
 
 class TranslationEngine(ABC):
