@@ -1,0 +1,130 @@
+"""收口检查（M4 / 契约 §2.7 的 N22–N23，共 2 个端点）。
+
+口径（照契约，别自己发明）：
+
+- **N22** `POST /api/check` `{draft_id, doc_text}` → `200 CheckReport`
+  —— 跑一遍 `app/check/engine.py` 的纯函数引擎，**把这次运行落库**（N23 要能回看）；
+- **N23** `GET /api/check/{run_id}` → `200 CheckReport`（刷新后回看 / 导出用）；
+- ⭐ **报告就是唯一的产出**：本模块**不替用户改稿**
+  （形态 §3.3 ②"并列摆出两处，不自动改"），也不写回草稿——检查是"看"，不是"改"；
+- ⭐ `unknown` 是一等公民：判不出语言/制式就在报告里明说，**不当成"没问题"**；
+- 归属：草稿不是本人的、或报告不是本人的 → **一律 404**（不暴露"存在但无权限"）。
+"""
+
+from __future__ import annotations
+
+import logging
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from ..check.engine import run_check
+from ..deps import get_current_user, get_db
+from ..models import CheckRun, Citation, Draft, Material, User
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/api/check", tags=["check"])
+
+# 正文上限与起草那条一致（M4 的 doc_text 就是整篇稿子）
+_DOC_MAX = 200_000
+# 挑候选素材时最多看多少张卡：**只影响"建议引哪一条"的质量，不影响判不判**
+_MATERIAL_SCAN = 200
+
+
+class CheckRequest(BaseModel):
+    """契约 §2.7 的入参：`{draft_id, doc_text}`。"""
+
+    draft_id: int
+    doc_text: str = Field(default="", max_length=_DOC_MAX)
+
+
+def _load_owned_draft(db: Session, user: User, draft_id: int) -> Draft:
+    """取自己的草稿；不存在或不是本人的 → 404（**不区分**，免得暴露"存在但无权限"）。"""
+    row = db.scalar(select(Draft).where(Draft.id == draft_id, Draft.user_id == user.id))
+    if row is None:
+        raise HTTPException(status_code=404, detail="草稿不存在")
+    return row
+
+
+def _citations_of(db: Session, draft_id: int) -> list[dict]:
+    """把引文摊成引擎要的形状（`order` + `csl_json` 就够——格式检查只认这个）。"""
+    rows = db.scalars(
+        select(Citation).where(Citation.draft_id == draft_id).order_by(Citation.order)
+    ).all()
+    return [{"order": row.order, "csl_json": row.csl_json} for row in rows]
+
+
+def _materials_of(db: Session, user: User) -> list[dict]:
+    """本人的素材卡（未软删的、新的在前）——**只用来挑"该引哪一条"**。"""
+    rows = db.scalars(
+        select(Material)
+        .where(Material.user_id == user.id, Material.deleted_at.is_(None))
+        .order_by(Material.created_at.desc())
+        .limit(_MATERIAL_SCAN)
+    ).all()
+    return [
+        {
+            "id": row.id,
+            "page": row.page,
+            "text_quote": row.text_quote,
+            "translated_quote": row.translated_quote,
+        }
+        for row in rows
+    ]
+
+
+@router.post("")
+def create_check(
+    body: CheckRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    """`POST /api/check` → `200 CheckReport` ｜ 404 草稿不存在。
+
+    ⚠️ 正文取**请求体里的 `doc_text`**（契约如此），不读库里的 `body_md`：
+    前端可能带着"还没保存的当前稿"来检查，服务端替它决定用哪一份才是错的。
+    """
+    _load_owned_draft(db, user, body.draft_id)
+    report = run_check(
+        body.doc_text,
+        citations=_citations_of(db, body.draft_id),
+        materials=_materials_of(db, user),
+    )
+
+    row = CheckRun(
+        user_id=user.id,
+        draft_id=body.draft_id,
+        lang=report["step"]["lang"],
+        citation_style=report["step"]["citation_style"],
+        ruleset_version=report["ruleset_version"],
+        report=report,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+
+    # 落库之后才知道 run_id：把同一份报告补上它再存一次，
+    # 这样 **GET 回来的和 POST 当场返回的逐字节一致**（两份不一致比没有更糟）。
+    report["run_id"] = row.id
+    row.report = report
+    db.add(row)
+    db.commit()
+    return report
+
+
+@router.get("/{run_id}")
+def get_check(
+    run_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    """`GET /api/check/{run_id}` → `200 CheckReport`（回看 / 导出）｜ 404。"""
+    row = db.scalar(
+        select(CheckRun).where(CheckRun.id == run_id, CheckRun.user_id == user.id)
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="检查报告不存在")
+    return row.report

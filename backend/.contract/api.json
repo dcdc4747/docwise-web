@@ -14,7 +14,7 @@
     "真实性来源：本清单的 anchors 是由 backend/scripts/check_contract.py --print 打出来的真实路由表逐条核对的，",
     "  不是从文档抄的 —— 手抄文档正是第一版把 25 个端点写成 23 个的原因。"
   ],
-  "declared_endpoint_count": 33,
+  "declared_endpoint_count": 35,
   "anchors": [
     { "method": "GET", "path": "/api/health", "note": "真检查（数据库+worker）；无需鉴权" },
 
@@ -53,7 +53,9 @@
     { "method": "DELETE", "path": "/api/drafts/{param}", "note": "N19 删草稿；**手工删引文**（SQLite 外键没开级联）" },
     { "method": "POST", "path": "/api/drafts/{param}/citations", "note": "N20 插入引文，落 CSL-JSON；order 由服务端算；404 素材不存在/软删/非本人" },
     { "method": "GET", "path": "/api/drafts/{param}/citations", "note": "N21 引文列表，每条带 csl_json" },
-    { "method": "DELETE", "path": "/api/drafts/{param}/citations", "note": "N21 整篇清空引文（契约只给了一个删路径，没有按 id 单删）" }
+    { "method": "DELETE", "path": "/api/drafts/{param}/citations", "note": "N21 整篇清空引文（契约只给了一个删路径，没有按 id 单删）" },
+    { "method": "POST", "path": "/api/check", "note": "N22 收口检查；CheckReport（unknown 是一等公民，不报百分比；带 ruleset_version）" },
+    { "method": "GET", "path": "/api/check/{param}", "note": "N23 回看某次检查报告（与 POST 当场返回的逐字节一致）" }
   ],
   "expected_new": [
     { "method": "GET", "path": "/api/collections", "note": "N1 集合列表（doc_count 直接成员 / doc_count_deep 含子集合）" },
@@ -77,9 +79,6 @@
     { "method": "GET", "path": "/api/ask-logs", "note": "N16 问答台账，?task_id?" },
     { "method": "GET", "path": "/api/memory-events", "note": "N17 台账读取（前端只调 GET），?task_id? &layer? &limit?" },
     { "method": "POST", "path": "/api/memory-events", "note": "N17 只给服务端内部写（前端不该手工埋点）" },
-
-    { "method": "POST", "path": "/api/check", "note": "N22 收口检查；CheckReport（unknown 是一等公民，不报百分比）" },
-    { "method": "GET", "path": "/api/check/{param}", "note": "N23 回看某次检查报告" },
 
     { "method": "GET", "path": "/api/me/storage", "note": "N24 磁盘占用分类" },
     { "method": "GET", "path": "/api/me/export", "note": "N25 一键导出，?format=zip|md（流式）" },
