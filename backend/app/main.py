@@ -22,6 +22,7 @@ from .models import Task, User
 from .routers.admin import router as admin_router
 from .routers.ask import router as ask_router
 from .routers.auth import router as auth_router
+from .routers.drafts import router as drafts_router
 from .routers.tasks import router as tasks_router
 from .timeutil import utc_now
 from .worker import TaskEventBus, TranslationWorker
@@ -217,6 +218,10 @@ app.include_router(ask_router)
 app.include_router(auth_router)
 app.include_router(admin_router)
 app.include_router(tasks_router)
+# 起草与引文（契约 §2.6 / N18–N21）。
+# ⚠️ **必须写在 `webapp.mount_frontend(app)` 之前** —— Starlette 按注册顺序匹配，
+# 写在挂载之后会被静态文件吃成 404（`test_same_origin` 有结构断言盯着）。
+app.include_router(drafts_router)
 
 
 def _database_writable() -> tuple[bool, str | None]:
