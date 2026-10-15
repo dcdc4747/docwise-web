@@ -44,6 +44,7 @@ from sqlalchemy import Engine, create_engine, inspect, select, text  # noqa: E40
 from app import models  # noqa: E402,F401  (导入即把表结构注册进 Base.metadata)
 from app.config import settings  # noqa: E402
 from app.db import Base  # noqa: E402
+from app.smart_rules import BUILTIN_SMART_COLLECTIONS  # noqa: E402
 from app.timeutil import utc_now  # noqa: E402
 
 MARKER = "v2_schema_20261014"
@@ -69,11 +70,9 @@ NEW_TABLES: tuple[str, ...] = (
 )
 
 # 内置三条智能集合（`builtin: true`，迁移时种下）：规则即数据。
-BUILTIN_SMART_COLLECTIONS: tuple[tuple[str, dict], ...] = (
-    ("待读", {"all": [{"field": READING_STATUS, "op": "eq", "value": "todo"}]}),
-    ("在读", {"all": [{"field": READING_STATUS, "op": "eq", "value": "reading"}]}),
-    ("已读", {"all": [{"field": READING_STATUS, "op": "eq", "value": "done"}]}),
-)
+# ⚠️ **规则表不在这里定义**——唯一真源是 `app/smart_rules.py`
+# （迁移 / 读接口自愈 / 运维脚本三处共用）。曾经担心的漂移是真实风险：
+# 三处各写一份，早晚会出现"界面显示的那条规则和当初迁进去的那条不一样"。
 
 
 @dataclass

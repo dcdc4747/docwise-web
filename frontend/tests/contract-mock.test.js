@@ -75,6 +75,15 @@ const IMPLEMENTED_BUT_MOCKED = [
   // 台账那一组（N15–N17，2026-10-16 加的前缀）：已实现但仍要 mock
   '/api/ask-logs',
   '/api/memory-events',
+  // 知识库那一组（N1–N7、N9–N11，2026-10-16 加的前缀）：已实现但仍要 mock
+  '/api/collections',
+  '/api/tags',
+  '/api/smart-collections',
+  // ⚠️ 这一组里有两条挂在**基线家族** `/api/tasks` 下面（N5 归集 / N7 标签）。
+  //   不能整族写 `/api/tasks`——那会把基线端点一起拖进清单，而清单本意是
+  //   「基线必须继续打真后端、绝不在列」；所以写**归一化后的精确路径**。
+  '/api/tasks/{param}/collections',
+  '/api/tasks/{param}/tags',
 ]
 const reconcileKeys = [
   ...expectedNewKeys,

@@ -24,10 +24,15 @@ from .routers.ask import router as ask_router
 from .routers.auth import router as auth_router
 from .routers.bibliography import router as bibliography_router
 from .routers.check import router as check_router
+from .routers.collections import router as collections_router
+from .routers.collections import task_router as collections_task_router
 from .routers.drafts import router as drafts_router
 from .routers.ledger import router as ledger_router
 from .routers.materials import router as materials_router
 from .routers.me import router as me_router
+from .routers.smart_collections import router as smart_collections_router
+from .routers.tags import router as tags_router
+from .routers.tags import task_router as tags_task_router
 from .routers.tasks import router as tasks_router
 from .timeutil import utc_now
 from .worker import TaskEventBus, TranslationWorker
@@ -237,6 +242,14 @@ app.include_router(ledger_router)
 app.include_router(me_router)
 # 参考文献格式化（契约 §2.6 / N31）。同理**必须在 `webapp.mount_frontend(app)` 之前**。
 app.include_router(bibliography_router)
+# 知识库（契约 §2.1–§2.3 / N1–N7、N9–N11）。同理。
+# ⚠️ 集合与标签各有两个 router：一个挂自己那组资源，
+# 一个挂 `/api/tasks/{id}/...` 的归集端点。
+app.include_router(collections_router)
+app.include_router(collections_task_router)
+app.include_router(tags_router)
+app.include_router(tags_task_router)
+app.include_router(smart_collections_router)
 
 
 def _database_writable() -> tuple[bool, str | None]:
