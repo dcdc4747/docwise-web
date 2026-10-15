@@ -780,13 +780,32 @@ export function resetWorkbench() {
   sheetState.value = 'peek'
 }
 
+/**
+ * 个人中心（M5）的「默认读法」偏好 → 打开任务时用哪个模式。
+ *
+ * ⚠️ 偏好只存在本机 `localStorage.docwise_prefs`（**后端没有偏好接口**，契约的 N 清单里
+ * 也没有这一项），所以这里直接读它——读不到 / 坏数据 / 值不认识一律回落"段落精读"。
+ * ⚠️ `pdf`（原版）那一档在 v2 阅读区**没有对应模式**（v1 的 iframe 原版已去掉，
+ * PDF 走 `mono` / `dual`），所以它回落；`docModeOptions` 那头还有一道校验：
+ * 任务没有对应产物（比如没有双语稿）时同样回落，不会卡在一个打不开的模式上。
+ */
+function preferredDocMode() {
+  const byPref = { blocks: 'paragraph', mono: 'mono', dual: 'dual' }
+  try {
+    const raw = JSON.parse(localStorage.getItem('docwise_prefs') || '{}')
+    return byPref[raw.defaultView] || 'paragraph'
+  } catch {
+    return 'paragraph'
+  }
+}
+
 /** 打开任意任务到阅读工作台（历史「继续读」/ 上传后 / 首屏示例入口 走同一条路径）。 */
 export async function openTask(task, options = {}) {
   stopProgress()
   currentTask.value = task
   view.value = 'reader'
   assistTab.value = options.tab || 'ask'
-  docMode.value = 'paragraph'
+  docMode.value = preferredDocMode()
   resetWorkbench()
   assistTab.value = options.tab || 'ask'
   // 地址跟着状态走：进了阅读工作区就把它写进 hash（刷新 / 后退才不会丢页）。

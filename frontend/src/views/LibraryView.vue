@@ -23,6 +23,24 @@
       </button>
     </div>
 
+    <!-- ==================== 筛选区（卡③ + 契约 N8） ====================
+         **状态**那一行现在是真能筛的（N8 四个参数已在后端）；集合 / 标签 / 智能集合
+         三行的列表接口（N1 / N6 / N9）还没实现，所以传空数组 —— `LibFilters` 里那几行
+         是 `v-if="xxx.length"`，**不摆空壳**。
+         ⚠️ `shown` 用 `tasks.length`（筛过之后服务端返回的条数），**不是** `taskCards.length`
+         —— 后者是"渲成卡片的那些"，进行中的任务不在里面，拿它会误报"筛空了"。 -->
+    <LibFilters
+      v-if="!libraryEmpty"
+      :filters="filters"
+      :total="libraryTotal"
+      :shown="tasks.length"
+      :collections="[]"
+      :tags="[]"
+      :smart-collections="[]"
+      @change="applyFilters"
+      @clear="clearFilters"
+    />
+
     <!-- 上传卡：空库时就在 hero 下面；有历史时由「＋ 上传 PDF」按需展开 -->
     <div v-if="libraryEmpty || showUpload" class="card upload-card">
       <div class="drop" :class="{ 'drop-over': uploading || dropHinting }" @click="pickFile()" @dragover.prevent @drop.prevent="onDrop">
@@ -147,6 +165,10 @@
         </div>
       </div>
 
+      <!-- 概况底行（卡③）：`N 篇文献 · M 块 · X 条素材 · Y 条引用` 四段数要资产计数
+           （那部分接口还没实现）→ **没数就走诚实档**，组件自己不摆一排 0 冒充统计好了。 -->
+      <LibOverview />
+
       <div class="footline">
         <span v-if="taskActionError" style="color: var(--danger)">{{ taskActionError }}</span>
         <span class="spacer" />
@@ -168,8 +190,11 @@
  * 与"当前显示哪个视图"同属一件事；拆进视图反而要穿 4 个 props + 2 个事件，
  * 为的是把 18 行挪个地方，并不划算。
  */
+import { ref, watch } from 'vue'
+
 import {
   activeBars,
+  activeTaskQuery,
   bannerMeta,
   cancelTask,
   completedBannerTask,
@@ -179,6 +204,7 @@ import {
   dropHinting,
   langOptions,
   libraryEmpty,
+  libraryTotal,
   loadTasksAndSync,
   onDrop,
   openExample,
@@ -195,6 +221,31 @@ import {
   uploading,
   uploadError,
 } from '../stores/useLibrary'
+import LibFilters from '../components/LibFilters.vue'
+import LibOverview from '../components/LibOverview.vue'
 import { openTask } from '../stores/useReader'
 import { historyError, statusTextMap, tasks } from '../stores/useTasks'
+
+// ---------------------------------------------------------------- 筛选（契约 N8）
+//
+// ⚠️ **筛选状态的主人是这一页**：`LibFilters` 走"`filters` 进、`change`/`clear` 出"
+// （卡③⑥ 明令它自己不许进 store）。这里同时做三件事：
+// ① 把条件交给 `loadTasksAndSync()`（**服务端筛**，不是客户端过滤——契约写的是查询参数）；
+// ② 从「待读」这类左栏入口进来时，条件已经写在 store 里了，跟着它走；
+// ③ 组件的「筛空了给出口」要 `total` 与 `shown`：家底读 store 的 `libraryTotal`
+//    （只在没筛的那一次记），当前条数就是筛过之后返回的 `tasks.length`。
+const filters = ref({ ...(activeTaskQuery.value || {}) })
+
+watch(activeTaskQuery, (query) => {
+  filters.value = { ...(query || {}) }
+})
+
+function applyFilters(next) {
+  filters.value = { ...next }
+  loadTasksAndSync(filters.value)
+}
+
+function clearFilters() {
+  applyFilters({})
+}
 </script>

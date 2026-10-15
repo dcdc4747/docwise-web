@@ -1895,5 +1895,49 @@ svg.ic-inl {
   gap: var(--sp-3);
 }
 
+/* ============================================================================
+   [M0] 外壳集成（2026-10-16）—— 把 M1 / M5 的组件接进外壳时要补的那几笔
+   ============================================================================
+   自己的那一段：只加 `.screen-me`（个人中心那一屏的容器）与 `.admin-backbar`
+   （管理后台的返回条），不动上面任何人的段。颜色 / 字号 / 间距一律 token 名。
+   ============================================================================ */
+
+/* 个人中心整页（`#/me`）：MeView 自己管内部排版（`.me-` 那一套），外壳只给容器留白 */
+.dw .screen-me {
+  padding: var(--sp-4);
+  overflow-y: auto;
+}
+
+/* 管理后台的返回条：`#/admin` 成了真地址之后，**必须有个正常出口**——
+   后台面板本身没有返回口（v1 从账号菜单进来，只能刷新出去）。 */
+.dw .admin-backbar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-4);
+  border-bottom: 1px solid var(--line);
+}
+
+.dw .admin-backbar-tip {
+  color: var(--muted);
+  font-size: var(--fs-meta);
+}
+
+/* ⭐ 偏好「动效跟随系统」（个人中心 ⑤）：**勾上才挂** `data-motion="system"`，
+   而且只在系统真的要求「减少动态效果」时才压制动效。
+   ⚠️ 不勾时**什么都不做**（不压制）——那是用户自己选的"跟系统"的反面。
+   ⚠️ 这里用 `!important` 是有意的：动效散落在各家的段里，逐条去改会碰别人的段；
+   这一条是**用户级可访问性偏好**，优先级就该最高。 */
+@media (prefers-reduced-motion: reduce) {
+  .dw[data-motion='system'] *,
+  .dw[data-motion='system'] *::before,
+  .dw[data-motion='system'] *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+
 
 

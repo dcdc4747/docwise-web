@@ -60,11 +60,32 @@ export function initLibrary({ view: shellView, navigateToHash: shellNavigateToHa
 // （阅读区也要按 id 找那一篇，所以它单独一个小 store：两边都依赖它、它不依赖任何 store，环就断了）
 
 /**
+ * 当前生效的筛选（契约 §2.2 的 N8）。
+ *
+ * ⚠️ **筛选状态的主人是库页**（组件 `LibFilters` 走"props 进、`change`/`clear` 出"，卡③⑥
+ * 明令不许它自己进 store）；这里只记"最后一次请求用的条件"，
+ * 好让**上传完 / 删完 / 从阅读区回来**那些刷新沿用同一组筛选——否则筛了「待读」再传一篇，
+ * 列表会"自己变回全部"，看着像筛选坏了。
+ */
+export const activeTaskQuery = ref(null)
+
+/** 库里一共几篇（**不受筛选影响**）：喂给筛选条的 `total`，用来分辨"筛没了"与"库本来就是空的"。 */
+export const libraryTotal = ref(null)
+
+/**
  * 拉列表 + 拉完对"进行中那条"补详情。
  * 后者要读阅读区的 `currentTask`，所以这两步**包在一起**留在这里（`loadTasks` 只管取数据）。
+ *
+ * `params` 传了就换成新的筛选条件并记住；**不传就用上一次的**（甚至没有 = 老行为）。
  */
-export async function loadTasksAndSync() {
-  await loadTasks()
+export async function loadTasksAndSync(params = undefined) {
+  if (params !== undefined) activeTaskQuery.value = params
+  const query = activeTaskQuery.value
+  await loadTasks(query)
+  if (!query || Object.keys(query).length === 0) {
+    // 只在"真的没筛"的那一次记家底：筛过的返回条数不是家底（拿它当 total 会把筛空态判错）
+    libraryTotal.value = tasks.value.length
+  }
   syncActiveDetail()
 }
 
