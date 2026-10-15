@@ -14,7 +14,7 @@
     "真实性来源：本清单的 anchors 是由 backend/scripts/check_contract.py --print 打出来的真实路由表逐条核对的，",
     "  不是从文档抄的 —— 手抄文档正是第一版把 25 个端点写成 23 个的原因。"
   ],
-  "declared_endpoint_count": 38,
+  "declared_endpoint_count": 45,
   "anchors": [
     { "method": "GET", "path": "/api/health", "note": "真检查（数据库+worker）；无需鉴权" },
 
@@ -59,7 +59,15 @@
 
     { "method": "POST", "path": "/api/materials", "note": "N12 存为素材卡（**快照**，创建时深拷贝出处）；404 块不存在 / 非本人" },
     { "method": "GET", "path": "/api/materials", "note": "N13 素材列表，?task_id? &collection_id? &tag?；软删的不返回" },
-    { "method": "DELETE", "path": "/api/materials/{param}", "note": "N14 软删 7 天（§7.7 撤销窗口）；幂等" }
+    { "method": "DELETE", "path": "/api/materials/{param}", "note": "N14 软删 7 天（§7.7 撤销窗口）；幂等" },
+
+    { "method": "GET", "path": "/api/me/storage", "note": "N24 磁盘占用分类；量真实目录，不按账号拆分（备份与库是整库级）" },
+    { "method": "GET", "path": "/api/me/export", "note": "N25 一键导出，?format=zip|md；zip 里只有数据（原始 PDF 不重复打包）" },
+    { "method": "GET", "path": "/api/me/ledger", "note": "N26 AI 台账导出，?format=json|csv|md（与 N17 同源，不是第二份数据）" },
+    { "method": "DELETE", "path": "/api/me", "note": "N27 删除账号与全部数据（不可逆；二次确认在界面）" },
+    { "method": "PATCH", "path": "/api/me", "note": "N28 改显示名 {display_name?}（1–64 字；空 body 幂等）" },
+    { "method": "GET", "path": "/api/me/sessions", "note": "N29 登录设备与会话列表（只列未过期的）" },
+    { "method": "DELETE", "path": "/api/me/sessions/{param}", "note": "N29 逐个吊销会话；别人的 404" }
   ],
   "expected_new": [
     { "method": "GET", "path": "/api/collections", "note": "N1 集合列表（doc_count 直接成员 / doc_count_deep 含子集合）" },
@@ -78,14 +86,6 @@
     { "method": "POST", "path": "/api/ask-logs", "note": "N15 问答落库；201 {id}" },
     { "method": "GET", "path": "/api/ask-logs", "note": "N16 问答台账，?task_id?" },
     { "method": "GET", "path": "/api/memory-events", "note": "N17 台账读取（前端只调 GET），?task_id? &layer? &limit?" },
-    { "method": "POST", "path": "/api/memory-events", "note": "N17 只给服务端内部写（前端不该手工埋点）" },
-
-    { "method": "GET", "path": "/api/me/storage", "note": "N24 磁盘占用分类" },
-    { "method": "GET", "path": "/api/me/export", "note": "N25 一键导出，?format=zip|md（流式）" },
-    { "method": "GET", "path": "/api/me/ledger", "note": "N26 AI 台账导出，?format=json|csv|md（与 N17 同源，不是第二份数据）" },
-    { "method": "DELETE", "path": "/api/me", "note": "N27 删除账号与全部数据（二次确认 + 引导先导出）" },
-    { "method": "PATCH", "path": "/api/me", "note": "N28 改显示名 {display_name?}" },
-    { "method": "GET", "path": "/api/me/sessions", "note": "N29 登录设备与会话列表" },
-    { "method": "DELETE", "path": "/api/me/sessions/{param}", "note": "N29 逐个吊销会话" }
+    { "method": "POST", "path": "/api/memory-events", "note": "N17 只给服务端内部写（前端不该手工埋点）" }
   ]
 }

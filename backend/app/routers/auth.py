@@ -34,6 +34,7 @@ from ..db import get_db
 from ..deps import get_current_user, load_owned_task
 from ..logging_setup import get_logger
 from ..models import User
+from ..timeutil import iso_utc
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 logger = get_logger(__name__)
@@ -60,6 +61,11 @@ class TicketRequest(BaseModel):
 
 
 def _serialize_user(user: User) -> dict:
+    """user 对象（契约 §0 的"只许追加字段"）。
+
+    ⭐ N30（2026-10-16 追加）：补 `last_login_at`——个人中心 ① 块要显示"上次登录"，
+    而这个字段**表里早就有**（登录时写），只是一直没带出来。**只追加、不改现有字段**。
+    """
     return {
         "id": user.id,
         "username": user.username,
@@ -67,6 +73,7 @@ def _serialize_user(user: User) -> dict:
         "role": user.role,
         "is_active": user.is_active,
         "created_at": user.created_at.isoformat() if user.created_at else None,
+        "last_login_at": iso_utc(user.last_login_at),
     }
 
 
