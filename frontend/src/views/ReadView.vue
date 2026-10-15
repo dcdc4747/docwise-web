@@ -328,12 +328,50 @@
               </span>
               <div>
                 <div v-if="hasBlockTranslations" class="en">{{ row.source }}</div>
-                <div class="zh">{{ row.main }}</div>
+                <div class="zh">
+                  {{ row.main }}
+                  <!-- ⭐ 人改留痕：这一句不是模型译的（AI 披露口径的一部分） -->
+                  <span
+                    v-if="editedBlockIds.has(row.block.block_id)"
+                    class="pg-edited"
+                    title="这一句由人改过，不是模型的译文"
+                  >已人工修改</span>
+                </div>
               </div>
             </div>
-            <button v-if="pgChipFor === row.block.block_id" class="pg-chip" @click="askParagraph(row)">
-              就这段提问
-            </button>
+            <div v-if="pgChipFor === row.block.block_id" class="pg-chip-row">
+              <button class="pg-chip" @click="askParagraph(row)">
+                就这段提问
+              </button>
+              <!-- 没有译文的块不给编辑入口：那本来就是"暂无块级译文"的诚实档 -->
+              <button
+                v-if="blockHasTranslated(row.block)"
+                class="pg-chip pg-chip-edit"
+                @click="startEdit(row)"
+              >
+                改译文
+              </button>
+            </div>
+            <div v-if="editFor === row.block.block_id" class="pg-edit">
+              <label class="pg-edit-label" :for="'edit_' + row.block.block_id">
+                改这一段的译文（原文不动；存下之后这一句会标成「已人工修改」）
+              </label>
+              <textarea
+                :id="'edit_' + row.block.block_id"
+                v-model="editDraft"
+                class="pg-edit-box"
+                rows="4"
+              ></textarea>
+              <p v-if="editError" class="pg-edit-error">{{ editError }}</p>
+              <div class="pg-edit-ops">
+                <button class="btn primary" :disabled="savingEdit" @click="saveEdit(row)">
+                  {{ savingEdit ? '存档中…' : '存下这一改' }}
+                </button>
+                <button class="btn" :disabled="savingEdit" @click="cancelEdit">
+                  取消
+                </button>
+              </div>
+            </div>
           </template>
         </template>
       </div>
@@ -569,6 +607,14 @@ import {
   submitAsk,
 } from '../stores/useAsk'
 import { canRetryCurrent, openDeletePanel, openPanel, retryCurrent } from '../stores/useLibrary'
+// 埋点 1（译文改动）：入口只在"有译文"的块上给，存下之后打「已人工修改」标记
+import { ref } from 'vue'
+
+import {
+  blockHasTranslated,
+  editedBlockIds,
+  saveBlockEdit,
+} from '../stores/useReader'
 // 素材卡的写入路径（M2）：三处入口共用它；`saveState` 用来就地反馈失败原因
 import { saveState } from '../stores/useMaterials'
 import {
@@ -659,4 +705,47 @@ import {
 } from '../stores/useUi'
 
 defineProps({ peekSummary: { type: String, default: '' } })
+
+// ============================================================ 埋点 1：改译文
+
+/** 正在改哪一块（`block_id`；空串＝没在改）。同一时刻只开一个编辑框。 */
+const editFor = ref('')
+/** 编辑框里的草稿（**只有用户敲的东西**，没敲过就是当前译文）。 */
+const editDraft = ref('')
+/** 存档失败时给用户看的那一句（成功就清空）。 */
+const editError = ref('')
+const savingEdit = ref(false)
+
+function startEdit(row) {
+  editFor.value = row.block.block_id
+  editDraft.value = (row.block.translated || '').trim()
+  editError.value = ''
+}
+
+function cancelEdit() {
+  editFor.value = ''
+  editDraft.value = ''
+  editError.value = ''
+}
+
+/**
+ * 存下这一改。⚠️ **只有服务端真存下了才动界面**（`saveBlockEdit` 不做乐观更新）——
+ * 失败就如实报错、界面仍是旧译文，不假装成功。
+ */
+async function saveEdit(row) {
+  const after = editDraft.value.trim()
+  if (!after) {
+    editError.value = '译文不能清空；要撤销请重新编辑'
+    return
+  }
+  savingEdit.value = true
+  editError.value = ''
+  const failure = await saveBlockEdit(row.block.block_id, after)
+  savingEdit.value = false
+  if (failure) {
+    editError.value = failure
+    return
+  }
+  cancelEdit()
+}
 </script>

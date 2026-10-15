@@ -84,6 +84,9 @@ const IMPLEMENTED_BUT_MOCKED = [
   //   「基线必须继续打真后端、绝不在列」；所以写**归一化后的精确路径**。
   '/api/tasks/{param}/collections',
   '/api/tasks/{param}/tags',
+  // 埋点 1（N33 译文改动 / N34 块曝光，2026-10-16 加的前缀）：已实现但仍要 mock
+  '/api/block-edits',
+  '/api/block-exposures',
 ]
 const reconcileKeys = [
   ...expectedNewKeys,
