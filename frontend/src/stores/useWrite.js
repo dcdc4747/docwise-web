@@ -493,9 +493,13 @@ export const checkStep = computed(() => {
           : '未能识别',
     unknownLang: step.lang === 'unknown',
     unknownStyle: step.citation_style === 'unknown',
-    // ⭐ 筛子账：只说"该引未引"这一条与"全部被豁免"的说明（语言/制式上面两个 chip 已经有了）
+    // ⭐ 筛子账：每族"为什么只报这么少"都要能看见（语言/制式上面两个 chip 已经有了）
+    // 「术语一致性」那本是 R6 启用后加的：少了它，"术语没报"就又成了黑箱
     ledger: (Array.isArray(step.notes) ? step.notes : []).filter(
-      (note) => note.startsWith('该引未引：') || note.includes('不是失灵'),
+      (note) =>
+        note.startsWith('该引未引：') ||
+        note.startsWith('术语一致性：') ||
+        note.includes('不是失灵'),
     ),
   }
 })
