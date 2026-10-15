@@ -218,21 +218,31 @@ def _run_missing_citation(
     lang: str,
     style: str,
     materials: list[dict],
-) -> None:
-    """R1：该引未引（三类检查里的"核心"，纵深全在这里）。"""
+) -> dict:
+    """R1：该引未引（三类检查里的"核心"，纵深全在这里）。
+
+    返回一份**筛子账**（命中几句、各因何被豁免、最后报几处）——报告里如实写出来。
+    ⭐ 只说"宁可少报"、不说**为什么少**，读起来与"什么都没查出来"一样；摆出账，
+    用户才能判断我们是谨慎还是失灵（也是"词表自检"的第一步）。
+    """
     marks = _NUMERIC_RE if style == "numeric" else _AUTHOR_YEAR_RE
     self_refs = SELF_REFS[lang]
     hedges = HEDGES[lang]
+    stats = {"markers": 0, "cited": 0, "hedged": 0, "self_ref": 0, "reported": 0}
+
     for offset, sentence in split_sentences(doc_text):
-        if marks.search(sentence):
-            continue  # 已有标注 → 不报
-        if any(_contains(sentence, word, lang) for word in hedges):
-            continue  # 模糊限定 → 不报
         hit = next(
             (word for word in MARKERS[lang] if _contains(sentence, word, lang)), None
         )
         if hit is None:
             continue
+        stats["markers"] += 1
+        if marks.search(sentence):
+            stats["cited"] += 1
+            continue  # 已有标注 → 不报
+        if any(_contains(sentence, word, lang) for word in hedges):
+            stats["hedged"] += 1
+            continue  # 模糊限定 → 不报
         # 自指豁免：**命中词前方 8 字内**（外加命中词自己）出现自指词 → 一律不报。
         # ⚠️ 这个窗口踩过两次，两次都是"看着合理其实错了"：
         #   ① 只看命中词之前的字：`本研究表明` 的「本研究」**跨在命中词边界上**，
@@ -246,7 +256,9 @@ def _run_missing_citation(
             max(0, hit_start - SELF_REF_WINDOW) : hit_start + len(hit)
         ]
         if any(_contains(window, word, lang) for word in self_refs):
+            stats["self_ref"] += 1
             continue
+        stats["reported"] += 1
         report.add(
             rule_code="R1",
             kind="missing_citation",
@@ -256,6 +268,7 @@ def _run_missing_citation(
             rule_ref="形态 §3.3 ①",
             suggest=_suggest_for(sentence, materials),
         )
+    return stats
 
 
 def _run_citation_format(
@@ -361,9 +374,19 @@ def run_check(
         )
     else:
         notes.append(f"引用制式：{style}（{style_evidence}）")
-        _run_missing_citation(
+        stats = _run_missing_citation(
             report, doc_text=doc_text, lang=lang, style=style, materials=materials
         )
+        # ⭐ **筛子账**：把"为什么只报这么少"如实写出来（宁可少报要让人看得见为什么少）
+        notes.append(
+            "该引未引：命中标记词 {markers} 句——已有引用 {cited}、含模糊限定 {hedged}、"
+            "属作者自指 {self_ref}，报出 {reported} 处".format(**stats)
+        )
+        if stats["markers"] and not stats["reported"]:
+            notes.append(
+                "（本篇命中标记词的句子全部被豁免：有引用 / 模糊限定 / 作者自指——"
+                "**不是失灵，是不硬报**）"
+            )
 
     _run_citation_format(report, doc_text=doc_text, citations=citations)
     _run_csl_fields(report, citations=citations)
