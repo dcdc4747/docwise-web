@@ -472,6 +472,9 @@ class TranslationWorker:
             # 版面区域（任务 A）：引擎带回来的每页类别 + 矩形，原样入库。
             # 与块 layout 一样**只存原始量**——分级规则将来改，老任务不用重跑。
             task.regions = result.regions
+            # 文档结构（M6 / C1）：标题层级 + 参考文献条目，同样是引擎给的原始量。
+            # **缺了就是 None**（老任务、引擎那条路还没接上），界面按既有行为退回。
+            task.structure = result.structure
             task.translated_path = (
                 str(result.translated_path) if result.translated_path else None
             )
