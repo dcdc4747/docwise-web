@@ -130,6 +130,26 @@ def _grams(text: str) -> set[str]:
     return {clean[i : i + 2] for i in range(len(clean) - 1)}
 
 
+def _contains(text: str, word: str, lang: str) -> bool:
+    """按语言判"这个词有没有出现"。
+
+    ⚠️ 英文必须按**词边界**：用子串会把 `were` 里的 `we`、`foundation` 里的 `found`
+    都算命中 —— 前者让自指豁免**误免一大片**，后者凭空多出候选（单测真抓过）。
+    中文按子串（中文没有词边界可言）。
+    """
+    if lang == "zh":
+        return word in text
+    return re.search(rf"\b{re.escape(word.lower())}\b", text.lower()) is not None
+
+
+def _find_index(sentence: str, word: str, lang: str) -> int:
+    """命中词在句内的位置（英文按词边界找首个位置）。"""
+    if lang == "zh":
+        return sentence.index(word)
+    match = re.search(rf"\b{re.escape(word.lower())}\b", sentence.lower())
+    return match.start() if match else 0
+
+
 def _suggest_for(sentence: str, materials: list[dict] | None) -> dict | None:
     """给「该引未引」挑一条**候选素材**（契约 §2.7 的 `suggest`）。
 
@@ -206,17 +226,26 @@ def _run_missing_citation(
     for offset, sentence in split_sentences(doc_text):
         if marks.search(sentence):
             continue  # 已有标注 → 不报
-        if any(word in sentence for word in hedges):
+        if any(_contains(sentence, word, lang) for word in hedges):
             continue  # 模糊限定 → 不报
-        hit = next((word for word in MARKERS[lang] if word in sentence), None)
+        hit = next(
+            (word for word in MARKERS[lang] if _contains(sentence, word, lang)), None
+        )
         if hit is None:
             continue
-        # 自指豁免：命中词前方 8 字内出现自指词 → 一律不报（"本研究表明"）
-        before = (doc_text or "")[max(0, offset - SELF_REF_WINDOW) : offset]
-        # ⚠️ 连命中词一起看：`本研究表明` 的「本研究」是**跨在命中词边界上的**
-        # （只看到"表明"之前那一个"本"字，就漏掉豁免了——单测真抓过这条）。
-        head = before + sentence[: sentence.index(hit) + len(hit)]
-        if any(word in head for word in self_refs):
+        # 自指豁免：**命中词前方 8 字内**（外加命中词自己）出现自指词 → 一律不报。
+        # ⚠️ 这个窗口踩过两次，两次都是"看着合理其实错了"：
+        #   ① 只看命中词之前的字：`本研究表明` 的「本研究」**跨在命中词边界上**，
+        #      豁免永远不生效；
+        #   ② 改成"句首 → 命中词"：窗口过大，于是
+        #      `本研究提出的…把边界误差降低了` 这种（本研究在句首、离命中词很远）
+        #      也被误免 —— **验收样例一的句 6 就是拿它卡这一条的**
+        #      （文档把它列为"8 字窗太窄"的已知误报，该报出来）。
+        hit_start = offset + _find_index(sentence, hit, lang)
+        window = (doc_text or "")[
+            max(0, hit_start - SELF_REF_WINDOW) : hit_start + len(hit)
+        ]
+        if any(_contains(window, word, lang) for word in self_refs):
             continue
         report.add(
             rule_code="R1",
