@@ -14,7 +14,7 @@
     "真实性来源：本清单的 anchors 是由 backend/scripts/check_contract.py --print 打出来的真实路由表逐条核对的，",
     "  不是从文档抄的 —— 手抄文档正是第一版把 25 个端点写成 23 个的原因。"
   ],
-  "declared_endpoint_count": 46,
+  "declared_endpoint_count": 50,
   "anchors": [
     { "method": "GET", "path": "/api/health", "note": "真检查（数据库+worker）；无需鉴权" },
 
@@ -69,7 +69,12 @@
     { "method": "GET", "path": "/api/me/sessions", "note": "N29 登录设备与会话列表（只列未过期的）" },
     { "method": "DELETE", "path": "/api/me/sessions/{param}", "note": "N29 逐个吊销会话；别人的 404" },
 
-    { "method": "GET", "path": "/api/drafts/{param}/bibliography", "note": "N31 参考文献格式化，?style ∈ {apa, ieee, gb-t-7714-2015-numeric, gb-t-7714-2015-author-date}；503 = 引擎环境没配好（不给半成品）" }
+    { "method": "GET", "path": "/api/drafts/{param}/bibliography", "note": "N31 参考文献格式化，?style ∈ {apa, ieee, gb-t-7714-2015-numeric, gb-t-7714-2015-author-date}；503 = 引擎环境没配好（不给半成品）" },
+
+    { "method": "POST", "path": "/api/ask-logs", "note": "N15 问答落库；201 {id}（服务端答题时就已写一条，这里给补齐/重放）" },
+    { "method": "GET", "path": "/api/ask-logs", "note": "N16 问答台账，?task_id?；与台账**同源**（同一张 memory_events，stage=ask）" },
+    { "method": "GET", "path": "/api/memory-events", "note": "N17 台账读取（前端只调 GET），?task_id? &layer? &limit?（默认 200 / 上限 1000）" },
+    { "method": "POST", "path": "/api/memory-events", "note": "N17 只给服务端内部写（前端不该手工埋点）；写失败 → 503，不给假 id" }
   ],
   "expected_new": [
     { "method": "GET", "path": "/api/collections", "note": "N1 集合列表（doc_count 直接成员 / doc_count_deep 含子集合）" },
@@ -83,11 +88,6 @@
 
     { "method": "GET", "path": "/api/smart-collections", "note": "N9 智能集合列表（规则即数据）" },
     { "method": "POST", "path": "/api/smart-collections", "note": "N10 新建智能集合；400 query 非法" },
-    { "method": "DELETE", "path": "/api/smart-collections/{param}", "note": "N11 400 内置规则不许删" },
-
-    { "method": "POST", "path": "/api/ask-logs", "note": "N15 问答落库；201 {id}" },
-    { "method": "GET", "path": "/api/ask-logs", "note": "N16 问答台账，?task_id?" },
-    { "method": "GET", "path": "/api/memory-events", "note": "N17 台账读取（前端只调 GET），?task_id? &layer? &limit?" },
-    { "method": "POST", "path": "/api/memory-events", "note": "N17 只给服务端内部写（前端不该手工埋点）" }
+    { "method": "DELETE", "path": "/api/smart-collections/{param}", "note": "N11 400 内置规则不许删" }
   ]
 }
