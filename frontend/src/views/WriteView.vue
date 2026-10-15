@@ -349,6 +349,11 @@
           text="判不出语言或引用制式时，「该引未引」整族不判——引擎不硬猜（判错比不判更糟）。"
         />
 
+        <!-- ⭐ 筛子账：把"为什么只报这么少"摆出来（宁可少报，要让人看得见为什么少） -->
+        <p v-if="checkStep && checkStep.ledger.length" class="wr-checkledger">
+          <span v-for="note in checkStep.ledger" :key="note">{{ note }}</span>
+        </p>
+
         <template v-if="checkReport">
           <p class="wr-checksum">
             报出 {{ checkSummary.reported }} 处<template v-if="checkSummary.unknown">，另有

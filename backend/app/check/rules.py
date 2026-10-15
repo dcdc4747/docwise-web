@@ -85,9 +85,33 @@ MARKERS: dict[str, tuple[str, ...]] = {
 }
 
 # ② 模糊限定词：句内有它 → **不报**（作者本来就没把话说死）
+#
+# 英文这份**部分取自** `words/hedges`（v2.0.1）——那是 162 个英文模糊词的数据包，
+# 我们**只挑"情态 / 推测 / 近似"三类**（见下），其余一律不收：
+#
+#   ❌ 程度/频率/数量词（`always` / `actually` / `really` / `quite` / `most` / `many` /
+#      `several` / `often` / `usually` …）—— 它们在学术写作里到处都是，收进来会
+#      **大范围误豁免**（等于把"没引用"洗成"不用引用"）；
+#   ❌ 报告动词（`found` / `suggested` / `suggests` / `indicate` / `read` / `say`）——
+#      它们**本身就是标记词**，两边都收＝一命中就被豁免，**永远报不出该引未引**；
+#   ❌ `can`/`will`/`would`/`should`/`must` —— 能力/时态/义务，不是"没把话说死"。
+#
+# ⚠️ MIT 许可要求保留版权与许可声明（子集同样适用）：
+#
+#   (The MIT License)
+#   Copyright (c) 2014 Titus Wormer <tituswormer@gmail.com>
+#   Permission is hereby granted, free of charge, to any person obtaining a copy of
+#   this software and associated documentation files (the 'Software'), to deal in the
+#   Software without restriction, including without limitation the rights to use, copy,
+#   modify, merge, publish, distribute, sublicense, and/or sell copies of the Software,
+#   and to permit persons to whom the Software is furnished to do so, subject to the
+#   following conditions: The above copyright notice and this permission notice shall be
+#   included in all copies or substantial portions of the Software. THE SOFTWARE IS
+#   PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED.
 HEDGES: dict[str, tuple[str, ...]] = {
     "zh": ("可能", "也许", "或许", "大概", "大约", "似乎", "据说", "普遍认为"),
     "en": (
+        # 保留原有 8 个
         "may",
         "might",
         "possibly",
@@ -96,6 +120,39 @@ HEDGES: dict[str, tuple[str, ...]] = {
         "reportedly",
         "approximately",
         "around",
+        # 可能性 / 推测（新增）
+        "maybe",
+        "probably",
+        "probable",
+        "probability",
+        "presumably",
+        "presumable",
+        "apparently",
+        "apparent",
+        "conceivably",
+        "likely",
+        "unlikely",
+        "doubt",
+        "doubtful",
+        "improbable",
+        "inconclusive",
+        "unsure",
+        "supposedly",
+        "could",
+        # 近似（新增；**不收** `about`——它当"关于"讲太常见，会误豁免一大片）
+        "roughly",
+        "almost",
+        "more or less",
+        "somewhat",
+        # 表象 / 看起来（新增）
+        "seem",
+        "seemed",
+        "appear",
+        "appears",
+        "appeared",
+        "appear to be",
+        "look like",
+        "looks like",
     ),
 }
 

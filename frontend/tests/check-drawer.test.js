@@ -55,7 +55,15 @@ const MATERIAL = {
 const REPORT = {
   run_id: 12,
   ruleset_version: 1,
-  step: { lang: 'zh', citation_style: 'numeric', notes: ['语言：zh'] },
+  step: {
+    lang: 'zh',
+    citation_style: 'numeric',
+    notes: [
+      '语言：zh（中文字符 120 / 拉丁字母 0）',
+      '引用制式：numeric（`[n]` 2 处 / 著者-年 0 处）',
+      '该引未引：命中标记词 4 句——已有引用 2、含模糊限定 0、属作者自指 2，报出 0 处',
+    ],
+  },
   findings: [
     {
       id: 'f1',
@@ -147,6 +155,20 @@ afterEach(() => {
 })
 
 describe('收口检查抽屉（M4 / 形态 §3.3）', () => {
+  it('⭐ 抽屉里摆出「筛子账」：为什么只报这么少要看得见', async () => {
+    const wrapper = mountWrite()
+    // ⚠️ 先等首屏（草稿/素材）就绪：不等就点「开始检查」，此时还没有草稿 id、跑不出报告
+    await flushPromises()
+    await openAndRun(wrapper)
+    const ledger = wrapper.find('.wr-checkledger')
+    expect(ledger.exists()).toBe(true)
+    expect(ledger.text()).toContain('命中标记词 4 句')
+    expect(ledger.text()).toContain('报出 0 处')
+    // 语言/制式已经在上面两个 chip 里了，账里**不重复**它们（别把抽屉塞成一坨日志）
+    expect(ledger.text()).not.toContain('语言：')
+    expect(ledger.text()).not.toContain('引用制式：')
+  })
+
   it('默认不出现；点顶栏「收口检查」才拉开（它是抽屉，不是独立页面）', async () => {
     const wrapper = mountWrite()
     await flushPromises()

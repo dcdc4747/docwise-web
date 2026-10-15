@@ -20,7 +20,7 @@ from app.check.engine import (
     run_check,
     split_sentences,
 )
-from app.check.rules import RULES
+from app.check.rules import HEDGES, RULES, SELF_REF_WINDOW, SELF_REFS
 
 ZH_NUMERIC = (
     "本文研究酶催化反应的动力学。"
@@ -308,3 +308,120 @@ def test_disabled_rule_never_appears():
     assert disabled == {"R6"}  # 术语一致性本轮没启用（要术语表对齐）
     report = run_check(ZH_NUMERIC, citations=CITATIONS, materials=MATERIALS)
     assert not (disabled & {item["rule_id"] for item in report["findings"]})
+
+
+# ------------------------------------------------- 模糊词表（words/hedges，MIT）
+
+# 英文样本要**够长**（判语言要 ≥30 个字母）
+# 且**带一处引用标注**（否则制式判不出、整族不判）
+MARKED_EN = "Prior work is summarized elsewhere [1]."
+ONE_EN_CITATION = [
+    {
+        "order": 1,
+        "csl_json": {
+            "type": "article-journal",
+            "title": "T",
+            "author": [{"literal": "X"}],
+        },
+    }
+]
+
+
+@pytest.mark.parametrize(
+    "hedge",
+    ("presumably", "seems", "could", "roughly", "unlikely", "more or less"),
+)
+def test_new_en_hedges_do_actually_exempt(hedge):
+    """新收的英文模糊词**必须真的能豁免**（收了不生效＝白收）。
+
+    ⭐ 用**差分**验，而不是"结果为空就算过"：同一句话**去掉那个模糊词就该报**——
+    这才证明是它在起作用，而不是因为别的原因碰巧没报。
+    """
+    with_hedge = f"{MARKED_EN} Studies reported that the effect was {hedge} small here."
+    without_hedge = f"{MARKED_EN} Studies reported that the effect was small here."
+    assert run_check(with_hedge, citations=ONE_EN_CITATION)["findings"] == []
+    report = run_check(without_hedge, citations=ONE_EN_CITATION)
+    assert report["summary"]["reported"] == 1
+
+
+@pytest.mark.parametrize(
+    "word",
+    ("always", "actually", "really", "quite", "most", "several", "about"),
+)
+def test_over_suppressing_words_stay_out(word):
+    """程度/频率/数量词**坚决不收**：收了等于把「没引用」洗成「不用引用」。"""
+    assert word not in HEDGES["en"]
+
+
+@pytest.mark.parametrize("word", ("found", "suggested", "noted", "argued", "claimed"))
+def test_reporting_verbs_are_markers_not_hedges(word):
+    """报告动词两边都当词＝一命中就被豁免，**永远报不出「该引未引」**。"""
+    assert word not in HEDGES["en"]
+    doc = f"{MARKED_EN} Studies {word} that the effect is large in this setting."
+    assert run_check(doc, citations=ONE_EN_CITATION)["summary"]["reported"] == 1
+
+
+@pytest.mark.parametrize("word", ("says", "read", "indicate"))
+def test_other_verbs_are_neither(word):
+    """既不是标记词、也不该混进模糊词表（不然凭空多一堆豁免）。"""
+    assert word not in HEDGES["en"]
+
+
+# ------------------------------------------------- 筛子账（写进 step.notes）
+
+
+def test_ledger_is_reported_in_notes():
+    """⭐ 报告要如实写"命中几句、各因何被豁免、报了几处"。
+
+    ZH_NUMERIC 这篇：句 2 / 句 3 有引用，句 4「我们」自指、句 5「本研究表明」也是自指
+    → 命中 4 句、报出 0 处（**这正是"宁可少报"该有的样子，账要摆出来**）。
+    """
+    report = run_check(ZH_NUMERIC, citations=CITATIONS, materials=MATERIALS)
+    ledger = next(n for n in report["step"]["notes"] if n.startswith("该引未引："))
+    assert "命中标记词 4 句" in ledger
+    assert "已有引用 2" in ledger
+    assert "属作者自指 2" in ledger
+    assert "报出 0 处" in ledger
+
+
+def test_ledger_says_loudly_when_everything_was_exempted():
+    """全部被豁免时要说清「不是失灵」——否则读起来跟"什么都没查出来"一样。
+
+    ⚠️ 只盯 **R1**：`summary.reported` 是全规则合计，这份极简引文还会触发 R5（缺字段），
+    拿全局计数来验"该引未引"会把两件事搅在一起。
+    """
+    report = run_check(ZH_NUMERIC, citations=CITATIONS, materials=MATERIALS)
+    assert [f for f in report["findings"] if f["rule_id"] == "R1"] == []
+    assert any("不是失灵" in note for note in report["step"]["notes"])
+    # 真报了 R1 的稿子就不该出现这句话（别把它当固定文案）
+    reported = run_check(
+        f"{MARKED_EN} Studies reported that the effect is large here.",
+        citations=ONE_EN_CITATION,
+    )
+    r1 = [f for f in reported["findings"] if f["rule_id"] == "R1"]
+    assert len(r1) == 1
+    assert not any("不是失灵" in note for note in reported["step"]["notes"])
+
+
+# ------------------------------------------------- 词表自身的毛病（可达性）
+
+
+def test_en_self_ref_phrases_are_dead_under_the_eight_char_window():
+    """⚠️ 记录一个**已知缺陷**：英文自指短语比 8 字窗长，实际永远豁免不了。
+
+    窗口是「命中词前 8 个字符 + 命中词本身」，所以**长度超过 8 的自指项**（短语形态）
+    在英文里基本进不来 —— 真正生效的只有 `we` / `our`（验收样例二靠的就是 `We`）。
+
+    ⚠️ **故意不改**：放宽窗口会让验收样例一的句 6（"本研究提出的…降低了"）从"报"
+    变成"不报"，而那一处正是样例文档**要求暴露的已知误报** —— 改了等于把验收数字
+    偷偷改掉。所以这里把它**钉成记录在案的事实**，而不是悄悄放过。
+    """
+    dead = {w for w in SELF_REFS["en"] if len(w) > SELF_REF_WINDOW}
+    assert dead == {"this study", "this work", "this paper", "the present study"}
+    assert {w for w in SELF_REFS["en"] if len(w) <= SELF_REF_WINDOW} == {"we", "our"}
+
+
+def test_short_en_self_ref_still_works():
+    """短的自指词是好的（英语稿就靠它）。"""
+    doc = LONG_HEAD + MARKED + "We found an average improvement of 4.7% here."
+    assert run_check(doc, citations=ONE_CITATION, materials=[])["findings"] == []
