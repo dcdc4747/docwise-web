@@ -47,6 +47,7 @@ from ..engine import TaskState, Tier, is_native_pair
 from ..llm import extract_understanding
 from ..models import (
     AuthTicket,
+    Material,
     SmartCollection,
     Tag,
     Task,
@@ -432,6 +433,11 @@ def delete_task(
         "dual_path": task.dual_translated_path,
     }
     filename = task.filename
+    # ⭐ 素材卡是**快照**：源文献被删后卡要活着，只把 `task_id` 脱开（置 null），
+    # **绝不级联删卡**——这是 M2 的验收判据（契约 §2.4：删掉源任务后素材卡仍显示
+    # `source_name` / `page` / `text_quote`）。SQLite 外键没开级联，不显式脱开就会
+    # 留一个指向已删任务的悬空值，界面上"回跳原文"会变成死链。
+    db.execute(update(Material).where(Material.task_id == task_id).values(task_id=None))
     _purge_task_children(db, task_id)
     db.delete(task)
     db.commit()
