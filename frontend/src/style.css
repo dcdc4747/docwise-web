@@ -2126,6 +2126,54 @@ svg.ic-inl {
 
 .dw .wr-matundo .btn { margin-left: auto; }
 
+/* ============================================================
+   [R6] 手机端底部标签栏 —— `AppTabbar.vue`（形态 v2 §2.3：手机档 <720px 出 5 个）
+   ⚠️ **只加自己的段**：上面任何一条已有选择器都不动、不重排。
+
+   三条几何口径（都不是美化，是必需的）：
+   ① 标签栏是 `.dw-layout`（`100dvh` + `overflow:hidden`）**之外**的兄弟节点 ——
+      留在外面才不被裁，但也因此会排到 `100dvh` 之后（**屏幕外**）。所以 `position: fixed`
+      是**必需**的：窄屏走查指出的就是"一传 tabs 就掉到屏幕外"这个隐患。
+   ② 高度收进 `--tabbar-h`：内容列与助手抽屉都按它（**并加上安全区**）让位 ——
+      以后改高度只改这一行，三处跟着走。
+   ③ 触控热区 ≥44px：与窄屏走查同一条口径（手机上按钮不许小于 44px）。
+   ============================================================ */
+.dw.has-tabbar { --tabbar-h: 56px; }
+
+.dw .tabbar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
+  display: flex; align-items: stretch;
+  background: var(--surface); border-top: 1px solid var(--line);
+  /* iPhone 的 home indicator：不写这一条，peek 档的抓手与标签都会被压住 */
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.dw .tabbar-item {
+  position: relative; /* badge 的定位上下文 */
+  flex: 1; min-height: 44px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 2px; padding: var(--sp-1);
+  border: 0; background: none; color: var(--muted);
+  font: inherit; cursor: pointer;
+}
+.dw .tabbar-item.on { color: var(--accent); }
+.dw .tabbar-lbl { font-size: 11px; line-height: 1.2; }
+.dw .tabbar-badge {
+  position: absolute; top: 4px; left: 50%; margin-left: 4px;
+  min-width: 16px; padding: 0 4px; border-radius: 8px;
+  background: var(--accent); color: #fff; font-size: 10px; line-height: 16px;
+}
+
+/* ⭐ 内容不被盖住：`.dw-main` 才是那个真正滚动的内容列，给它留出「标签栏 + 安全区」的等高下边距 */
+.dw.has-tabbar .dw-main {
+  padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px));
+}
+
+/* 助手抽屉（手机上是底部三档）也让开标签栏：否则 peek 档的抓手正好压在标签上 */
+.dw.has-tabbar .sheet {
+  bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px));
+}
+
 
 
 

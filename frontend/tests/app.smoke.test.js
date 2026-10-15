@@ -1607,4 +1607,101 @@ describe('App.vue 页面渲染', () => {
       )
     }
   })
+
+  // ============================================================ R6 手机端底部标签栏
+  //
+  // 形态 v2 §2.3：手机档（**<720px**）把左栏换成**底部标签栏 5 个** ——
+  // **库 / 起草 / 检查 / 记忆 / 我的**（命名口径：桌面叫「收口」、手机显示「检查」；
+  // 第一个叫「库」不叫「读懂」）。
+  // ⚠️ 阈值：标签栏按文档那一档 **<720**，而 `stores/useUi.js` 的 `isNarrow` 是 **<1024** ——
+  // 两者不一致是**已知问题**（由外壳负责人拍板），本卡按文档实现、**不动 `isNarrow`**，
+  // 所以下面有一条"900px 宽不该出标签栏"的用例把这个边界钉住。
+
+  it('R6：手机档（<720）出底部标签栏，恰好 5 个，名字逐字照形态 §2.3', async () => {
+    const { task, detail } = completedFixture()
+    globalThis.fetch = stubFetch({ tasks: [task], detail })
+    setViewportWidth(390)
+    wrapper = mountApp()
+    await flushPromises()
+
+    const tabbar = wrapper.find('.tabbar')
+    expect(tabbar.exists()).toBe(true)
+    expect(tabbar.attributes('aria-label')).toBe('底部导航')
+    expect(tabbar.findAll('button.tabbar-item')).toHaveLength(5)
+    // ⚠️ 逐字对文档：第一个是「库」不是「读懂」；桌面叫「收口」、这里显示「检查」
+    expect(tabbar.findAll('.tabbar-lbl').map((n) => n.text())).toEqual([
+      '库',
+      '起草',
+      '检查',
+      '记忆',
+      '我的',
+    ])
+    // 当前所在模块要亮着（开局在库页 → 第一个亮）
+    expect(tabbar.findAll('button.tabbar-item')[0].classes()).toContain('on')
+  })
+
+  it('R6：≥720 不渲染标签栏（手机档以形态文档的 <720 为准，不是 isNarrow 的 1024）', async () => {
+    const { task, detail } = completedFixture()
+    globalThis.fetch = stubFetch({ tasks: [task], detail })
+    // 900px 属于"左栏收成 58px 图标态"那一档，底部标签栏还不该出现
+    setViewportWidth(900)
+    wrapper = mountApp()
+    await flushPromises()
+
+    expect(wrapper.find('.tabbar').exists()).toBe(false)
+    // 反向对照：抽屉/左栏那些窄屏档位仍按 `isNarrow`（<1024）走，没被本卡改动
+    expect(wrapper.find('.dw-layout').exists()).toBe(true)
+  })
+
+  it('R6：标签栏固定在视口底、不被 100dvh 布局吃掉，且内容与抽屉都让位（含安全区）', async () => {
+    const { task, detail } = completedFixture()
+    globalThis.fetch = stubFetch({ tasks: [task], detail })
+    setViewportWidth(390)
+    wrapper = mountApp()
+    await flushPromises()
+
+    // ① 结构：挂载点在 `.dw-layout`（`100dvh` + `overflow:hidden`）**之外** ——
+    //    放进去会被裁掉；留在外面又必须 fixed，否则排到 100dvh 之后（屏幕外）
+    expect(wrapper.find('.dw-layout .tabbar').exists()).toBe(false)
+    expect(wrapper.find('.dw > .tabbar').exists()).toBe(true)
+    // ② 根上有 has-tabbar：内容列据此让出等高下边距（**JS 决定"有没有"，CSS 只管几何**）
+    expect(wrapper.find('.dw').classes()).toContain('has-tabbar')
+
+    // ③ 样式：fixed 贴底 + 三处让位都算了安全区 + 触控热区 ≥44px
+    const css = srcText('style.css')
+    const section = css.slice(css.indexOf('[R6] 手机端底部标签栏'))
+    expect(section.length).toBeGreaterThan(0)
+    expect(section).toMatch(/\.dw \.tabbar \{[^}]*position: fixed/)
+    expect(section).toMatch(/env\(safe-area-inset-bottom, 0px\)/)
+    expect(section).toMatch(
+      /\.dw\.has-tabbar \.dw-main \{[^}]*padding-bottom: calc\(var\(--tabbar-h\)/,
+    )
+    expect(section).toMatch(/\.dw\.has-tabbar \.sheet \{[^}]*bottom: calc\(var\(--tabbar-h\)/)
+    expect(section).toMatch(/\.dw \.tabbar-item \{[^}]*min-height: 44px/)
+  })
+
+  it('R6：点「检查」真切页（进起草页并当场拉开检查抽屉），点「我的」进个人中心', async () => {
+    const { task, detail } = completedFixture()
+    globalThis.fetch = stubFetch({ tasks: [task], detail })
+    setViewportWidth(390)
+    wrapper = mountApp()
+    await flushPromises()
+
+    const tabByLabel = (label) =>
+      wrapper.findAll('button.tabbar-item').find((b) => b.text().includes(label))
+
+    // 形态 §3.3：收口是**起草页里的抽屉**、不是独立页面 —— 所以一条用例同时验两件事
+    await tabByLabel('检查').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.screen-write').exists()).toBe(true)
+    expect(wrapper.find('.wr-check').exists()).toBe(true)
+    // 亮的是「检查」不是「起草」（两者都在起草页，靠抽屉开没开来分辨）
+    expect(tabByLabel('检查').classes()).toContain('on')
+
+    await tabByLabel('我的').trigger('click')
+    await flushPromises()
+    expect(window.location.hash).toBe('#/me')
+    expect(wrapper.find('.screen-me').exists()).toBe(true)
+    expect(tabByLabel('我的').classes()).toContain('on')
+  })
 })
