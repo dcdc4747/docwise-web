@@ -2008,6 +2008,17 @@ svg.ic-inl {
 }
 
 .dw .wr-checksum { margin: var(--sp-3) 0; font-weight: 600; }
+
+/* [M4] 筛子账：把"为什么只报这么少"如实摆出来（比"什么都没查出来"可信） */
+.dw .wr-checkledger {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  margin: 0 0 var(--sp-3);
+  font-size: var(--fs-meta);
+  color: var(--muted);
+}
+
 .dw .wr-checkgroup { margin-top: var(--sp-4); }
 
 .dw .wr-checkgrouphead {
