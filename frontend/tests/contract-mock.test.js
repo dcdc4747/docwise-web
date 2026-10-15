@@ -18,6 +18,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
   MOCK_FLAG_KEY,
+  MOCK_DELTAS,
   MOCK_ROUTES,
   isMockEnabled,
   mockFetch,
@@ -58,6 +59,26 @@ const SMART_KEYS = ['id', 'name', 'query', 'count', 'builtin']
 const DRAFT_KEYS = ['id', 'title', 'body_md', 'template_id', 'updated_at', 'citations']
 const CITATION_KEYS = ['id', 'draft_id', 'material_id', 'order', 'csl_json', 'anchor']
 const REPORT_KEYS = ['run_id', 'step', 'findings', 'summary']
+const USER_KEYS = ['id', 'username', 'display_name', 'role', 'is_active', 'created_at']
+/** 基线列表项 16 字段（契约 §1.4）——N8 复用这条端点，形状必须一字不差。 */
+const TASK_CARD_KEYS = [
+  'id',
+  'filename',
+  'status',
+  'progress',
+  'tier',
+  'source_lang',
+  'target_lang',
+  'native',
+  'created_at',
+  'stage',
+  'eta_seconds',
+  'elapsed_seconds',
+  'started_at',
+  'finished_at',
+  'last_read_page',
+  'text_source',
+]
 
 const CASES = [
   { n: 'N1', method: 'GET', path: '/api/collections', keys: ['items'], itemKeys: COLLECTION_KEYS },
@@ -308,5 +329,132 @@ describe('契约里那些"有语义"的行为，mock 也要像', () => {
     const result = mockFetch('/api/memory-events', { method: 'POST', body: JSON.stringify({}) })
     expect(result.status).toBe(405)
     expect(result.body.detail).toContain('只给服务端内部用')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// N8 / N30：给**基线端点**追加的东西（不是新端点，所以单列）
+// ---------------------------------------------------------------------------
+
+const idsOf = (path) => mockFetch(path, {}).body.map((task) => task.id)
+
+describe('⭐ N8：基线 `/api/tasks` 的四个查询参数要真的能筛', () => {
+  it('返回**裸数组**（不是 {items}），每张卡是基线列表项 16 字段', () => {
+    const { status, body } = mockFetch('/api/tasks?reading_status=todo', {})
+    expect(status).toBe(200)
+    expect(Array.isArray(body)).toBe(true)
+    expect(Object.keys(body[0]).sort()).toEqual([...TASK_CARD_KEYS].sort())
+  })
+
+  it('reading_status 传不同值 → 不同结果（不是永远返回同一份）', () => {
+    expect(idsOf('/api/tasks?reading_status=todo')).toEqual([42])
+    expect(idsOf('/api/tasks?reading_status=reading')).toEqual([43])
+    expect(idsOf('/api/tasks?reading_status=done')).toEqual([])
+  })
+
+  it('collection_id 按**直接成员**算（子集合的文献不算在父集合里）', () => {
+    expect(idsOf('/api/tasks?collection_id=1')).toEqual([42])
+    // 集合 2 是集合 1 的子集合；43 是它的直接成员（按"父集合不含子集合文献"的语义，1 只给 42）
+    expect(idsOf('/api/tasks?collection_id=2')).toEqual([43])
+    expect(idsOf('/api/tasks?collection_id=3')).toEqual([])
+  })
+
+  it('tag[] 多值取交集；`tag` 与 `tag[]` 两种写法都收', () => {
+    expect(idsOf('/api/tasks?tag[]=RAG')).toEqual([42])
+    expect(idsOf('/api/tasks?tag=双盲实验')).toEqual([43])
+    expect(idsOf('/api/tasks?tag[]=RAG&tag[]=双盲实验')).toEqual([])
+  })
+
+  it('smart_id 直接套那条智能集合的规则（内置"待读"/"在读"）', () => {
+    expect(idsOf('/api/tasks?smart_id=1')).toEqual([42])
+    expect(idsOf('/api/tasks?smart_id=2')).toEqual([43])
+    expect(idsOf('/api/tasks?smart_id=999')).toEqual([])
+  })
+
+  it('多个参数取交集（AND）', () => {
+    expect(idsOf('/api/tasks?reading_status=reading&collection_id=2')).toEqual([43])
+    expect(idsOf('/api/tasks?reading_status=todo&collection_id=2')).toEqual([])
+  })
+
+  it('⚠️ 不带参数时**放行打真后端**（它还是那条基线端点，不能被 mock 顶掉）', () => {
+    expect(mockResponse('/api/tasks', {})).toBeNull()
+    expect(mockRouteFor('GET', '/api/tasks')).toBeNull()
+  })
+
+  it('开关关着时，带参数的请求也照旧放行', () => {
+    expect(mockResponse('/api/tasks?reading_status=todo', {})).toBeNull()
+  })
+})
+
+describe('⭐ N30：`/api/auth/me` 只追加 last_login_at', () => {
+  it('响应 7 个字段 = 既有 6 个 + last_login_at', () => {
+    const { status, body } = mockFetch('/api/auth/me', {})
+    expect(status).toBe(200)
+    expect(Object.keys(body).sort()).toEqual([...USER_KEYS, 'last_login_at'].sort())
+  })
+
+  it('既有 6 个字段逐字不动（与 N28 的响应完全一致）', () => {
+    const me = mockFetch('/api/auth/me', {}).body
+    const patched = mockFetch('/api/me', {
+      method: 'PATCH',
+      body: JSON.stringify({ display_name: '演示账号' }),
+    }).body
+    // N30 只说了 /api/auth/me 这一处：N28 的响应形状**没被顺手改**
+    expect(Object.keys(patched).sort()).toEqual([...USER_KEYS].sort())
+    for (const key of USER_KEYS) expect(me[key]).toEqual(patched[key])
+  })
+})
+
+describe('⭐ 抽 3 类"卡片 / 稿件 / 报告"逐字段对契约', () => {
+  it('Material（数组端点 N13）：10 个字段，四个"创建时深拷贝"的列都在', () => {
+    const material = mockFetch('/api/materials?task_id=42', {}).body.items[0]
+    expect(Object.keys(material).sort()).toEqual([...MATERIAL_KEYS].sort())
+    expect(typeof material.text_quote).toBe('string')
+    expect(typeof material.source_name).toBe('string')
+    expect(typeof material.page).toBe('number')
+    expect('translated_quote' in material).toBe(true)
+  })
+
+  it('Draft（嵌套对象 N19）：草稿 6 字段 + citations[] 是完整 Citation', () => {
+    const draft = mockFetch('/api/drafts/1', {}).body
+    expect(Object.keys(draft).sort()).toEqual([...DRAFT_KEYS].sort())
+    expect(Array.isArray(draft.citations)).toBe(true)
+    expect(Object.keys(draft.citations[0]).sort()).toEqual([...CITATION_KEYS].sort())
+    expect(draft.citations[0].csl_json.type).toBe('article-journal')
+    expect(draft.citations[0].anchor.block_id).toBe('p2_b7')
+  })
+
+  it('CheckReport（N22）：findings[] 每条 7 字段，unknown 是一等公民', () => {
+    const report = mockFetch('/api/check', {
+      method: 'POST',
+      body: JSON.stringify({ draft_id: 1, doc_text: '研究表明，写得不错。' }),
+    }).body
+    expect(Object.keys(report).sort()).toEqual([...REPORT_KEYS].sort())
+    expect(Object.keys(report.findings[0]).sort()).toEqual(
+      ['id', 'kind', 'reason', 'rule_ref', 'sentence', 'severity', 'suggest'].sort(),
+    )
+    expect(report.findings.some((item) => item.severity === 'unknown')).toBe(true)
+    expect(Object.keys(report.summary).sort()).toEqual(['reported', 'unknown'])
+  })
+})
+
+describe('⭐ 契约 ↔ mock 对账（N8 / N30 两处"追加"）', () => {
+  it('两处追加正好是 N8（/api/tasks 参数）与 N30（/api/auth/me 字段）', () => {
+    expect(MOCK_DELTAS.map((item) => `${item.n} ${item.method} ${item.path}`)).toEqual([
+      'N8 GET /api/tasks',
+      'N30 GET /api/auth/me',
+    ])
+  })
+
+  it('它们是"给基线端点追加"，所以**不在** expected_new 里（别被当成新端点）', () => {
+    for (const item of MOCK_DELTAS) {
+      expect(expectedNewKeys).not.toContain(asKey(item.method, item.path))
+    }
+  })
+
+  it('也不在 MOCK_ROUTES 里重复登记（登记进去那条对账用例就会红）', () => {
+    for (const item of MOCK_DELTAS) {
+      expect(mockKeys).not.toContain(asKey(item.method, item.path))
+    }
   })
 })
