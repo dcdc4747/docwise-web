@@ -86,21 +86,37 @@
       </div>
       <div v-if="showOutline" class="toc">
         <button class="toc-head" @click="outlineOpen = !outlineOpen">
-          <span>目录 · {{ outlineItems.length }} 节</span>
+          <span>目录 · {{ tocItems.length }} 节</span>
           <i>{{ outlineOpen ? '收起' : '展开' }}</i>
         </button>
         <ol v-if="outlineOpen" class="toc-list">
-          <li v-for="item in outlineItems" :key="item.blockId">
+          <li
+            v-for="(item, index) in tocItems"
+            :key="item.blockId || 'x' + index"
+            :style="{ '--toc-depth': item.depth || 0 }"
+          >
             <button
+              v-if="item.blockId"
               class="toc-item"
               :class="'toc-' + item.type"
               @click="goOutline(item)"
             >
               <span class="toc-text">{{ item.text }}</span>
               <span class="toc-page">{{
-                item.page === null ? '' : `第 ${item.page + 1} 页`
+                item.page === null || item.page === undefined ? '' : `第 ${item.page + 1} 页`
               }}</span>
             </button>
+            <!-- ⚠️ `block_id` 为 null：这一条**确实在作者声明的目录里**，所以照实显示；
+                 但它对不上正文块、**点了没处去** → **不可点**（不是 button、没有 hover），
+                 「死链不许做成活链样式」是本仓硬规矩。 -->
+            <span
+              v-else
+              class="toc-item toc-item-static"
+              :class="'toc-' + item.type"
+              title="这一条对不上正文块，暂不能跳转"
+            >
+              <span class="toc-text">{{ item.text }}</span>
+            </span>
           </li>
         </ol>
       </div>
@@ -252,21 +268,35 @@
         </div>
         <div v-if="showOutline" class="toc">
           <button class="toc-head" @click="outlineOpen = !outlineOpen">
-            <span>目录 · {{ outlineItems.length }} 节</span>
+            <span>目录 · {{ tocItems.length }} 节</span>
             <i>{{ outlineOpen ? '收起' : '展开' }}</i>
           </button>
           <ol v-if="outlineOpen" class="toc-list">
-            <li v-for="item in outlineItems" :key="item.blockId">
+            <li
+              v-for="(item, index) in tocItems"
+              :key="item.blockId || 'x' + index"
+              :style="{ '--toc-depth': item.depth || 0 }"
+            >
               <button
+                v-if="item.blockId"
                 class="toc-item"
                 :class="'toc-' + item.type"
                 @click="goOutline(item)"
               >
                 <span class="toc-text">{{ item.text }}</span>
                 <span class="toc-page">{{
-                  item.page === null ? '' : `第 ${item.page + 1} 页`
+                  item.page === null || item.page === undefined ? '' : `第 ${item.page + 1} 页`
                 }}</span>
               </button>
+              <!-- 同上一处：`block_id` 为 null 的条目照实显示、**不可点**（见上面那段注释） -->
+              <span
+                v-else
+                class="toc-item toc-item-static"
+                :class="'toc-' + item.type"
+                title="这一条对不上正文块，暂不能跳转"
+              >
+                <span class="toc-text">{{ item.text }}</span>
+              </span>
             </li>
           </ol>
         </div>
@@ -577,7 +607,7 @@ import {
   onPaneScroll,
   onPdfAsk,
   onPdfLocate,
-  outlineItems,
+  tocItems,
   outlineOpen,
   pageChipText,
   paragraphRows,

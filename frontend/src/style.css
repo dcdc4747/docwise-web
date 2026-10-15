@@ -2406,6 +2406,21 @@ svg.ic-inl {
     padding: var(--sp-3) var(--sp-3) calc(var(--tabbar-h, 0px) + env(safe-area-inset-bottom, 0px) + var(--sp-6));
   }
   .dw .proc-select { max-width: 100%; }
+/* =============================================================
+   [C3] 目录变树 —— `src/tocTree.js` + `useReader.tocItems`
+   （结构有层级时用引擎给的层级；没有就退回按块类型判出来的平铺目录）
+
+   · 层级只靠**缩进**表达：`--toc-depth`（0..3）由模板按条目深度写在 `<li>` 上，
+     所以不用递归组件、也不用在模板里算类名（避开 Vue 模板全局白名单那类坑）。
+   · `block_id` 为 null 的条目**照实显示但不可点**——死链不许做成活链样式，
+     所以它的 hover 强调必须**显式复位**，否则会继承 `.toc-item:hover` 那套。
+   ============================================================= */
+.dw .toc-list > li { padding-left: calc(var(--toc-depth, 0) * 14px); }
+.dw .toc-item-static { color: var(--muted); cursor: default; }
+.dw .toc-item-static:hover { background: none; color: var(--muted); }
+/* 手机档缩进收窄：390px 宽下 14px × 3 层会把标题挤成省略号 */
+@media (max-width: 719px) {
+  .dw .toc-list > li { padding-left: calc(var(--toc-depth, 0) * 10px); }
 }
 
 

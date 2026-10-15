@@ -183,6 +183,11 @@ def _serialize_task(task: Task, blocks: list[TaskBlock] | None = None) -> dict:
         data["error_message"] = task.error_message
         data["translated_path"] = task.translated_path
         data["dual_translated_path"] = task.dual_translated_path
+        # 结构（M6 / C1 的列 → 详情带出去，C3 目录变树要用）：
+        # **原样透传、后端不重算 level**（判级仍归 blocktypes.py）。
+        # 老任务 / 扫描件 / 没跑过结构脚本的一律 None
+        # → 前端据此退回平铺目录，**一屏都不许空**。
+        data["structure"] = task.structure
         data["blocks"] = classify_blocks(
             [_serialize_block(block) for block in blocks],
             # 版面区域（任务 A）：按坐标把"这块落在模型框的哪个区域里"贴上来。
