@@ -992,8 +992,16 @@ describe('App.vue 页面渲染', () => {
     expect(deadBtn.text()).not.toContain('▸')
     expect(cards[3].find('.dead-note').text()).toContain('由全文综合而成')
 
-    // 每条要点都有「就这条追问」
-    expect(cards[0].find('.ops button:nth-child(2)').text()).toBe('就这条追问')
+    // 每条要点都有「就这条追问」（⚠️ 按**文字**找，不按位置——`.ops` 里后来又加了
+    // 「存素材」，按 `nth-child` 找会随按钮增减而错位）
+    const askButtons = cards[0].findAll('.ops button').filter((b) => b.text() === '就这条追问')
+    expect(askButtons).toHaveLength(1)
+
+    // ⭐ 同一条规矩也要管住「存素材」：**没有出处 / 定位不到出处时一个都不给**
+    // （死链不许做成活链样式——存一个不存在的块编号只会 404）
+    expect(cards[3].findAll('.mat-save')).toHaveLength(0) // 无单一段落出处
+    expect(cards[4].findAll('.mat-save')).toHaveLength(0) // 有出处但定位不到
+    expect(cards[0].findAll('.mat-save')).toHaveLength(1) // 有出处、定位得到 → 给
 
     // 点了有出处的：跳过去并闪烁
     await traceBtn.trigger('click')

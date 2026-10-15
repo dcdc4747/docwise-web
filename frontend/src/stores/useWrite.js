@@ -23,6 +23,15 @@ import { computed, ref, watch } from 'vue'
 import { apiJson } from '../auth'
 import { insertMarker } from '../writeText'
 import { findTask } from './useTasks'
+// 素材卡的状态与写入路径在 `useMaterials`（M2 的 N12–N14）。这里 import 进来，
+// 既让下面的素材引用照常工作，也不破坏既有的 `from './useWrite'` 导入。
+import {
+  loadMaterials,
+  materials,
+  materialsError,
+  materialsLoading,
+  resetMaterials,
+} from './useMaterials'
 import { fetchTaskDetail, openTask, traceTo } from './useReader'
 import { showToast } from './useUi'
 
@@ -37,9 +46,10 @@ export const drafts = ref([])
 export const draftsLoading = ref(false)
 export const draftsError = ref('')
 
-export const materials = ref([])
-export const materialsLoading = ref(false)
-export const materialsError = ref('')
+// ⚠️ 素材卡的三份状态（`materials` / `materialsLoading` / `materialsError`）与
+// `loadMaterials` 自 2026-10-16 起归 `useMaterials` 管（写入路径与读取同处一个 store，
+// 免得"创建"与"列表"各拿一份状态）。这里 re-export，保持既有导入不变。
+export { loadMaterials, materials, materialsError, materialsLoading } from './useMaterials'
 
 export const currentDraftId = ref(null)
 export const title = ref('')
@@ -207,21 +217,7 @@ export async function loadDrafts() {
   }
 }
 
-/** `GET /api/materials`（N13）。素材栏挂了不影响写稿——所以这里只记错误，不抛。 */
-export async function loadMaterials() {
-  materialsLoading.value = true
-  materialsError.value = ''
-  try {
-    const data = await apiJson('/api/materials')
-    materials.value = Array.isArray(data?.items) ? data.items : []
-    return materials.value
-  } catch (err) {
-    materialsError.value = err?.message || '素材加载失败'
-    return []
-  } finally {
-    materialsLoading.value = false
-  }
-}
+/** `GET /api/materials`（N13）已移到 `useMaterials`（素材的读与写同处一个 store）。 */
 
 /**
  * 起一份新稿（N18 `POST /api/drafts`）。
@@ -565,8 +561,8 @@ export function jumpToSuggested(finding) {
 export function resetWrite() {
   drafts.value = []
   draftsError.value = ''
-  materials.value = []
-  materialsError.value = ''
+  // 素材连"待删的撤销窗口定时器"一起清（只清列表会漏下一个定时器）
+  resetMaterials()
   currentDraftId.value = null
   title.value = ''
   body.value = ''
