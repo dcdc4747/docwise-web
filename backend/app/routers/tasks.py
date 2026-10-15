@@ -19,7 +19,16 @@ from pathlib import Path
 from typing import Annotated
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+)
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select, update
@@ -36,7 +45,18 @@ from ..deps import (
 )
 from ..engine import TaskState, Tier, is_native_pair
 from ..llm import extract_understanding
-from ..models import AuthTicket, Task, TaskBlock, TaskHistory, TaskUnderstanding, User
+from ..models import (
+    AuthTicket,
+    SmartCollection,
+    Tag,
+    Task,
+    TaskBlock,
+    TaskCollection,
+    TaskHistory,
+    TaskTag,
+    TaskUnderstanding,
+    User,
+)
 from ..timeutil import iso_utc, utc_now
 
 logger = logging.getLogger(__name__)
@@ -205,20 +225,139 @@ def _purge_task_children(session: Session, task_id: int) -> None:
 def list_tasks(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[User, Depends(get_current_user)],
+    reading_status: Annotated[str | None, Query()] = None,
+    collection_id: Annotated[int | None, Query()] = None,
+    tag: Annotated[list[str] | None, Query()] = None,
+    tag_bracket: Annotated[list[str] | None, Query(alias="tag[]")] = None,
+    smart_id: Annotated[int | None, Query()] = None,
 ):
     """当前登录用户自己的任务（最多 50 条，新的在前）。
 
     **归档的不返回**（`archived_at` 非空＝演示库策展时藏起来的）：列表里只放能代表产品的
     文献，早期那些没有块级译文/没有版面信号的老任务不摆出来误导人。详情、下载、问答照旧
     可用——**藏不等于删**，随时能恢复（见 `scripts/curate_demo_library.py`）。
+
+    ⭐ **N8：这条基线端点上的四个筛选参数**（契约 §2.2）。
+    **不传参数＝与以前同一条请求**，所以筛选条接上来之后老调用方一行都不用改。
+
+    - `reading_status`：`todo` / `reading` / `done`
+      （它就是「我今天该读什么」那三个入口的数据源）；
+    - `collection_id`：**直接成员**（子集合的文献不算在父集合里——
+      与集合计数同一条语义，见 `Collection`）；
+    - `tag[]`（`?tag[]=A&tag[]=B`，手写成 `?tag=A` 也收）：
+      **每个标签都要命中（AND）**；
+    - `smart_id`：套那条智能集合的 `query` 规则
+      （**规则即数据**；三种 `op` 见 `_match_condition`）。
+
+    多条参数之间是 **AND**（交集）。
+    ⚠️ **查不到的 `smart_id` 返回空数组**，不报错——契约没为它定义错误，
+    而"这条规则下没有我要的文献"本来就是合法结果（与前端 mock 同一条口径）。
     """
-    rows = db.scalars(
-        select(Task)
-        .where(Task.user_id == user.id, Task.archived_at.is_(None))
-        .order_by(Task.id.desc())
-        .limit(50)
-    ).all()
-    return [_serialize_task(task) for task in rows]
+    stmt = select(Task).where(Task.user_id == user.id, Task.archived_at.is_(None))
+    if reading_status:
+        stmt = stmt.where(Task.reading_status == reading_status)
+    if collection_id is not None:
+        stmt = stmt.where(
+            Task.id.in_(
+                select(TaskCollection.task_id).where(
+                    TaskCollection.collection_id == collection_id
+                )
+            )
+        )
+    names = [name for name in ((tag or []) + (tag_bracket or [])) if name]
+    if names:
+        for name in names:
+            stmt = stmt.where(
+                Task.id.in_(
+                    select(TaskTag.task_id)
+                    .join(Tag, Tag.id == TaskTag.tag_id)
+                    .where(Tag.user_id == user.id, Tag.name == name)
+                )
+            )
+
+    rows = list(db.scalars(stmt.order_by(Task.id.desc())).all())
+
+    if smart_id is not None:
+        rule = db.scalars(
+            select(SmartCollection).where(
+                SmartCollection.id == smart_id, SmartCollection.user_id == user.id
+            )
+        ).first()
+        if rule is None:
+            return []
+        context = _rule_context(db, [task.id for task in rows])
+        rows = [task for task in rows if _matches_smart_rule(task, rule.query, context)]
+
+    return [_serialize_task(task) for task in rows[:50]]
+
+
+def _rule_context(db: Session, task_ids: list[int]) -> dict[str, dict[int, list]]:
+    """规则里可能用到的"集合成员 / 标签"一次取齐（别在每行上各查一次）。"""
+    tags: dict[int, list[str]] = {}
+    collections: dict[int, list[int]] = {}
+    if task_ids:
+        for task_id, name in db.execute(
+            select(TaskTag.task_id, Tag.name)
+            .join(Tag, Tag.id == TaskTag.tag_id)
+            .where(TaskTag.task_id.in_(task_ids))
+        ).all():
+            tags.setdefault(task_id, []).append(name)
+        for task_id, cid in db.execute(
+            select(TaskCollection.task_id, TaskCollection.collection_id).where(
+                TaskCollection.task_id.in_(task_ids)
+            )
+        ).all():
+            collections.setdefault(task_id, []).append(cid)
+    return {"tag": tags, "collection": collections}
+
+
+def _rule_value(task: Task, field: str, context: dict[str, dict[int, list]]):
+    """规则里的 `field` → 这篇文献的实际值（与接口输出同一个口径，别各写一套）。"""
+    if field == "tag":
+        return context["tag"].get(task.id, [])
+    if field == "collection":
+        return context["collection"].get(task.id, [])
+    if field == "native":
+        return is_native_pair(task.source_lang, task.target_lang)
+    if field == "reading_status":
+        return task.reading_status
+    if field == "text_source":
+        return task.text_source
+    return None
+
+
+def _match_condition(actual, op: str, expected) -> bool:
+    """一条规则条件的判定（与前端 mock 的 `matchCondition` 逐字一致）。
+
+    `actual` 是列表（tag / collection）时按**成员**算，否则按值比。
+    未知 `op` 一律**不匹配**——"宁可少给，不给错"：规则是数据，
+    写错一条不该把不相干的文献筛进来。
+    """
+    if op == "eq":
+        return expected in actual if isinstance(actual, list) else actual == expected
+    wanted = expected if isinstance(expected, list) else [expected]
+    if isinstance(actual, list):
+        hit = any(value in actual for value in wanted)
+    else:
+        hit = any(actual == value for value in wanted)
+    if op == "in":
+        return hit
+    if op == "not_in":
+        return not hit
+    return False
+
+
+def _matches_smart_rule(task: Task, query, context: dict[str, dict[int, list]]) -> bool:
+    """`{"all": [{field, op, value}, …]}`：条件之间是 AND（形状冻结在模型里）。"""
+    conditions = (query or {}).get("all") or []
+    return all(
+        _match_condition(
+            _rule_value(task, item.get("field"), context),
+            item.get("op"),
+            item.get("value"),
+        )
+        for item in conditions
+    )
 
 
 @router.get("/{task_id}")
