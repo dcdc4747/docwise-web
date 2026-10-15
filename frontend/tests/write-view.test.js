@@ -417,16 +417,28 @@ describe('起草页：素材为空时的两个出口', () => {
     wrapper.unmount()
   })
 
-  it('素材接口取不到：如实说 + 给重试，并说清写稿不受影响', async () => {
-    const { impl } = stubWriteFetch({ drafts: [], materials: [], failMaterials: true })
+  it('素材接口取不到：如实说 + 给重试，**但两个空态出口不能因此消失**（浏览器实测抓出的回归）', async () => {
+    const { impl, calls } = stubWriteFetch({ drafts: [], materials: [], failMaterials: true })
     globalThis.fetch = impl
     const wrapper = mountWrite()
     await flushPromises()
 
     const text = wrapper.text()
+    // ① 诚实说 + 为什么 + 出口（重试）
     expect(text).toContain('素材取不到')
     expect(text).toContain('写稿不受影响')
     expect(wrapper.findAll('button').some((b) => b.text() === '重试')).toBe(true)
+
+    // ② 形态 §3.2 的两个出口**必须还在**（第一版写成 v-else-if，接口一挂就全没了）
+    expect(text).toContain('去读懂一篇')
+    const direct = wrapper.findAll('button').find((b) => b.text() === '不读文献，直接写')
+    expect(direct).toBeTruthy()
+
+    // ③ 而且后者仍然真能用（接口挂了也照样能起稿）
+    await direct.trigger('click')
+    await flushPromises()
+    expect(calls.some((c) => c.method === 'POST' && c.url.endsWith('/api/drafts'))).toBe(true)
+    expect(wrapper.find('.wr-editor').exists()).toBe(true)
     wrapper.unmount()
   })
 })
@@ -450,9 +462,28 @@ describe('起草页：插入引文', () => {
     const editor = wrapper.find('.wr-editor')
     expect(editor.element.value).toContain('[1]')
 
-    // 助手切到「引用」，那条引文带出处（第 3 页）
+    // 助手切到「引用」，那条引文带出处（第 3 页 + 「这一句的开头…」——全站硬约定两段都要有）
     expect(wrapper.find('.wr-helper .tabs button.on').text()).toBe('引用')
-    expect(wrapper.find('.wr-helper .cite-chip').text()).toContain('第 3 页')
+    const citeText = wrapper.find('.wr-helper .cite-chip').text()
+    expect(citeText).toContain('第 3 页')
+    expect(citeText).toContain('读者信任一个答案')
+    wrapper.unmount()
+  })
+
+  it('⭐ 出处口径：素材卡的芯片也带「这一句的开头」（不是只有页码）', async () => {
+    const { impl } = stubWriteFetch({ drafts: [], materials: [MATERIAL] })
+    globalThis.fetch = impl
+    const wrapper = mountWrite()
+    await flushPromises()
+
+    const chip = wrapper.find('.wr-mat .cite-chip')
+    expect(chip.exists()).toBe(true)
+    const text = chip.text()
+    expect(text).toContain('EBSCO_05-mono.pdf')
+    expect(text).toContain('第 3 页')
+    expect(text).toContain('读者信任一个答案')
+    // 全站硬约定：不说「第 Y 段」
+    expect(text).not.toContain('段')
     wrapper.unmount()
   })
 

@@ -69,7 +69,11 @@
         </div>
 
         <div class="wr-colbody">
-          <!-- 素材接口取不到：如实说 + 给重试，**并说清写稿不受影响** -->
+          <!-- 素材接口取不到：如实说 + 给重试，**并说清写稿不受影响**。
+               ⚠️ 这一段**不能把下面的空态出口挤掉**：第一版把它写成 v-if / v-else-if，
+               结果接口一挂（真后端现在还没有 N13）就只剩"取不到"，
+               形态 §3.2 要求的「去读懂一篇」+「不读文献，直接写」两个出口**一个都看不到**。
+               诚实提示与出口**并存**才是对的：说清为什么空，同时照样给出路。 -->
           <template v-if="materialsError">
             <HonestNote :text="`素材取不到：${materialsError}`" />
             <p class="wr-muted">
@@ -80,7 +84,7 @@
 
           <!-- 素材为空：形态 §3.2 的两个出口，**两个都真能用** -->
           <EmptyState
-            v-else-if="!materials.length"
+            v-if="!materials.length"
             title="还没有素材卡"
             description="素材卡是你在阅读文献时存下来的证据快照——记着「第 X 页 · 哪一句」。"
             action-text="去读懂一篇"
@@ -98,10 +102,12 @@
               <p v-if="m.translated_quote" class="wr-mat-tr">{{ m.translated_quote }}</p>
               <p v-if="m.note" class="wr-mat-note">备注：{{ m.note }}</p>
               <div class="wr-mat-foot">
-                <!-- 出处只走 CiteChip（全站唯一形态）；源文献已删时**不是按钮** -->
+                <!-- 出处只走 CiteChip（全站唯一形态）；源文献已删时**不是按钮**。
+                     ⚠️ 出处口径是「第 X 页 ·「这一句的开头…」」——`quote` 必须传，
+                     少了它就只剩页码，不符合全站硬约定（`CiteChip` 自己截 24 字）。 -->
                 <CiteChip
                   v-if="sourceStateOf(m).alive"
-                  :cites="{ source_name: m.source_name, page: m.page }"
+                  :cites="{ source_name: m.source_name, page: m.page, quote: m.text_quote }"
                   @locate="jumpToMaterial(m)"
                 />
                 <span v-else class="wr-dead">
@@ -593,10 +599,15 @@ async function doClear() {
 /**
  * 引文出处（`CiteChip` 的输入）：**素材卡在就用素材卡的快照，素材卡没了才退回 `csl_json`**。
  * 两者都没有就返回空对象，`CiteChip` 自己不渲染（宁可少一段，也不编一个出处出来）。
+ *
+ * ⚠️ **`quote` 必须带上**：全站硬约定是「第 X 页 ·「这一句的开头…」」，
+ * 只给页码等于把出处降级成"某篇文献的某页"——那是同类工具的做法，不是我们的。
  */
 function citeOfCitation(citation) {
   const material = (materials.value || []).find((item) => item.id === citation.material_id)
-  if (material) return { source_name: material.source_name, page: material.page }
+  if (material) {
+    return { source_name: material.source_name, page: material.page, quote: material.text_quote }
+  }
   const csl = citation.csl_json || {}
   return { source_name: csl.title || '', page: csl.page || '' }
 }
