@@ -1,5 +1,9 @@
 <template>
   <section class="lib-filters" aria-label="知识库筛选">
+    <!-- 自跑模式：不登录取数也能看到筛选条 + 「当前筛选」+ 「筛空了给出口」三样。
+         ⚠️ 说清"这是示例数据"——示例不标注就成了假数据。 -->
+    <HonestNote v-if="showDemo" text="自跑模式：下面用的是组件自带的示例数据（不是你的库）" />
+
     <div class="lib-fl-card">
       <!-- ① 状态（读没读）：四档单选，点当前档 = 取消这一档（这也是"筛选能清空"的一种） -->
       <div class="lib-fl-row">
@@ -20,11 +24,11 @@
       </div>
 
       <!-- ② 集合（可嵌套的树由页面摆，这里只出"筛哪一档"） -->
-      <div v-if="collections.length" class="lib-fl-row">
+      <div v-if="collectionsValue.length" class="lib-fl-row">
         <span class="lib-fl-key">集合</span>
         <div class="lib-fl-chips">
           <button
-            v-for="item in collections"
+            v-for="item in collectionsValue"
             :key="`c${item.id}`"
             type="button"
             class="lib-chip"
@@ -37,17 +41,18 @@
         </div>
       </div>
 
-      <!-- ③ 标签：字段是 `tag[]`，这里一次筛一个；再点同一个就是取消 -->
-      <div v-if="tags.length" class="lib-fl-row">
+      <!-- ③ 标签：契约 §2.2 的字段是 **`tag[]`（数组）** —— 所以这里是**多选**：
+           点一个加一个、再点同一个就取消。请求由页面发（`?tag[]=A&tag[]=B`）。 -->
+      <div v-if="tagsValue.length" class="lib-fl-row">
         <span class="lib-fl-key">标签</span>
         <div class="lib-fl-chips">
           <button
-            v-for="item in tags"
+            v-for="item in tagsValue"
             :key="`t${item.name}`"
             type="button"
             class="lib-chip"
-            :class="{ 'is-on': tag === item.name }"
-            :aria-pressed="tag === item.name"
+            :class="{ 'is-on': tagNames.includes(item.name) }"
+            :aria-pressed="tagNames.includes(item.name)"
             @click="pickTag(item.name)"
           >
             {{ item.name }}
@@ -57,11 +62,11 @@
 
       <!-- ④ 智能集合：⚠️ 规则是数据、也是它的全部意义 —— 芯片上必须能把规则说出来，
            否则它和一条写死的按钮长得一模一样。键盘用户靠 aria-label 也能听到同一句话。 -->
-      <div v-if="smartCollections.length" class="lib-fl-row">
+      <div v-if="smartValue.length" class="lib-fl-row">
         <span class="lib-fl-key">智能集合</span>
         <div class="lib-fl-chips">
           <button
-            v-for="item in smartCollections"
+            v-for="item in smartValue"
             :key="`s${item.id}`"
             type="button"
             class="lib-chip"
@@ -80,7 +85,7 @@
       <div v-if="activeLabels.length" class="lib-fl-row lib-fl-active">
         <span class="lib-fl-key">当前</span>
         <span class="lib-fl-sum">{{ activeLabels.join(' · ') }}</span>
-        <button type="button" class="btn lib-fl-clear" @click="emit('clear')">清除筛选</button>
+        <button type="button" class="btn lib-fl-clear" @click="applyClear">清除筛选</button>
       </div>
     </div>
 
@@ -88,13 +93,15 @@
          用全站统一的 `EmptyState variant="filtered"`（它的默认说明就会说"是筛选造成的"）；
          **绝不说"暂无数据"**——那句话既没说原因、也没给出路。真空态（库里真的没有）归页面。
          ⚠️ 它**落在筛选卡之外**（`.lib-fl-card` 已经闭合）：这一块说的是"列表是空的"，
-         塞进筛选卡的边框里会让人以为"是筛选控件自己坏了"。 -->
+         塞进筛选卡的边框里会让人以为"是筛选控件自己坏了"。
+         ⚠️ 宿主**只给了 `shown` 没给 `total`** 时也照样出这个出口，但说明要诚实：
+         那种情况下我们**说不清**是"筛没了"还是"库本来就是空的"。 -->
     <EmptyState
       v-if="filteredEmpty"
       variant="filtered"
       title="这个筛选下没有文献"
       :description="filteredDesc"
-      @clear="emit('clear')"
+      @clear="applyClear"
     />
   </section>
 </template>
@@ -109,18 +116,25 @@
  * 筛选状态按卡里的允许项走 **props + 回调**（不进 `stores/`）：
  * `filters` 进、`change` / `clear` 出 —— 这样它不依赖后端有没有写好、也不需要自己编假数据。
  *
- * 三条纪律：
+ * 四条纪律：
  * ① **筛选必须能清空**：点当前档即取消、`activeLabels` 一出现就有「清除筛选」出口；
  * ② ⭐ **"筛空了"要分得清是谁造成的**：`total > 0 && shown === 0` 才算筛选造成的空，
  *    这种情况交给统一空态（说原因 + 给出路）；**库里本来就是空的**不许在这里冒充筛空态；
- * ③ **智能集合的规则必须露出来**（`ruleLabel`）——规则不说出来，它就是一条写死的按钮。
+ *    ⚠️ 拿不到 `total` 时**也出出口**，但说明里要写明"说不清是筛没了还是库本来就是空的"；
+ * ③ **智能集合的规则必须露出来**（`ruleLabel`）——规则不说出来，它就是一条写死的按钮；
+ * ④ **标签是多选**（契约字段是 `tag[]`）：点一个加一个、再点同一个取消，发出去的是数组。
+ *
+ * ⭐ **自跑模式**（`:demo="true"` 或地址带 `demo=mock`）：不登录取数也能把筛选条、
+ * 「当前筛选」、以及**「筛空了给出口」当场看到**——示例库在组件里，点击是真的在筛。
+ * 页面把组件摆好之后就不能再"必须接真接口才看得见"了。
  */
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 
 import EmptyState from './EmptyState.vue'
+import HonestNote from './HonestNote.vue'
 
 const props = defineProps({
-  /** 当前筛选值：`{reading_status, collection_id, tag, smart_id}`（空值 = 没筛）。 */
+  /** 当前筛选值：`{reading_status, collection_id, tag[], smart_id}`（空值 = 没筛）。 */
   filters: { type: Object, default: () => ({}) },
   /** 可选集合：`[{id, name, count}]`（count 可缺）。 */
   collections: { type: Array, default: () => [] },
@@ -132,9 +146,81 @@ const props = defineProps({
   total: { type: Number, default: null },
   /** 当前筛选下有几篇。拿不到就给 null。 */
   shown: { type: Number, default: null },
+  /** 自跑模式：用组件自带的示例数据渲染（等价于 URL 带 `demo=mock`）。 */
+  demo: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['change', 'clear'])
+
+/** URL 里的 `demo=mock`（哈希路由下 query 可能落在 hash 里，两处都看）。 */
+function demoFromUrl() {
+  if (typeof window === 'undefined' || !window.location) return false
+  const target = `${window.location.search || ''}&${window.location.hash || ''}`
+  return /(?:^|[?&])demo=mock(?:&|$)/.test(target)
+}
+
+const showDemo = computed(() => props.demo || demoFromUrl())
+
+// ============================================================ 自跑模式的示例库
+
+const DEMO_COLLECTIONS = [
+  { id: 1, name: '毕业论文', count: 2 },
+  { id: 2, name: '文献综述', count: 1 },
+  { id: 3, name: '方法对比', count: 1 },
+]
+const DEMO_TAGS = [{ name: 'RAG' }, { name: '双盲实验' }, { name: '待复现' }]
+const DEMO_SMART = [
+  {
+    id: 1,
+    name: '待读',
+    query: { all: [{ field: 'reading_status', op: 'eq', value: 'todo' }] },
+    count: 2,
+  },
+  {
+    id: 2,
+    name: '扫描件',
+    query: { all: [{ field: 'text_source', op: 'eq', value: 'ocr' }] },
+    count: 1,
+  },
+]
+
+/** 示例库（4 篇）：自跑模式下**真的筛一遍** —— 这样"筛空了给出口"能当场复现。 */
+const DEMO_TASKS = [
+  { reading_status: 'todo', collection_id: 1, tags: ['RAG'] },
+  { reading_status: 'reading', collection_id: 2, tags: ['双盲实验'] },
+  { reading_status: 'done', collection_id: 1, tags: ['RAG', '待复现'] },
+  { reading_status: 'todo', collection_id: 3, tags: [] },
+]
+
+const DEMO_SMART_RULES = {
+  1: (task) => task.reading_status === 'todo',
+  2: () => false, // 示例库里没有扫描件 —— 顺手让"筛空了"这条路也能看到
+}
+
+const demoFilters = ref({ reading_status: 'todo' })
+
+function demoMatch(task, filters) {
+  if (filters.reading_status && task.reading_status !== filters.reading_status) return false
+  if (filters.collection_id != null && String(task.collection_id) !== String(filters.collection_id)) return false
+  if (filters.smart_id != null) {
+    const rule = DEMO_SMART_RULES[filters.smart_id]
+    if (!rule || !rule(task)) return false
+  }
+  const wanted = Array.isArray(filters.tag) ? filters.tag : filters.tag ? [filters.tag] : []
+  if (wanted.length && !wanted.every((name) => task.tags.includes(name))) return false
+  return true
+}
+
+const demoShown = computed(() => DEMO_TASKS.filter((task) => demoMatch(task, demoFilters.value)).length)
+
+// ============================================================ 数据源（真 / 自跑）
+
+const filtersValue = computed(() => (showDemo.value ? demoFilters.value : props.filters || {}))
+const collectionsValue = computed(() => (showDemo.value ? DEMO_COLLECTIONS : props.collections))
+const tagsValue = computed(() => (showDemo.value ? DEMO_TAGS : props.tags))
+const smartValue = computed(() => (showDemo.value ? DEMO_SMART : props.smartCollections))
+const totalValue = computed(() => (showDemo.value ? DEMO_TASKS.length : props.total))
+const shownValue = computed(() => (showDemo.value ? demoShown.value : props.shown))
 
 /** 状态三档 + "全部"（取值来自契约 §1.1：`todo` / `reading` / `done`）。 */
 const STATUS_OPTIONS = [
@@ -146,19 +232,46 @@ const STATUS_OPTIONS = [
 
 const STATUS_LABEL = Object.fromEntries(STATUS_OPTIONS.map((o) => [o.value, o.label]))
 
-const status = computed(() => props.filters?.reading_status ?? '')
-const collectionId = computed(() => props.filters?.collection_id ?? '')
-const tag = computed(() => props.filters?.tag ?? '')
-const smartId = computed(() => props.filters?.smart_id ?? '')
+const status = computed(() => filtersValue.value?.reading_status ?? '')
+const collectionId = computed(() => filtersValue.value?.collection_id ?? '')
+const smartId = computed(() => filtersValue.value?.smart_id ?? '')
 
-/** 空值一律**从筛选对象里剔掉**：发出的永远是"干净的查询条件"，不是一串空字符串。 */
+/** 标签统一读成**数组**：宿主给数组（契约字段是 `tag[]`）或给单个字符串都收。 */
+const tagNames = computed(() => {
+  const raw = filtersValue.value?.tag
+  const list = Array.isArray(raw) ? raw : raw ? [raw] : []
+  return list.filter((item) => item !== '' && item !== null && item !== undefined).map(String)
+})
+
+/** 空值一律**从筛选对象里剔掉**：发出的永远是"干净的查询条件"，不是一串空字符串／空数组。 */
 function nextFilters(patch) {
-  const merged = { ...props.filters, ...patch }
+  const merged = { ...filtersValue.value, ...patch }
   const out = {}
   for (const [key, value] of Object.entries(merged)) {
-    if (value !== '' && value !== null && value !== undefined) out[key] = value
+    if (Array.isArray(value)) {
+      if (value.length) out[key] = value
+    } else if (value !== '' && value !== null && value !== undefined) {
+      out[key] = value
+    }
   }
   return out
+}
+
+/** 改动统一从这里出去：自跑模式改本地示例库，正常模式交给页面。 */
+function applyChange(next) {
+  if (showDemo.value) {
+    demoFilters.value = next
+    return
+  }
+  emit('change', next)
+}
+
+function applyClear() {
+  if (showDemo.value) {
+    demoFilters.value = {}
+    return
+  }
+  emit('clear')
 }
 
 function sameId(current, candidate) {
@@ -172,19 +285,23 @@ function hasCount(value) {
 }
 
 function pickStatus(value) {
-  emit('change', nextFilters({ reading_status: value }))
+  applyChange(nextFilters({ reading_status: value }))
 }
 
 function pickCollection(id) {
-  emit('change', nextFilters({ collection_id: sameId(collectionId.value, id) ? '' : id }))
+  applyChange(nextFilters({ collection_id: sameId(collectionId.value, id) ? '' : id }))
 }
 
+/** 标签多选：在数组里加一个 / 去掉一个（不是"单选换一个"）。 */
 function pickTag(name) {
-  emit('change', nextFilters({ tag: tag.value === name ? '' : name }))
+  const next = tagNames.value.includes(name)
+    ? tagNames.value.filter((item) => item !== name)
+    : [...tagNames.value, name]
+  applyChange(nextFilters({ tag: next }))
 }
 
 function pickSmart(id) {
-  emit('change', nextFilters({ smart_id: sameId(smartId.value, id) ? '' : id }))
+  applyChange(nextFilters({ smart_id: sameId(smartId.value, id) ? '' : id }))
 }
 
 /** 规则 → 人话（"规则即数据"：`query.all` 里每条的 field/op/value）。 */
@@ -217,23 +334,38 @@ const activeLabels = computed(() => {
   const labels = []
   if (status.value) labels.push(`状态：${STATUS_LABEL[status.value] || status.value}`)
   if (collectionId.value !== '') {
-    const hit = props.collections.find((item) => sameId(collectionId.value, item.id))
+    const hit = collectionsValue.value.find((item) => sameId(collectionId.value, item.id))
     labels.push(`集合：${hit ? hit.name : collectionId.value}`)
   }
-  if (tag.value) labels.push(`标签：${tag.value}`)
+  if (tagNames.value.length) labels.push(`标签：${tagNames.value.join(' / ')}`)
   if (smartId.value !== '') {
-    const hit = props.smartCollections.find((item) => sameId(smartId.value, item.id))
+    const hit = smartValue.value.find((item) => sameId(smartId.value, item.id))
     labels.push(`智能集合：${hit ? hit.name : smartId.value}`)
   }
   return labels
 })
 
-/** ⭐ 只有"库里有东西 + 现在筛没了"才算筛选造成的空。 */
+/**
+ * ⭐ 有筛选、且当前一篇都没有 → 出统一空态。
+ *
+ * 两种输入都出：
+ * - `total > 0`（知道库里有东西）→ 确定是筛选造成的；
+ * - `total` 拿不到（宿主没给）→ **也出**（不然用户面对空列表没有任何出口），
+ *   但说明里如实写"说不清是筛没了还是库本来就是空的"。
+ * `shown` 拿不到（null）时**不出**：那时连"空"都还不确定，那是页面的事。
+ */
 const filteredEmpty = computed(
-  () => activeLabels.value.length > 0 && props.total !== null && props.shown === 0 && props.total > 0,
+  () =>
+    activeLabels.value.length > 0 &&
+    shownValue.value === 0 &&
+    (totalValue.value === null || totalValue.value > 0),
 )
 
-const filteredDesc = computed(
-  () => `库里共 ${props.total} 篇，当前筛选（${activeLabels.value.join(' · ')}）下没有匹配的文献。`,
-)
+const filteredDesc = computed(() => {
+  const who = activeLabels.value.join(' · ')
+  if (totalValue.value === null) {
+    return `当前筛选（${who}）下没有匹配的文献。库里一共几篇这一项没拿到，所以说不清是「筛没了」还是「库本来就是空的」——先清除筛选看看。`
+  }
+  return `库里共 ${totalValue.value} 篇，当前筛选（${who}）下没有匹配的文献。`
+})
 </script>

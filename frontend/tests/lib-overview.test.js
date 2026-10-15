@@ -78,6 +78,18 @@ describe('LibOverview 知识库概况', () => {
     expect(rule).not.toMatch(/#[0-9a-f]{3,6}/i)
   })
 
+  it('⭐ 自跑模式：不登录取数也能看到"带文字明细的概况行 + 标签云"，并且标明是示例', async () => {
+    const wrapper = mount(LibOverview, { props: { demo: true } })
+
+    expect(wrapper.find('.hnote').text()).toContain('自跑模式')
+    expect(wrapper.find('.hnote').text()).toContain('示例数据')
+    expect(wrapper.find('.lib-ov-line').text()).toBe('5 篇文献 · 412 块 · 9 条素材 · 3 条引用')
+    expect(wrapper.findAll('button.lib-tag').length).toBe(3)
+
+    await wrapper.findAll('button.lib-tag')[0].trigger('click')
+    expect(wrapper.emitted('pick-tag').at(-1)[0]).toBe('RAG')
+  })
+
   it('渲染出来的文本不含源码痕迹、也不含 emoji', () => {
     const wrapper = mount(LibOverview, { props: { stats, tags } })
 

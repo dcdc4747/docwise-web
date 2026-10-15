@@ -61,7 +61,66 @@ describe('LibFilters 知识库筛选区', () => {
 
     await wrapper.setProps({ filters: {} })
     await chip(wrapper, '酶催化').trigger('click')
-    expect(wrapper.emitted('change').at(-1)[0]).toEqual({ tag: '酶催化' })
+    // 契约字段是 `tag[]`（数组）——发出去的就是数组，不是一个字符串
+    expect(wrapper.emitted('change').at(-1)[0]).toEqual({ tag: ['酶催化'] })
+  })
+
+  it('⭐ 标签是**多选**（`tag[]`）：加一个进数组、再点同一个从数组里去掉', async () => {
+    const wrapper = mount(LibFilters, { props: { tags, filters: { tag: ['手性'] } } })
+
+    // 已经选中的那颗是选中态
+    expect(chip(wrapper, '手性').classes()).toContain('is-on')
+
+    await chip(wrapper, '酶催化').trigger('click')
+    expect(wrapper.emitted('change').at(-1)[0]).toEqual({ tag: ['手性', '酶催化'] })
+
+    await wrapper.setProps({ filters: { tag: ['手性', '酶催化'] } })
+    await chip(wrapper, '手性').trigger('click')
+    expect(wrapper.emitted('change').at(-1)[0]).toEqual({ tag: ['酶催化'] })
+
+    // 「当前」那一行要把两个标签都念出来
+    expect(wrapper.find('.lib-fl-sum').text()).toContain('标签：手性 / 酶催化')
+  })
+
+  it('宿主只给了 shown、没给 total → 出口照样出，但说明要诚实（说不清是筛没了还是库是空的）', () => {
+    const wrapper = mount(LibFilters, {
+      props: { filters: { reading_status: 'todo' }, shown: 0 },
+    })
+
+    const empty = wrapper.find('.empty')
+    expect(empty.exists()).toBe(true)
+    const desc = empty.find('.empty-desc').text()
+    expect(desc).toContain('说不清')
+    expect(desc).toContain('先清除筛选看看')
+    expect(wrapper.text()).not.toContain('暂无数据')
+  })
+
+  it('⭐ 自跑模式：不登录取数也能看到筛选条，且点击是真的在筛（筛空了当场给出口）', async () => {
+    const wrapper = mount(LibFilters, { props: { demo: true } })
+
+    // ① 标明"这是示例数据"（示例不标注就成了假数据）
+    expect(wrapper.find('.hnote').text()).toContain('自跑模式')
+    expect(wrapper.find('.hnote').text()).toContain('示例数据')
+
+    // ② 示例库 4 篇，默认筛「待读」→ 2 篇，所以还没有空态
+    expect(wrapper.find('.lib-fl-sum').text()).toContain('状态：待读')
+    expect(wrapper.find('.empty').exists()).toBe(false)
+
+    // ③ 点一个示例里必然筛空的智能集合（「扫描件」）→ 出口当场出现
+    const scan = wrapper
+      .findAll('button.lib-chip')
+      .find((item) => item.text().startsWith('扫描件'))
+    await scan.trigger('click')
+
+    const empty = wrapper.find('.empty')
+    expect(empty.exists()).toBe(true)
+    expect(empty.find('.empty-desc').text()).toContain('库里共 4 篇')
+    expect(empty.find('.empty-desc').text()).toContain('智能集合：扫描件')
+
+    // ④ 出口当场能用（自跑模式下清的是本地示例筛选）
+    await wrapper.find('button.empty-clear').trigger('click')
+    expect(wrapper.find('.empty').exists()).toBe(false)
+    expect(wrapper.emitted('clear')).toBeUndefined()
   })
 
   it('⭐ 智能集合的规则必须露出来（悬停能看到"规则：状态 = 待读"，键盘用户也能听到）', () => {
