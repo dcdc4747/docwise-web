@@ -59,6 +59,7 @@ import {
   stopProgress,
 } from './stores/useReader'
 import { clearTasks, tasks } from './stores/useTasks'
+import { resetWrite } from './stores/useWrite'
 import {
   activeNav,
   closeMenus,
@@ -77,6 +78,7 @@ import {
 } from './stores/useUi'
 import LibraryView from './views/LibraryView.vue'
 import ReadView from './views/ReadView.vue'
+import WriteView from './views/WriteView.vue'
 import { NConfigProvider, NSpin, zhCN, dateZhCN } from 'naive-ui'
 
 // ============================================================ 屏与账号
@@ -199,10 +201,16 @@ async function syncFromRoute() {
     return
   }
 
-  // 已经声明、但这一期还没做的页面（#/write、#/memory、#/process、#/me、#/admin）。
+  // M3 起草页（`#/write`）：**不依赖读懂**，可直达（契约 §2.6 / 形态 §3.2）。
+  // 起草页自己管取数（草稿 / 素材 / 引文），所以这里只切屏，不预加载任何东西。
+  if (route.name === 'write') {
+    if (view.value !== 'write') view.value = 'write'
+    return
+  }
+
+  // 已经声明、但这一期还没做的页面（#/memory、#/process、#/me、#/admin）。
   // **不假装能打开**：如实说 + 指出它要做的事，然后回库页，绝不白屏。
   const NOT_BUILT_YET = {
-    write: '起草页',
     memory: '记忆页',
     process: '处理过程页',
     me: '个人中心',
@@ -248,15 +256,15 @@ async function applyBootRoute() {
  */
 const RAIL_TARGETS = {
   read: { go: { name: 'library' } },
-  write: { note: '起草页（形态 v2 的 M3）还没做，先回「我的论文」' },
+  write: { go: { name: 'write' } },
   check: { note: '收口（形态 v2 的 M4）还没做，先回「我的论文」' },
   'lib-all': { go: { name: 'library' } },
   'lib-collections': { note: '集合（形态 v2 的 M1 知识库）还没做，先回「我的论文」' },
   'lib-tags': { note: '标签（形态 v2 的 M1 知识库）还没做，先回「我的论文」' },
   'lib-todo': { note: '待读是智能集合，随 M1 知识库一起做，先回「我的论文」' },
-  'lib-materials': { note: '素材卡（形态 v2 的 M2）还没做，先回「我的论文」' },
-  'lib-drafts': { note: '草稿（形态 v2 的 M3 起草）还没做，先回「我的论文」' },
-  'lib-refs': { note: '引用列表（形态 v2 的 M3 起草）还没做，先回「我的论文」' },
+  'lib-materials': { note: '素材库页（形态 v2 的 M2）还没做——素材已经能在起草页左栏里用', },
+  'lib-drafts': { note: '草稿列表页还没做——你的草稿在「起草」页里（点左上「起草」）' },
+  'lib-refs': { note: '引用列表页还没做——引文在「起草」页的「引用」页签里看' },
   memory: { note: '记忆页（形态 v2 的 M7）还没做，先回「我的论文」' },
   process: { note: '处理过程页（形态 v2 的 M5）还没做，先回「我的论文」' },
 }
@@ -273,9 +281,14 @@ function onRailSelect(key) {
   // 一看目标一致，就断定"这是我们自己写的那次、状态早就改好了" → **直接 return，不调 `syncFromRoute`**。
   // 所以"只写地址、不设状态"会让界面**停在原地**（地址变了、屏没变）—— 第一次实现就踩了，
   // 靠"点起草之后 `#/` 变了但 `.lib-wrap` 还不存在"这条用例抓出来。
-  // 本期左栏能真正打开的目标只有库页，所以状态就在这一处显式设对。
-  view.value = 'library'
-  navigateToHash(target.go || { name: 'library' })
+  //
+  // 现在左栏能真正打开的有两处（库页与起草页），所以两样状态都在这一处显式设对：
+  // `view` 决定渲染哪一屏，`activeNav` 决定左栏哪一项亮着（那次 hashchange 被吞了，
+  // `syncFromRoute` 不会替我们做这件事）。
+  const go = target.go || { name: 'library' }
+  view.value = go.name === 'write' ? 'write' : 'library'
+  activeNav.value = go.name === 'write' ? 'write' : 'read'
+  navigateToHash(go)
 }
 
 // ============================================================ 账号与会话
@@ -361,6 +374,8 @@ async function onLogout() {
   authUser.value = null
   currentTask.value = null
   clearTasks()
+  // 起草页的状态也要清：不清的话，换个人登录会先看到上一个人的草稿（哪怕一秒）
+  resetWrite()
   showAdmin.value = false
   stopProgress()
   // 退出后回库页并清掉地址里的那一篇（否则换个账号登录还会去开上一个账号的任务号）；
@@ -373,6 +388,7 @@ function handleUnauthorized() {
   authUser.value = null
   showAdmin.value = false
   stopProgress()
+  resetWrite()
   authNotice.value = '登录已过期，请重新登录'
 }
 </script>
@@ -426,6 +442,14 @@ function handleUnauthorized() {
               </div>
             </div>
             <LibraryView />
+          </section>
+
+          <!-- ==================== M3 起草页（#/write 三栏） ====================
+               ⚠️ 必须排在阅读区**前面**判断：`view` 是唯一真源，
+               而从起草页点 [1] 跳回原文之后 `currentTask` 还在，
+               若先判 `currentTask` 就会"地址是 #/write、屏停在阅读区"。 -->
+          <section v-else-if="view === 'write'" class="screen-write">
+            <WriteView />
           </section>
 
           <!-- ==================== L2 阅读工作区 ==================== -->
