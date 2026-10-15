@@ -123,3 +123,156 @@ def test_extractor_prefers_text_layer_before_ocr() -> None:
     assert "_ocr_fallback" in source
     # 取字方式要写进 result.json，别让 OCR 的字和文字层混为一谈
     assert '"mode": mode' in source
+
+
+# ============================================================ 版面量（layout）
+
+def test_paragraph_layout_matches_the_text_layer_contract() -> None:
+    """键与口径必须和文字层那条路一致（`extract_blocks.py` 头部就是这份契约）。
+
+    - `unit_h` ＝ 行高中位数（这里单位是**渲染图像素**，文字层那条路是字号 pt）；
+    - 块矩形取各行的 min/max（**距页顶**）；
+    - ⚠️ **没有 `bold`**：OCR 给不出加粗（引擎那条路也给不出）——
+      `blocktypes` 在缺 `bold` 时按 0 处理，所以这里不是漏写。
+    """
+    module = _load("ocr_blocks")
+    paragraph = [
+        _line("第一行", 100, 200, 500, 220),  # 高 20
+        _line("第二行", 104, 226, 500, 246),  # 高 20
+        _line("第三行", 100, 252, 480, 270),  # 高 18
+    ]
+
+    layout = module.paragraph_layout(paragraph, page_h=2000)
+
+    assert layout is not None
+    assert set(layout) == {"unit_h", "x0", "y0", "x1", "y1", "page_h"}
+    assert layout["unit_h"] == 20.0  # median(20, 20, 18) == 20
+    assert layout["x0"] == 100.0
+    assert layout["y0"] == 200.0
+    assert layout["x1"] == 500.0
+    assert layout["y1"] == 270.0
+    assert layout["page_h"] == 2000.0
+
+
+def test_paragraph_layout_without_page_height_is_none_not_zero() -> None:
+    """⭐ **宁可没有，也不许编**：拿不到页高就整块不写（**不填 0**）。
+
+    块上没有 `layout` 时，判级会自动退回"只看文字形状"——那是设计好的退路；
+    填 0 反而会让 `unit_h <= 0` 的假信号进入判据。
+    """
+    module = _load("ocr_blocks")
+    paragraph = [_line("正文一行", 100, 200, 500, 220)]
+
+    assert module.paragraph_layout(paragraph, page_h=None) is None
+    assert module.paragraph_layout(paragraph, page_h=0) is None
+    assert module.paragraph_layout(paragraph, page_h=-1) is None
+
+
+def test_paragraph_layout_without_usable_geometry_is_none() -> None:
+    """算不出一条可用几何量（行高非正 / 键缺失 / 值不是数）→ None，不是 0。"""
+    module = _load("ocr_blocks")
+
+    assert module.paragraph_layout([], page_h=2000) is None
+    assert (
+        module.paragraph_layout([_line("坏行", 10, 100, 100, 100)], page_h=2000) is None
+    )
+    assert module.paragraph_layout([{"text": "缺几何量"}], page_h=2000) is None
+    assert (
+        module.paragraph_layout([_line("非数", 10, "x", 100, 120)], page_h=2000) is None
+    )
+
+
+def test_paragraph_layout_uses_usable_lines_and_ignores_broken_ones() -> None:
+    """混着坏行时：**用能用的那几行**算（不做整段丢弃），但绝不替坏行编数。"""
+    module = _load("ocr_blocks")
+    paragraph = [
+        _line("好行一", 100, 200, 500, 220),
+        _line("坏行（零高）", 100, 230, 500, 230),
+        _line("好行二", 100, 240, 460, 258),
+    ]
+
+    layout = module.paragraph_layout(paragraph, page_h=1000)
+
+    assert layout is not None
+    assert layout["unit_h"] == 19.0  # median(20, 18) == 19
+    assert layout["x0"] == 100.0
+    assert layout["x1"] == 500.0
+    assert layout["y1"] == 258.0
+
+
+def test_ocr_blocks_writes_layout_with_the_rendered_pixel_height(monkeypatch) -> None:
+    """⭐ **接线**：真跑一遍 `ocr_blocks`（用假的 PyMuPDF / 假 OCR 运行时）。
+
+    真 OCR 跑在引擎 Python 里（后端 venv 没有 PyMuPDF 与 OCR 运行时），所以这里把
+    两个重依赖塞成假模块——**接线本身必须被钉住**，否则"补了纯函数却没接上"没人发现。
+
+    钉三件：① 块上**有** `layout`；② `page_h` 取的是**渲染图的像素高**（不是页的点高）；
+    ③ `unit_h` 就是行框高中位数。
+    """
+    import sys
+    import types
+
+    from app import storage
+
+    module = _load("ocr_blocks")
+
+    class _FakePixmap:
+        width = 1600
+        height = 2200
+
+        def tobytes(self, _fmt: str) -> bytes:
+            return b"png-bytes"
+
+    class _FakePage:
+        def get_pixmap(self, dpi: int = 72) -> _FakePixmap:
+            assert dpi == module.RENDER_DPI
+            return _FakePixmap()
+
+    class _FakeDoc:
+        page_count = 1
+
+        def load_page(self, _page_no: int) -> _FakePage:
+            return _FakePage()
+
+        def __enter__(self) -> _FakeDoc:
+            return self
+
+        def __exit__(self, *_exc) -> None:
+            return None
+
+    def _box(x0: float, y0: float, x1: float, y1: float) -> list[list[float]]:
+        return [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]
+
+    def _fake_engine(_path: str):
+        # 一行一段，两行：段内间距 26（≈1.3 倍行高）→ 按 pitch 判会并成一段
+        return (
+            [
+                (_box(100, 200, 700, 220), "扫描件第一行文字", 0.99),
+                (_box(100, 226, 700, 246), "扫描件第二行文字", 0.98),
+            ],
+            0.5,
+        )
+
+    monkeypatch.setitem(
+        sys.modules, "fitz", types.SimpleNamespace(open=lambda _p: _FakeDoc())
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "rapidocr_onnxruntime",
+        types.SimpleNamespace(RapidOCR=lambda: _fake_engine),
+    )
+
+    pdf_path = storage.uploads_dir() / "fake-scan-for-layout-test.pdf"
+    blocks, reason = module.ocr_blocks(pdf_path)
+
+    assert reason is None
+    assert len(blocks) == 1
+    layout = blocks[0]["layout"]
+    assert layout is not None
+    assert layout["page_h"] == 2200.0  # 渲染图像素高，不是页的点高
+    assert layout["unit_h"] == 20.0  # 行框高（220-200、246-226）的中位数
+    assert layout["x0"] == 100.0
+    assert layout["y0"] == 200.0
+    assert layout["x1"] == 700.0
+    assert layout["y1"] == 246.0
+

@@ -22,12 +22,18 @@
 **用并查集两两合并，不依赖行的先后顺序**：OCR 在双栏排版上给出的行序是混的
 （左栏一行、右栏一行交替），只跟"上一行"比会把双栏切成一行一段。
 
+**版面量**：每个块会带上 `layout`（`unit_h` = 行高中位数、块矩形 `x0/y0/x1/y1`、
+`page_h`），**键与口径与文字层那条路逐一对齐**（契约写在 `extract_blocks.py` 头部）；
+OCR 这边的坐标是**渲染图的像素**。拿不到页高或算不出版面量时**整块不写**（不编）——
+块上没有 `layout`，判级会自动退回"只看文字形状"。
+
 模块顶部故意**不导入**任何第三方库：纯函数要能在后端 venv（没有 PyMuPDF / OCR 运行时）
 里被单测；重依赖都在函数里 import。
 """
 
 from __future__ import annotations
 
+import statistics
 import sys
 from pathlib import Path
 
@@ -198,6 +204,67 @@ def _join_lines(texts: list[str]) -> str:
     return out
 
 
+def paragraph_layout(paragraph: list[dict], *, page_h: float | None) -> dict | None:
+    """一个段落的**版面量**（键与口径与 `extract_blocks.py` 那条路**逐一对齐**）。
+
+    - `unit_h`：一行有多高。文字层＝**字号**（pt）；**OCR＝行高中位数**（px）——
+      这是 `extract_blocks.py` 头部写死的契约，两条路必须能互相替代。
+      OCR 的坐标来自**渲染图的像素空间**（`RENDER_DPI`），所以这里的 `unit_h` 与
+      `page_h` 都是 **px 而不是点**；判级用的是相对量（`unit_h / body_h`），
+      所以"同一来源内部"一致就够了。
+    - `x0` / `y0` / `x1` / `y1`：块在页上的矩形（**距页顶**、y 向下，`y1` 是底边）。
+      这几个量不是装饰：判级里"按区域贴标签"要拿**块首行中心点**
+      （`blocktypes._region_of`：`x=(x0+x1)/2`、`y=y0+unit_h/2`）去撞区域框——
+      双栏页光靠 y 分不开左右栏，所以 x 必须带上。
+    - ⚠️ **没有 `bold`**：OCR 只有置信度、给不出加粗（引擎那条路同样给不出；
+      `blocktypes` 在缺 `bold` 时按 0 处理）。
+    - ⚠️ **坐标系边界（别踩）**：这里的量是**渲染图像素**，而 `tasks.regions`
+      （引擎版面模型给的区域框）是**点**。实测扫描件任务眼下 `regions` 为空
+      （只有文字层那几篇有），所以扫描件上的"按区域贴标签"**还走不到**；
+      哪天真给扫描件也填了 `regions`，**两套坐标必须先换到同一个空间**再撞——
+      今天不同空间的结果是"贴不上"（退回文字形状判据），不是贴错，但也别指望它生效。
+    - ⚠️ **宁可没有，也不许编**：拿不到页高（None / ≤0）、或这一段算不出一条可用几何量
+      （行高非正、键缺失）→ **整块返回 None**，**不填 0、不估**。块上没有 `layout` 时，
+      判级会自动退回"只看文字形状"——那是设计好的退路（老任务也是 NULL）。
+    """
+    if not paragraph:
+        return None
+    if page_h is None or float(page_h) <= 0:
+        return None
+
+    heights: list[float] = []
+    lefts: list[float] = []
+    tops: list[float] = []
+    rights: list[float] = []
+    bottoms: list[float] = []
+    for item in paragraph:
+        try:
+            x0 = float(item["x0"])
+            y0 = float(item["y0"])
+            x1 = float(item["x1"])
+            y1 = float(item["y1"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if y1 - y0 <= 0:
+            continue
+        heights.append(y1 - y0)
+        lefts.append(x0)
+        tops.append(y0)
+        rights.append(x1)
+        bottoms.append(y1)
+    if not heights:
+        return None
+
+    return {
+        "unit_h": round(statistics.median(heights), 1),
+        "x0": round(min(lefts), 1),
+        "y0": round(min(tops), 1),
+        "x1": round(max(rights), 1),
+        "y1": round(max(bottoms), 1),
+        "page_h": round(float(page_h), 1),
+    }
+
+
 def _ocr_lines(image_path: Path, engine) -> list[dict]:
     """一张页面图 → 行框列表。"""
     result, _elapse = engine(str(image_path))
@@ -245,7 +312,11 @@ def ocr_blocks(pdf_path: Path, *, on_page=None) -> tuple[list[dict], str | None]
         for page_no in range(doc.page_count):
             page = doc.load_page(page_no)
             image_path = pdf_path.parent / f".ocr_{pdf_path.stem}_{page_no}.png"
-            image_path.write_bytes(page.get_pixmap(dpi=RENDER_DPI).tobytes("png"))
+            pixmap = page.get_pixmap(dpi=RENDER_DPI)
+            image_path.write_bytes(pixmap.tobytes("png"))
+            # 版面量里的 page_h 取**渲染图的像素高**：OCR 的行框坐标就在这个像素空间里，
+            # 两者必须是同一个空间（用页的点高会差 RENDER_DPI/72 倍）。
+            page_h = float(pixmap.height) if pixmap.height else None
             scratch.append(image_path)
             try:
                 lines = _ocr_lines(image_path, engine)
@@ -261,6 +332,9 @@ def ocr_blocks(pdf_path: Path, *, on_page=None) -> tuple[list[dict], str | None]
                         "block_id": f"p{page_no}_b{index}",
                         "text": text,
                         "translated": None,
+                        # 版面量（三条取字路里最后一个补上的）：拿不到就 None，
+                        # 判级自动退回"只看文字形状"——不编、不填 0。
+                        "layout": paragraph_layout(paragraph, page_h=page_h),
                     }
                 )
             if on_page is not None:
