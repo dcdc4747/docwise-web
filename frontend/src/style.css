@@ -1685,15 +1685,15 @@ svg.ic-inl {
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-sm);
 }
 
-/* ---------- 素材卡 ---------- */
-.dw .wr-mat {
-  padding: var(--sp-3); margin-bottom: var(--sp-3);
-  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md);
+/* ---------- 素材卡 ----------
+   ⚠️ 卡片本体归 `MaterialCard.vue` 的 `.mat-` 那一段（素材库页与起草页**同一个组件**）；
+   起草页只负责"卡片 + 自己的操作按钮"这一个槽位，**不再自己写一套卡片样式**
+   （第一版这里有一套 `.wr-mat*`，同一形态两套前缀——已删掉）。 */
+.dw .wr-matslot { margin-bottom: var(--sp-3); }
+.dw .wr-matslot-ops {
+  display: flex; align-items: center; justify-content: flex-end;
+  gap: var(--sp-2); margin-top: var(--sp-2);
 }
-.dw .wr-mat-quote { margin: 0; font-size: var(--fs-ui); line-height: 1.7; }
-.dw .wr-mat-tr { margin: var(--sp-1) 0 0; font-size: var(--fs-meta); color: var(--muted); line-height: 1.7; }
-.dw .wr-mat-note { margin: var(--sp-2) 0 0; font-size: var(--fs-meta); color: var(--accent); }
-.dw .wr-mat-foot { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-2); margin-top: var(--sp-3); }
 /* 死链（源文献已删 / 素材卡没了）：**中性灰、不是按钮**——见形态硬约束② */
 .dw .wr-dead { font-size: var(--fs-meta); color: var(--unknown); line-height: 1.6; }
 /* ⚠️ 出处芯片是**复用**已有 `.cite-chip`（全站唯一形态），但它在阅读区是挂在 340–400px 宽的
@@ -1894,6 +1894,50 @@ svg.ic-inl {
   flex-direction: column;
   gap: var(--sp-3);
 }
+
+/* ============================================================================
+   [M0] 外壳集成（2026-10-16）—— 把 M1 / M5 的组件接进外壳时要补的那几笔
+   ============================================================================
+   自己的那一段：只加 `.screen-me`（个人中心那一屏的容器）与 `.admin-backbar`
+   （管理后台的返回条），不动上面任何人的段。颜色 / 字号 / 间距一律 token 名。
+   ============================================================================ */
+
+/* 个人中心整页（`#/me`）：MeView 自己管内部排版（`.me-` 那一套），外壳只给容器留白 */
+.dw .screen-me {
+  padding: var(--sp-4);
+  overflow-y: auto;
+}
+
+/* 管理后台的返回条：`#/admin` 成了真地址之后，**必须有个正常出口**——
+   后台面板本身没有返回口（v1 从账号菜单进来，只能刷新出去）。 */
+.dw .admin-backbar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-4);
+  border-bottom: 1px solid var(--line);
+}
+
+.dw .admin-backbar-tip {
+  color: var(--muted);
+  font-size: var(--fs-meta);
+}
+
+/* ⭐ 偏好「动效跟随系统」（个人中心 ⑤）：**勾上才挂** `data-motion="system"`，
+   而且只在系统真的要求「减少动态效果」时才压制动效。
+   ⚠️ 不勾时**什么都不做**（不压制）——那是用户自己选的"跟系统"的反面。
+   ⚠️ 这里用 `!important` 是有意的：动效散落在各家的段里，逐条去改会碰别人的段；
+   这一条是**用户级可访问性偏好**，优先级就该最高。 */
+@media (prefers-reduced-motion: reduce) {
+  .dw[data-motion='system'] *,
+  .dw[data-motion='system'] *::before,
+  .dw[data-motion='system'] *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
 
 
 

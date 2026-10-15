@@ -476,7 +476,8 @@ describe('起草页：插入引文', () => {
     const wrapper = mountWrite()
     await flushPromises()
 
-    const chip = wrapper.find('.wr-mat .cite-chip')
+    // 素材卡现在是共用的 `MaterialCard`（`.mat-card`），出处口径仍要逐字满足
+    const chip = wrapper.find('.mat-card .cite-chip')
     expect(chip.exists()).toBe(true)
     const text = chip.text()
     expect(text).toContain('EBSCO_05-mono.pdf')

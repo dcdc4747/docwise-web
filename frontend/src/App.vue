@@ -44,6 +44,7 @@ import {
   libraryEmpty,
   loadTasksAndSync,
   onFilePicked,
+  selectedTier,
   syncActiveDetail,
   disposeLibrary,
 } from './stores/useLibrary'
@@ -77,6 +78,7 @@ import {
   toggleRail,
 } from './stores/useUi'
 import LibraryView from './views/LibraryView.vue'
+import MeView from './views/MeView.vue'
 import ReadView from './views/ReadView.vue'
 import WriteView from './views/WriteView.vue'
 import { NConfigProvider, NSpin, zhCN, dateZhCN } from 'naive-ui'
@@ -92,6 +94,42 @@ const demoAutologin = ref(false)
 const showAdmin = ref(false)
 const backendStatus = ref('checking')
 const healthInfo = ref(null)
+
+// ============================================================ 偏好（M5 个人中心那一页存的）
+//
+// ⚠️ 偏好**只存在本机** `localStorage.docwise_prefs`：契约的 N 清单里没有偏好接口
+// （后端没这项，也不该为它破 6 依赖红线），所以"换设备不跟着走"是如实口径。
+// 这里做的是把 M5 那一页存下来的东西**真的消费掉**——在那之前它只写不读，
+// 界面上改了字号/档位/动效**一点反应都没有**（"看起来能用其实没用"）。
+const PREFS_KEY = 'docwise_prefs'
+/** 阅读字号 → `--fs-scale`（只乘阅读类字号：正文 / 正文英文 / 译文，见 style.css 的 token 注释）。 */
+const FS_SCALE = { small: 0.92, normal: 1, large: 1.12 }
+
+function readShellPrefs() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(PREFS_KEY) || '{}')
+    return {
+      tier: raw.tier === 'fast' || raw.tier === 'medium' ? raw.tier : 'medium',
+      readingSize: FS_SCALE[raw.readingSize] ? raw.readingSize : 'normal',
+      // 这一项的意思是"**跟随系统**"：勾上之后系统开了「减少动态效果」就压掉动效
+      reducedMotion: Boolean(raw.reducedMotion),
+    }
+  } catch {
+    return { tier: 'medium', readingSize: 'normal', reducedMotion: false }
+  }
+}
+
+const shellPrefs = ref(readShellPrefs())
+/** 字号偏好 → 根上的 `--fs-scale`（`.dw` 是 token 定义处，就地覆盖）。 */
+const shellStyle = computed(() => ({ '--fs-scale': FS_SCALE[shellPrefs.value.readingSize] ?? 1 }))
+/** 勾了"动效跟随系统"才挂这个属性：CSS 里只有它挂上、且系统真的要求减少动效时才压制（见 style.css）。 */
+const motionMode = computed(() => (shellPrefs.value.reducedMotion ? 'system' : 'full'))
+
+/** 偏好在个人中心改完 → 外壳当场跟上（同一页里改完不用刷新）。 */
+function reloadShellPrefs() {
+  shellPrefs.value = readShellPrefs()
+  selectedTier.value = shellPrefs.value.tier
+}
 
 const isAdmin = computed(() => authUser.value?.role === 'admin')
 const accountLabel = computed(() => {
@@ -208,13 +246,31 @@ async function syncFromRoute() {
     return
   }
 
-  // 已经声明、但这一期还没做的页面（#/memory、#/process、#/me、#/admin）。
+  // 离开个人中心时**把偏好重新读一遍**：那一页改完字号/档位/动效，
+  // 外壳当场跟上（不刷新页面也能看到效果；下次进来也还在）。
+  if (view.value === 'me' && route.name !== 'me') reloadShellPrefs()
+
+  // M5 个人中心（`#/me`）：整页，自己管取数（四个 `me/*` 请求各自容错）。
+  if (route.name === 'me') {
+    if (view.value !== 'me') view.value = 'me'
+    return
+  }
+
+  // 管理后台（`#/admin`）：**不是新做一页**，就是把账号菜单里那个现成的面板打开
+  // （`showAdmin`），所以地址与屏是同一件事——以前这里是"还没做"的提示，那是假的：
+  // 后台一直在，只是没有地址。同时把 URL 留着，刷新/后退都还在后台。
+  if (route.name === 'admin') {
+    showAdmin.value = true
+    return
+  }
+  // 从后台回别的页（浏览器后退 / 点我们自己那条「回我的论文」）→ 面板跟着关
+  if (showAdmin.value && route.name !== 'admin') showAdmin.value = false
+
+  // 已经声明、但这一期还没做的页面（#/memory、#/process）。
   // **不假装能打开**：如实说 + 指出它要做的事，然后回库页，绝不白屏。
   const NOT_BUILT_YET = {
     memory: '记忆页',
     process: '处理过程页',
-    me: '个人中心',
-    admin: '管理后台',
   }
   if (NOT_BUILT_YET[route.name]) {
     showToast(`${NOT_BUILT_YET[route.name]}还没做（形态 v2 的分期任务），先回「我的论文」`)
@@ -258,11 +314,15 @@ const RAIL_TARGETS = {
   read: { go: { name: 'library' } },
   write: { go: { name: 'write' } },
   check: { note: '收口（形态 v2 的 M4）还没做，先回「我的论文」' },
-  'lib-all': { go: { name: 'library' } },
-  'lib-collections': { note: '集合（形态 v2 的 M1 知识库）还没做，先回「我的论文」' },
-  'lib-tags': { note: '标签（形态 v2 的 M1 知识库）还没做，先回「我的论文」' },
-  'lib-todo': { note: '待读是智能集合，随 M1 知识库一起做，先回「我的论文」' },
-  'lib-materials': { note: '素材库页（形态 v2 的 M2）还没做——素材已经能在起草页左栏里用', },
+  // 「全部文献」= 回库页**并清掉筛选**（不传 filter 会沿用上一次的条件，那就不是"全部"了）
+  'lib-all': { go: { name: 'library' }, filter: {} },
+  'lib-collections': { note: '集合列表接口（契约 N1）还没做——筛选条上的「集合」那一行等它', },
+  'lib-tags': { note: '标签列表接口（契约 N6）还没做——筛选条上的「标签」那一行等它' },
+  // ⭐「待读」是一条**真的智能集合**（规则：状态 = 待读）：N8 已经能按 `reading_status` 筛了，
+  // 所以这里不再是"还没做"的提示，而是带着条件进库页（以后智能集合列表接口上来，
+  // 这条要改成读 N9 返回的规则、按 `smart_id` 筛）。
+  'lib-todo': { go: { name: 'library' }, filter: { reading_status: 'todo' } },
+  'lib-materials': { note: '素材列表接口（契约 N13）还没做——素材已经能在起草页左栏里用', },
   'lib-drafts': { note: '草稿列表页还没做——你的草稿在「起草」页里（点左上「起草」）' },
   'lib-refs': { note: '引用列表页还没做——引文在「起草」页的「引用」页签里看' },
   memory: { note: '记忆页（形态 v2 的 M7）还没做，先回「我的论文」' },
@@ -286,9 +346,18 @@ function onRailSelect(key) {
   // `view` 决定渲染哪一屏，`activeNav` 决定左栏哪一项亮着（那次 hashchange 被吞了，
   // `syncFromRoute` 不会替我们做这件事）。
   const go = target.go || { name: 'library' }
-  view.value = go.name === 'write' ? 'write' : 'library'
-  activeNav.value = go.name === 'write' ? 'write' : 'read'
+  view.value = go.name === 'write' ? 'write' : go.name === 'me' ? 'me' : 'library'
+  activeNav.value = go.name === 'write' ? 'write' : go.name === 'me' ? 'me' : 'read'
+  // ⭐ 带筛选条件的入口（「待读」= 智能集合"状态 = 待读"；「全部文献」= 清掉筛选）：
+  // **不止跳过去，还要真的筛**——N8 的四个参数已经在后端了（契约 §2.2）。
+  if (target.filter) loadTasksAndSync(target.filter)
   navigateToHash(go)
+}
+
+/** 关掉管理后台并回库页：**地址与屏一起改**（只改一个会让刷新回到后台、像关不掉）。 */
+function closeAdmin() {
+  showAdmin.value = false
+  navigateToHash({ name: 'library' })
 }
 
 // ============================================================ 账号与会话
@@ -297,6 +366,8 @@ onMounted(async () => {
   // 收起态先读回来（刷新后仍是收起的样子 —— R4 判据④）
   loadRailMin()
   syncNarrow()
+  // 偏好里的「翻译档位」= 上传卡的默认档位（M5 存下来的东西在这里被消费掉）
+  selectedTier.value = shellPrefs.value.tier
   window.addEventListener('resize', syncNarrow)
   window.addEventListener('keydown', onGlobalKeydown)
   setUnauthorizedHandler(handleUnauthorized)
@@ -403,8 +474,16 @@ function handleUnauthorized() {
     <!-- 未登录：整页登录 / 注册 -->
     <LoginView v-else-if="!authUser" :demo-autologin="demoAutologin" @success="onLoginSuccess" />
 
-    <div v-else class="dw" @click="closeMenus">
-      <AdminView v-if="showAdmin" class="admin-page" />
+    <div v-else class="dw" :style="shellStyle" :data-motion="motionMode" @click="closeMenus">
+      <!-- 管理后台（M5）：面板本身没有返回口（v1 从账号菜单进来，只能刷出去）。
+           既然 `#/admin` 现在是真地址，就得有个正常的出口——否则从地址进来的人被困住。 -->
+      <template v-if="showAdmin">
+        <div class="admin-backbar">
+          <button class="btn ghost sm" @click="closeAdmin">← 回我的论文</button>
+          <span class="admin-backbar-tip">管理后台 · 也可以直接用浏览器后退</span>
+        </div>
+        <AdminView class="admin-page" />
+      </template>
 
       <div v-else class="dw-layout" :class="railClass">
         <!-- ==================== 左栏（常驻，260 ⇄ 58） ==================== -->
@@ -450,6 +529,13 @@ function handleUnauthorized() {
                若先判 `currentTask` 就会"地址是 #/write、屏停在阅读区"。 -->
           <section v-else-if="view === 'write'" class="screen-write">
             <WriteView />
+          </section>
+
+          <!-- ==================== M5 个人中心（#/me 整页） ====================
+               与起草页同理：**必须排在阅读区前面判断**（`view` 是唯一真源），
+               否则"在读一篇 + 点 #/me"会被 `currentTask` 那条分支吃掉、屏停不动。 -->
+          <section v-else-if="view === 'me'" class="screen-me">
+            <MeView />
           </section>
 
           <!-- ==================== L2 阅读工作区 ==================== -->

@@ -20,17 +20,46 @@ export const historyLoading = ref(false)
 export const historyError = ref('')
 
 /**
+ * 筛选条件 → 查询串（契约 §2.2 的 N8）。
+ *
+ * ⚠️ 数组按契约写成 `tag[]=A&tag[]=B`（**键名带方括号**，方括号不转义——
+ * 契约、mock、后端读的都是这个写法；转成 `%5B%5D` 虽然多数服务端也会解回来，
+ * 但日志与抓包里就对不上契约了）。空值一律不进串——
+ * 不发 `?reading_status=` 这种"看起来筛了其实没筛"的请求。
+ * 值全部 `encodeURIComponent`：标签是用户自己起的名字，中文、`&`、空格都可能出现。
+ */
+function tasksQuery(params) {
+  const parts = []
+  for (const [key, value] of Object.entries(params || {})) {
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        if (item !== '' && item !== null && item !== undefined) {
+          parts.push(`${encodeURIComponent(key)}[]=${encodeURIComponent(item)}`)
+        }
+      }
+    } else if (value !== '' && value !== null && value !== undefined) {
+      parts.push(`${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
+    }
+  }
+  return parts.length ? `?${parts.join('&')}` : ''
+}
+
+/**
  * 从后端把列表拉进 `tasks`。
+ *
+ * `params` 可选：契约 §2.2 的 N8 四个筛选参数（`reading_status` / `collection_id` /
+ * `tag[]` / `smart_id`）。**不传 = 与以前逐字节同一条请求**（裸数组、50 条、归档不出），
+ * 所以老调用方一行都不用改。
  *
  * ⚠️ **它只负责"取数据"**：原实现里 `finally` 还调了一次 `syncActiveDetail()`（对进行中那条补详情），
  * 那个联动要读阅读区，所以**没搬进来**——`stores/useLibrary` 在 `loadTasks()` 之后自己调，
  * 包成 `loadTasksAndSync()`。
  */
-export async function loadTasks() {
+export async function loadTasks(params = null) {
   historyLoading.value = true
   historyError.value = ''
   try {
-    const res = await authFetch('/api/tasks')
+    const res = await authFetch(`/api/tasks${tasksQuery(params)}`)
     if (!res.ok) throw new Error(`历史任务加载失败（HTTP ${res.status}）`)
     tasks.value = await res.json()
   } catch (err) {

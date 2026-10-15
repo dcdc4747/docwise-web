@@ -439,11 +439,16 @@ function actorText(actor) {
 }
 
 // ---------------------------------------------------------------- ⑤ 偏好
+/**
+ * ⚠️ 只有四个值对得上阅读区的模式：`blocks`（段落精读）/ `mono` / `dual`。
+ * 早先那个 `pdf`（原版）**已经去掉了** —— v2 的阅读区没有"原版 iframe"这个模式了
+ * （PDF 走 `mono` / `dual` 两档，见 `stores/useReader.js` 的 `docModeOptions`），
+ * 留着它等于给用户一个**选了不生效**的选项。外壳消费这一项时按同名映射，不认识的回落段落精读。
+ */
 const VIEW_OPTIONS = [
   { value: 'blocks', label: '段落精读' },
   { value: 'mono', label: '纯中文' },
   { value: 'dual', label: '双语对照' },
-  { value: 'pdf', label: '原版' },
 ]
 
 /** ⚠️ **只有快 / 中两档**：精档已从界面撤下（它一直映射到中档，写着"最准"属不实宣称）。 */
