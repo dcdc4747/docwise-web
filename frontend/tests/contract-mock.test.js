@@ -50,6 +50,26 @@ const asKey = (method, p) => `${method} ${normalizePath(p)}`
 const manifest = readManifest()
 const expectedNewKeys = manifest.expected_new.map((item) => asKey(item.method, item.path))
 const mockKeys = MOCK_ROUTES.map((route) => asKey(route.method, route.path))
+const anchorKeys = (manifest.anchors || []).map((item) => asKey(item.method, item.path))
+
+/**
+ * ⚠️ **对账清单不能只用 `expected_new`**（集成时真踩到，CI 直接红在起草接口那条 PR 上）。
+ *
+ * 两条规矩本身都对，一叠加就必然漂移：
+ * - **契约闸（后端进度口径）**：端点一实现，就要求把它从 `expected_new` **搬进 `anchors`**；
+ * - **mock 的职责（前端离线口径）**：新增端点在**实现之后也要继续 mock** ——
+ *   不然前端就失去"后端一行没写也能把界面做完"那条路。
+ *
+ * 于是"只用 `expected_new` 对账"，在**第一个端点被实现的那天**就会红：
+ * 起草那一组（N18–N21）实现并搬进 `anchors` 之后，mock 这边就成了"多余的 8 条"。
+ * 这里显式列出「**已实现但仍要 mock**」的资源前缀，对账时把这几组从 `anchors` 里补回来。
+ * （新实现一组就加一个前缀；**基线端点绝不在列** —— 基线必须继续打真后端。）
+ */
+const IMPLEMENTED_BUT_MOCKED = ['/api/drafts']
+const reconcileKeys = [
+  ...expectedNewKeys,
+  ...anchorKeys.filter((key) => IMPLEMENTED_BUT_MOCKED.some((prefix) => key.includes(prefix))),
+]
 
 /** 形状表：每个端点该有哪些字段（**这份表就是"契约逐字段"的落地**）。 */
 const MATERIAL_KEYS = ['id', 'text_quote', 'translated_quote', 'page', 'source_name', 'note', 'task_id', 'block_id', 'deleted_at', 'created_at']
@@ -223,12 +243,12 @@ describe('未覆盖的路径必须喊出来', () => {
 })
 
 describe('⭐ 契约 ↔ mock 对账', () => {
-  it('mock 支持的路径清单与 api.json 的 expected_new 一模一样（不一致就红）', () => {
-    const missingInMock = expectedNewKeys.filter((key) => !mockKeys.includes(key))
-    const extraInMock = mockKeys.filter((key) => !expectedNewKeys.includes(key))
+  it('mock 支持的路径清单与契约清单一模一样（expected_new + 已实现但仍要 mock 的那几组）', () => {
+    const missingInMock = reconcileKeys.filter((key) => !mockKeys.includes(key))
+    const extraInMock = mockKeys.filter((key) => !reconcileKeys.includes(key))
     expect(
       { missingInMock: missingInMock.sort(), extraInMock: extraInMock.sort() },
-      'mock 与 backend/.contract/api.json 的 expected_new 漂移了：mock 写错 = 契约失效',
+      'mock 与 backend/.contract/api.json 漂移了：mock 写错 = 契约失效',
     ).toEqual({ missingInMock: [], extraInMock: [] })
   })
 
