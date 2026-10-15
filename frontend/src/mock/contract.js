@@ -518,18 +518,30 @@ function hasTaskFilter(query) {
   return TASK_FILTER_KEYS.some((key) => queryValues(query, key).length > 0)
 }
 
+/**
+ * 单值参数取值：**必须和 `hasTaskFilter` 用同一套读法**（`key[]` 与 `key` 都认）。
+ *
+ * ⚠️ 这里踩过一次（issue #124）：`hasTaskFilter` 认 `key[]`、而下面几个参数只读 `key`，
+ * 于是 `/api/tasks?reading_status[]=todo` **会被拦下来、却一条都不过滤 → 静默返回全量**。
+ * 现在两边都走 `queryValues`：只要拦了，就一定按同一份口径筛。
+ */
+function firstValue(query, key) {
+  const values = queryValues(query, key)
+  return values.length ? values[0] : null
+}
+
 /** 多个参数取交集（AND）；`collection_id` 按**直接成员**算（与集合计数同一条语义）。 */
 function taskMatchesFilters(task, query) {
-  const reading = query.get('reading_status')
+  const reading = firstValue(query, 'reading_status')
   if (reading && task.reading_status !== reading) return false
 
-  const collectionId = intOf(query.get('collection_id'))
+  const collectionId = intOf(firstValue(query, 'collection_id'))
   if (collectionId !== null && !(state.task_collections[task.id] || []).includes(collectionId)) return false
 
   const tags = queryValues(query, 'tag')
   if (tags.length && !tags.every((name) => (task.tags || []).includes(name))) return false
 
-  const smartId = intOf(query.get('smart_id'))
+  const smartId = intOf(firstValue(query, 'smart_id'))
   if (smartId !== null) {
     const smart = state.smart_collections.find((item) => item.id === smartId)
     if (!smart || !ruleMatches(task, smart.query)) return false

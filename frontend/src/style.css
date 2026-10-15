@@ -1685,15 +1685,15 @@ svg.ic-inl {
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-sm);
 }
 
-/* ---------- 素材卡 ---------- */
-.dw .wr-mat {
-  padding: var(--sp-3); margin-bottom: var(--sp-3);
-  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md);
+/* ---------- 素材卡 ----------
+   ⚠️ 卡片本体归 `MaterialCard.vue` 的 `.mat-` 那一段（素材库页与起草页**同一个组件**）；
+   起草页只负责"卡片 + 自己的操作按钮"这一个槽位，**不再自己写一套卡片样式**
+   （第一版这里有一套 `.wr-mat*`，同一形态两套前缀——已删掉）。 */
+.dw .wr-matslot { margin-bottom: var(--sp-3); }
+.dw .wr-matslot-ops {
+  display: flex; align-items: center; justify-content: flex-end;
+  gap: var(--sp-2); margin-top: var(--sp-2);
 }
-.dw .wr-mat-quote { margin: 0; font-size: var(--fs-ui); line-height: 1.7; }
-.dw .wr-mat-tr { margin: var(--sp-1) 0 0; font-size: var(--fs-meta); color: var(--muted); line-height: 1.7; }
-.dw .wr-mat-note { margin: var(--sp-2) 0 0; font-size: var(--fs-meta); color: var(--accent); }
-.dw .wr-mat-foot { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-2); margin-top: var(--sp-3); }
 /* 死链（源文献已删 / 素材卡没了）：**中性灰、不是按钮**——见形态硬约束② */
 .dw .wr-dead { font-size: var(--fs-meta); color: var(--unknown); line-height: 1.6; }
 /* ⚠️ 出处芯片是**复用**已有 `.cite-chip`（全站唯一形态），但它在阅读区是挂在 340–400px 宽的

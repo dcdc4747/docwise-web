@@ -97,26 +97,17 @@
             <p v-if="!shownMaterials.length" class="wr-muted">
               这组来源筛选下没有素材——把上面的「全部来源」调回来就有了。
             </p>
-            <article v-for="m in shownMaterials" :key="m.id" class="wr-mat">
-              <p class="wr-mat-quote">{{ m.text_quote }}</p>
-              <p v-if="m.translated_quote" class="wr-mat-tr">{{ m.translated_quote }}</p>
-              <p v-if="m.note" class="wr-mat-note">备注：{{ m.note }}</p>
-              <div class="wr-mat-foot">
-                <!-- 出处只走 CiteChip（全站唯一形态）；源文献已删时**不是按钮**。
-                     ⚠️ 出处口径是「第 X 页 ·「这一句的开头…」」——`quote` 必须传，
-                     少了它就只剩页码，不符合全站硬约定（`CiteChip` 自己截 24 字）。 -->
-                <CiteChip
-                  v-if="sourceStateOf(m).alive"
-                  :cites="{ source_name: m.source_name, page: m.page, quote: m.text_quote }"
-                  @locate="jumpToMaterial(m)"
-                />
-                <span v-else class="wr-dead">
-                  {{ m.source_name }} · 第 {{ m.page }} 页 · {{ sourceStateOf(m).reason }}
-                </span>
-                <span class="spacer" />
+            <!-- ⭐ 素材卡**只有一种形态**（卡② 的 `MaterialCard.vue`，素材库页与这里共用）：
+                 出处芯片、三态（正常 / 源文献已删 / 软删）、空白压平都归它，
+                 起草页只多挂一个「插入引文」（那是起草自己的动作，卡片不该知道）。
+                 ⚠️ 第一版这里自己写了一套 `.wr-mat*` 的卡片——同一形态两套前缀，
+                 样式与行为必然各走各的（已删掉，见 style.css 同一次提交）。 -->
+            <div v-for="m in shownMaterials" :key="m.id" class="wr-matslot">
+              <MaterialCard :material="m" @locate="jumpToMaterial(m)" />
+              <div class="wr-matslot-ops">
                 <button class="btn sm" @click="insertMaterial(m)">插入引文</button>
               </div>
-            </article>
+            </div>
           </template>
         </div>
       </aside>
@@ -382,10 +373,10 @@ import {
   savedAt,
   selectDraft,
   sessionLog,
-  sourceStateOf,
   title,
 } from '../stores/useWrite'
 import { closeMenus, openMenu, showToast, toggleMenu } from '../stores/useUi'
+import MaterialCard from '../components/MaterialCard.vue'
 import {
   outlineOf,
   previewBlocks as buildPreviewBlocks,

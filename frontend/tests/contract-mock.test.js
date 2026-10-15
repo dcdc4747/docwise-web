@@ -372,6 +372,16 @@ describe('⭐ N8：基线 `/api/tasks` 的四个查询参数要真的能筛', ()
     expect(idsOf('/api/tasks?reading_status=done')).toEqual([])
   })
 
+  it('⭐ `key[]` 写法（`?reading_status[]=`）**要真筛**，不许"拦下来却返回全量"（issue #124）', () => {
+    // 这一条是回归：`hasTaskFilter` 认 `key[]`、而过滤时只读 `key`，
+    // 于是 `?reading_status[]=todo` 被 mock 拦下来、却一条都不过滤 → 静默返回全量。
+    // 三个单值参数都要按同一套读法（`firstValue`）走。
+    expect(idsOf('/api/tasks?reading_status[]=todo')).toEqual([42])
+    expect(idsOf('/api/tasks?reading_status[]=done')).toEqual([])
+    expect(idsOf('/api/tasks?collection_id[]=2')).toEqual([43])
+    expect(idsOf('/api/tasks?smart_id[]=1')).toEqual([42])
+  })
+
   it('collection_id 按**直接成员**算（子集合的文献不算在父集合里）', () => {
     expect(idsOf('/api/tasks?collection_id=1')).toEqual([42])
     // 集合 2 是集合 1 的子集合；43 是它的直接成员（按"父集合不含子集合文献"的语义，1 只给 42）
