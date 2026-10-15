@@ -8,13 +8,15 @@
  * 三条纪律（写在最前面，因为它就是这个文件唯一的风险点）：
  * ① ⚠️ **形状必须与契约逐字段一致**——**mock 写错 = 契约失效**，两边一起错还看不出来。
  *    `tests/contract-mock.test.js` 里有一张"每个端点该有哪些字段"的表，逐条盯着；
- * ② ⚠️ **只 mock 新增的 N1–N29**（基线那 25 个端点已经能用真的，mock 它们只会掩盖真实问题）；
+ * ② ⚠️ **只 mock 新增的 N1–N29，外加两处"给基线端点追加的东西"**（契约 §2.2 的 N8 查询参数、
+ *    §2.8 的 N30 字段）：基线那 25 个端点已经能用真的，整个 mock 掉只会掩盖真实问题——
+ *    所以这两处都**只在"确实是新增的那部分"时才拦**（见 `MOCK_DELTAS`）。
  * ③ ⚠️ **mock 由写契约的人维护，使用方不许各自改**。发现 mock 与契约不一致 →
  *    在 issue #94 下评论，**别改 mock 去迁就自己的代码**（那样两边都错）。
  *
  * 开关：`localStorage.docwise_mock === '1'`（**默认关闭**——不然会有人拿假数据当真的调试）。
- * 打开后走 `mockResponse()`：**是 N1–N29 的请求**返回假数据，**其余（基线端点）原样放行**
- * （基线端点必须继续打真后端，否则整个应用没法用）。
+ * 打开后走 `mockResponse()`：**是 N1–N29（或 N8 / N30 两处追加）的请求**返回假数据，
+ * **其余（基线端点）原样放行**（基线端点必须继续打真后端，否则整个应用没法用）。
  *
  * ⚠️ 契约没写形状、这里替它定的收口（都只是"最省事的合理取值"，契约一改这里就跟着改）：
  * - `N4.moved_to_parent`：被上移到父集合的条目数（直接文献 + 子集合），契约只给了字段名；
@@ -22,9 +24,13 @@
  * - `N19` 的 DELETE：返回被删掉的那条 `Draft`（契约这一行写的是 `200 Draft`）；
  * - `N21` 的 DELETE：清空该草稿的引文（契约没写删哪一条）；
  * - `N26.ledger` 的 json 形状：`{items}`，与 N17 同源同形状（契约只写了"同源导出"）；
- * - `N28` 的响应：`user` 对象 6 字段（与 `/api/auth/me` 一致）；
+ * - `N28` 的响应：`user` 对象 6 字段（与 `/api/auth/me` 的**基线 6 字段**一致——
+ *   N30 追加的 `last_login_at` **没有**顺手加到 N28 上，契约只说了 `/api/auth/me` 那一处）；
  * - `N29` 的会话对象：`auth_sessions` 表里除 `token_hash` 之外的列；
- * - `N22/N23` 的报告内容：**固定示例**（契约冻的是形状，不是结论——报告结论得由真后端算）。
+ * - `N22/N23` 的报告内容：**固定示例**（契约冻的是形状，不是结论——报告结论得由真后端算）；
+ * - `N8` 的筛选语义：多个参数**取交集（AND）**；`collection_id` 按**直接成员**算（与集合计数
+ *   同一条语义：子集合的文献不算在父集合里）；`tag[]` / `tag` 两种写法都收，多值也取交集；
+ *   `smart_id` 直接套那条智能集合的 `query` 规则；查不到的 id → **空数组**（契约没定义错误）。
  */
 
 /** 开关的 localStorage 键（值是字符串 `'1'`，别的值一律当关闭）。 */
@@ -38,7 +44,8 @@ export const MOCK_FLAG_KEY = 'docwise_mock'
  * 不然 mock 会继续"对"，而真接口已经变了。
  *
  * 路径参数写成 `{名字}`；对账时双方都把 `{任意名}` 归一化成 `{param}`（改名不算新增端点）。
- * ⚠️ **N8 不在表里**：它是给基线端点 `/api/tasks` 加查询参数，**不是新端点**，也不该被 mock。
+ * ⚠️ **N8 / N30 不在表里的原因**：它们是给基线端点**追加**查询参数 / 响应字段，
+ * **不是新端点**、也不该出现在 `expected_new` 里——单独放 `MOCK_DELTAS`（见下）。
  * ⚠️ **N17 只有 GET 是真的给前端用的**（POST 是服务端内部埋点，见 `memory-events` 那条处理）。
  */
 export const MOCK_ROUTES = [
@@ -78,11 +85,38 @@ export const MOCK_ROUTES = [
   { n: 'N29', method: 'DELETE', path: '/api/me/sessions/{id}' },
 ]
 
+/**
+ * ⚠️ **两处"给基线端点追加的东西"**（N8 / N30）——**不是新端点**，
+ * 所以不放进 `MOCK_ROUTES`：放进去那条对账用例会红（它们在 `expected_new` 里没有，
+ * 而它们**本来就不该有**）。
+ *
+ * 拦的条件也不一样，因为基线端点得继续能用：
+ * - **N8**：只有**带了 N8 的查询参数**时才拦——不带参数原样放行打真后端，列表照旧是真的；
+ * - **N30**：`/api/auth/me` 只要走 mock 就拦——因为"追加字段"这件事真后端还没做，
+ *   放行的话个人中心拿不到 `last_login_at`，这个 mock 就白搭了。
+ */
+export const MOCK_DELTAS = [
+  {
+    n: 'N8',
+    method: 'GET',
+    path: '/api/tasks',
+    note: '基线端点追加查询参数；不带参数时放行打真后端',
+  },
+  {
+    n: 'N30',
+    method: 'GET',
+    path: '/api/auth/me',
+    note: '基线响应追加 last_login_at；既有 6 字段逐字不动',
+  },
+]
+
 // ---------------------------------------------------------------------------
 // 假数据（**明显是假的**，不伪装成真内容；形状照契约）
 // ---------------------------------------------------------------------------
 
 const SEED_AT = '2026-10-14T02:00:00Z'
+/** N30 追加的"上次登录"：给一个值，好让 ① 块的"上次登录"有东西可显示（真后端可能是 null）。 */
+const SEED_LAST_LOGIN = '2026-10-13T09:12:00Z'
 
 /** 一个空 ZIP 的字节（只有 EOCD：22 字节）——**结构合法、能被解开、里面是空的**。
  *  为什么不用一段随便的字符串：那会给出一个"打不开的文件"，比给空包更糟。 */
@@ -98,10 +132,52 @@ function seed() {
       is_active: true,
       created_at: SEED_AT,
     },
-    // 给智能集合算 count 用的两篇文献（只放算得动的那几个字段）
+    // N30：`/api/auth/me` 追加的字段。**故意不塞进 `user` 对象**——N28（PATCH /api/me）
+    // 的响应形状没被 N30 改，仍是 6 字段；塞进去会让 N28 悄悄多一个字段。
+    last_login_at: SEED_LAST_LOGIN,
+    // 两篇文献：既是智能集合算 count 的对象，也是 N8（基线 `/api/tasks` 加参数）的筛选对象。
+    // 前 16 个字段＝契约 §1.4 的"列表项"，后两个（reading_status / tags）是 mock 内部用的。
     tasks: [
-      { id: 42, filename: 'EBSCO_05-mono.pdf', reading_status: 'todo', native: false, text_source: 'text-layer', tags: ['RAG'] },
-      { id: 43, filename: 'Nature_2024_review.pdf', reading_status: 'reading', native: false, text_source: 'ocr', tags: ['双盲实验'] },
+      {
+        id: 42,
+        filename: 'EBSCO_05-mono.pdf',
+        status: 'completed',
+        progress: 1,
+        tier: 'fast',
+        source_lang: 'en',
+        target_lang: 'zh',
+        native: false,
+        created_at: SEED_AT,
+        stage: null,
+        eta_seconds: null,
+        elapsed_seconds: 41.2,
+        started_at: SEED_AT,
+        finished_at: SEED_AT,
+        last_read_page: 3,
+        text_source: 'text-layer',
+        reading_status: 'todo',
+        tags: ['RAG'],
+      },
+      {
+        id: 43,
+        filename: 'Nature_2024_review.pdf',
+        status: 'completed',
+        progress: 1,
+        tier: 'medium',
+        source_lang: 'en',
+        target_lang: 'zh',
+        native: false,
+        created_at: SEED_AT,
+        stage: null,
+        eta_seconds: null,
+        elapsed_seconds: 128.7,
+        started_at: SEED_AT,
+        finished_at: SEED_AT,
+        last_read_page: null,
+        text_source: 'ocr',
+        reading_status: 'reading',
+        tags: ['双盲实验'],
+      },
     ],
     collections: [
       { id: 1, name: '毕业论文', parent_id: null, sort: 0 },
@@ -377,9 +453,13 @@ function matchCondition(task, condition) {
   return !(Array.isArray(expected) ? expected : [expected]).some((v) => (Array.isArray(actual) ? actual.includes(v) : actual === v))
 }
 
-function ruleCount(query) {
+function ruleMatches(task, query) {
   const conditions = (query && query.all) || []
-  return state.tasks.filter((task) => conditions.every((condition) => matchCondition(task, condition))).length
+  return conditions.every((condition) => matchCondition(task, condition))
+}
+
+function ruleCount(query) {
+  return state.tasks.filter((task) => ruleMatches(task, query)).length
 }
 
 function queryValid(query) {
@@ -396,6 +476,65 @@ function queryValid(query) {
 
 function smartCollectionView(item) {
   return { id: item.id, name: item.name, query: item.query, count: ruleCount(item.query), builtin: item.builtin }
+}
+
+// ---------------------------------------------------------------------------
+// N8：基线端点 `/api/tasks` 上追加的四个查询参数（**不是新端点**）
+// ⚠️ 形状照契约 §1.4 的"列表项"逐字段给——**并且保持"返回裸数组"不变**
+//   （改形状会打断所有调用方；契约 §2.2 专门写了这一条）
+// ---------------------------------------------------------------------------
+
+const TASK_FILTER_KEYS = ['reading_status', 'collection_id', 'tag', 'smart_id']
+
+/** 列表项 16 个字段（契约 §1.4）：原样搬，不加减。 */
+function taskCardView(task) {
+  return {
+    id: task.id,
+    filename: task.filename,
+    status: task.status,
+    progress: task.progress,
+    tier: task.tier,
+    source_lang: task.source_lang,
+    target_lang: task.target_lang,
+    native: task.native,
+    created_at: task.created_at,
+    stage: task.stage,
+    eta_seconds: task.eta_seconds,
+    elapsed_seconds: task.elapsed_seconds,
+    started_at: task.started_at,
+    finished_at: task.finished_at,
+    last_read_page: task.last_read_page,
+    text_source: task.text_source,
+  }
+}
+
+/** `?tag[]=A&tag[]=B` 与 `?tag=A` 两种写法都收（契约写的是 `tag[]`，手写 query 常写成 `tag`）。 */
+function queryValues(query, key) {
+  return [...query.getAll(`${key}[]`), ...query.getAll(key)].filter((value) => value !== '')
+}
+
+/** 这次请求带没带 N8 的参数——**不带就放行打真后端**（基线端点照旧是真的）。 */
+function hasTaskFilter(query) {
+  return TASK_FILTER_KEYS.some((key) => queryValues(query, key).length > 0)
+}
+
+/** 多个参数取交集（AND）；`collection_id` 按**直接成员**算（与集合计数同一条语义）。 */
+function taskMatchesFilters(task, query) {
+  const reading = query.get('reading_status')
+  if (reading && task.reading_status !== reading) return false
+
+  const collectionId = intOf(query.get('collection_id'))
+  if (collectionId !== null && !(state.task_collections[task.id] || []).includes(collectionId)) return false
+
+  const tags = queryValues(query, 'tag')
+  if (tags.length && !tags.every((name) => (task.tags || []).includes(name))) return false
+
+  const smartId = intOf(query.get('smart_id'))
+  if (smartId !== null) {
+    const smart = state.smart_collections.find((item) => item.id === smartId)
+    if (!smart || !ruleMatches(task, smart.query)) return false
+  }
+  return true
 }
 
 // ---------------------------------------------------------------------------
@@ -855,15 +994,41 @@ const HANDLERS = {
     state.sessions = state.sessions.filter((item) => item.id !== id)
     return ok({ deleted: true, id })
   },
+
+  // ---- 基线端点上的两处"追加"（N8 / N30，清单见 MOCK_DELTAS）----
+
+  // N8：给基线 `/api/tasks` 加查询参数。**仍然是裸数组**（改形状会打断所有调用方），
+  // 只是把结果按参数筛一遍；参数取交集。
+  'GET /api/tasks': ({ query }) =>
+    ok(state.tasks.filter((task) => taskMatchesFilters(task, query)).map(taskCardView)),
+
+  // N30：基线 `/api/auth/me` 的响应**只追加** `last_login_at`，既有 6 字段逐字不动。
+  'GET /api/auth/me': () => ok({ ...state.user, last_login_at: state.last_login_at }),
 }
 
-function lookup(method, path) {
+const DELTA_ROUTES = new Map(MOCK_DELTAS.map((item) => [`${item.method} ${item.path}`, item]))
+
+/** N8 / N30 这两处"追加"的命中判断（**基线端点大部分请求仍要放行**）。 */
+function lookupDelta(method, path, query) {
+  const tasks = DELTA_ROUTES.get('GET /api/tasks')
+  // N8：只有带了查询参数才拦——不带参数时它还是那条基线端点，得打真后端
+  if (method === 'GET' && query && hasTaskFilter(query) && matchPath(tasks.path, path)) {
+    return { route: tasks, params: {} }
+  }
+  const me = DELTA_ROUTES.get('GET /api/auth/me')
+  if (method === 'GET' && matchPath(me.path, path)) {
+    return { route: me, params: {} }
+  }
+  return null
+}
+
+function lookup(method, path, query) {
   for (const route of MOCK_ROUTES) {
     if (route.method !== method) continue
     const params = matchPath(route.path, path)
     if (params) return { route, params }
   }
-  return null
+  return lookupDelta(method, path, query)
 }
 
 /**
@@ -888,12 +1053,13 @@ export function mockRouteFor(method, path) {
 export function mockFetch(path, options = {}) {
   const { path: pathname, query } = parseTarget(path)
   const method = methodOf(options)
-  const hit = lookup(method, pathname)
+  const hit = lookup(method, pathname, query)
   if (!hit) {
     throw new Error(
       `契约 mock 没覆盖这个请求：${method} ${pathname}
-（mock 只覆盖契约 §2 里的新增端点 N1–N29，基线端点照旧打真后端；
- 清单见 src/mock/contract.js 的 MOCK_ROUTES——要加端点先改契约再改这里）`,
+（mock 只覆盖契约 §2 里的新增端点 N1–N29、以及 N8 / N30 两处追加，基线端点照旧打真后端；
+ ⚠️ N8 要带查询参数才算（不带参数时它还是那条基线端点）；
+ 清单见 src/mock/contract.js 的 MOCK_ROUTES / MOCK_DELTAS——要加端点先改契约再改这里）`,
     )
   }
   const handler = HANDLERS[`${method} ${hit.route.path}`]
@@ -909,8 +1075,8 @@ export function mockFetch(path, options = {}) {
  */
 export function mockResponse(path, options = {}) {
   if (!isMockEnabled()) return null
-  const { path: pathname } = parseTarget(path)
-  if (!lookup(methodOf(options), pathname)) return null
+  const { path: pathname, query } = parseTarget(path)
+  if (!lookup(methodOf(options), pathname, query)) return null
   const result = mockFetch(path, options)
   const headers = {}
   if (result.contentType) headers['Content-Type'] = result.contentType
