@@ -1141,6 +1141,72 @@ export async function loadBlocks(taskId) {
   } catch {
     /* 拿不到块就没法做术语定位，界面自己会直说 */
   }
+  // 改动记录跟着块一起读（"已人工修改"标记要用它）——读不到就空集，**不假装改过**
+  await loadBlockEdits(taskId)
+}
+
+// ============================================================ 埋点 1：译文改动
+
+/**
+ * 本篇里**被人改过**的块（契约 §2.9 / N33）。
+ *
+ * 用途有两个：① 界面上给那句打「已人工修改」标记——**这是 AI 披露口径的一部分**，
+ * 让人分得清哪句是模型译的、哪句是学生改的；② 决定"这一段有没有编辑入口"的前提之一。
+ */
+export const editedBlockIds = ref(new Set())
+
+/** 这一段有没有可编辑的译文？（没有译文的块**不给编辑入口**，那本来就是诚实档） */
+export function blockHasTranslated(block) {
+  return Boolean((block?.translated || '').trim())
+}
+
+/** 读本篇的改动记录；**读不到就退回空集**（少一个标记，也绝不编一个"改过"）。 */
+export async function loadBlockEdits(taskId) {
+  try {
+    const res = await authFetch(`/api/block-edits?task_id=${taskId}`)
+    if (!res.ok) throw new Error(String(res.status))
+    const data = await res.json()
+    const ids = (data.items || []).map((item) => String(item.block_id))
+    editedBlockIds.value = new Set(ids)
+  } catch {
+    editedBlockIds.value = new Set()
+  }
+  return editedBlockIds.value
+}
+
+/**
+ * 存一块的译文改动：**成功返回 `null`，失败返回一句人要读的话**。
+ *
+ * ⭐ 两条诚实的做法：
+ * ① **不做乐观更新**——只有服务端真存下了才改界面（假装成功比报错更糟，
+ *    而且下次刷新会"自己变回去"，用户会以为丢了）；
+ * ② 失败时的原话要说清"**这段译文还是原来那一版**"，别让用户以为存上了。
+ */
+export async function saveBlockEdit(blockId, after) {
+  const task = currentTask.value
+  if (!task?.id) return '这篇文献还没打开，稍等一下再存'
+  const block = blocks.value.find((item) => item.block_id === blockId)
+  if (!block) return '找不到要改的那一段（可能刚刷新过），重开这一段再改'
+  const before = (block.translated || '').trim()
+  let res
+  try {
+    res = await authFetch('/api/block-edits', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ task_id: task.id, block_id: blockId, before, after }),
+    })
+  } catch (err) {
+    return `没存上：${err?.message || '网络或服务不可用'}——这段译文还是原来那一版`
+  }
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}))
+    const detail = typeof data?.detail === 'string' ? data.detail : ''
+    return detail || `没存上（HTTP ${res.status}）——这段译文还是原来那一版`
+  }
+  // 服务端存下了才改界面，并当场把这块标成"已人工修改"
+  block.translated = after
+  editedBlockIds.value = new Set([...editedBlockIds.value, blockId])
+  return null
 }
 
 // ============================================================ 收尾

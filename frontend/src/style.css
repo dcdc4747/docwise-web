@@ -2406,6 +2406,8 @@ svg.ic-inl {
     padding: var(--sp-3) var(--sp-3) calc(var(--tabbar-h, 0px) + env(safe-area-inset-bottom, 0px) + var(--sp-6));
   }
   .dw .proc-select { max-width: 100%; }
+}
+
 /* =============================================================
    [C3] 目录变树 —— `src/tocTree.js` + `useReader.tocItems`
    （结构有层级时用引擎给的层级；没有就退回按块类型判出来的平铺目录）
@@ -2422,6 +2424,131 @@ svg.ic-inl {
 @media (max-width: 719px) {
   .dw .toc-list > li { padding-left: calc(var(--toc-depth, 0) * 10px); }
 }
+
+/* ============================================================
+   [E6] 译文编辑与埋点（契约 §2.9–§2.10 / N33–N34）
+
+   两半：① 段落精读里的「改译文」入口与编辑框 + 「已人工修改」标记；
+        ② 「处理过程」一屏里译文编辑那一条的**逐条 diff**（改前 / 改后）。
+   ⭐ 标记不是装饰：它让人分得清哪句是模型译的、哪句是学生改的（AI 披露口径）。
+   ============================================================ */
+
+/* ---- ① 段落精读：入口、编辑框、标记 ---- */
+
+.dw .pg-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin: calc(-1 * var(--sp-1)) 0 var(--sp-3) 44px;
+}
+
+.dw .pg-chip-edit { border-style: dashed; }
+
+.dw .pg-edited {
+  display: inline-block;
+  margin-left: var(--sp-2);
+  padding: 1px var(--sp-2);
+  border: 1px solid var(--accent-line);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-hi);
+  font-size: var(--fs-micro);
+  white-space: nowrap;
+  vertical-align: 2px;
+}
+
+.dw .pg-edit {
+  margin: 0 0 var(--sp-4) 44px;
+  padding: var(--sp-3);
+  border: 1px solid var(--accent-line);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+
+.dw .pg-edit-label {
+  display: block;
+  margin-bottom: var(--sp-2);
+  color: var(--muted);
+  font-size: var(--fs-meta);
+}
+
+.dw .pg-edit-box {
+  width: 100%;
+  min-height: 84px;
+  padding: var(--sp-2);
+  border: 1px solid var(--line);
+  border-radius: var(--sp-2);
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  line-height: 1.6;
+  resize: vertical;
+}
+
+.dw .pg-edit-box:focus {
+  border-color: var(--accent);
+  outline: 2px solid var(--accent-soft);
+}
+
+.dw .pg-edit-error {
+  margin: var(--sp-2) 0 0;
+  color: #b3261e;
+  font-size: var(--fs-meta);
+}
+
+.dw .pg-edit-ops {
+  display: flex;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+}
+
+/* ---- ② 处理过程一屏：逐条 diff ---- */
+
+.dw .proc-diff {
+  display: grid;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+}
+
+.dw .proc-diff-side {
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--muted);
+  border-radius: var(--sp-2);
+  background: #fff;
+}
+
+.dw .proc-diff-side:last-of-type { border-left-color: var(--accent); }
+
+.dw .proc-diff-label {
+  display: block;
+  margin-bottom: var(--sp-1);
+  color: var(--muted);
+  font-size: var(--fs-micro);
+}
+
+.dw .proc-diff-before,
+.dw .proc-diff-after {
+  margin: 0;
+  color: var(--ink);
+  font-size: var(--fs-body);
+  line-height: 1.6;
+  /* 长句不许把整页撑宽：这一屏在手机上也要能看 */
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.dw .proc-diff-where {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--fs-micro);
+}
+
+@media (max-width: 859px) {
+  .dw .pg-chip-row,
+  .dw .pg-edit { margin-left: var(--sp-3); }
+}
+
 
 
 

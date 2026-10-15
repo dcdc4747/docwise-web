@@ -51,7 +51,7 @@
     <p v-else-if="!rows.length" class="proc-empty">{{ emptyText }}</p>
 
     <ol v-else class="proc-list">
-      <li v-for="row in rows" :key="row.id" class="proc-item">
+      <li v-for="row in viewRows" :key="row.id" class="proc-item">
         <div class="proc-head">
           <time class="proc-at">{{ fmtTime(row.created_at) }}</time>
           <span class="proc-stage">{{ stageText(row.stage) }}</span>
@@ -64,7 +64,24 @@
           <button type="button" class="proc-more" @click="toggle(row.id)">
             {{ opened.has(row.id) ? '收起明细' : '看明细' }}
           </button>
-          <pre v-if="opened.has(row.id)" class="proc-json">{{ pretty(row.payload) }}</pre>
+          <template v-if="opened.has(row.id)">
+            <!-- ⭐ 译文编辑那一条：**逐条 diff**（改前 / 改后）。拿不到明细就不给这一段，
+                 下面的原始 JSON 会如实显示 payload 本身 —— 不许编一段 diff 出来。 -->
+            <div v-if="row.diff" class="proc-diff">
+              <div class="proc-diff-side">
+                <span class="proc-diff-label">改前（模型译文）</span>
+                <p class="proc-diff-before">{{ row.diff.before }}</p>
+              </div>
+              <div class="proc-diff-side">
+                <span class="proc-diff-label">改后（人工译文）</span>
+                <p class="proc-diff-after">{{ row.diff.after }}</p>
+              </div>
+              <p v-if="row.diff.blockId" class="proc-diff-where">
+                位置：{{ row.diff.blockId }}
+              </p>
+            </div>
+            <pre v-else class="proc-json">{{ pretty(row.payload) }}</pre>
+          </template>
         </div>
       </li>
     </ol>
@@ -90,7 +107,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 
 import { apiJson, authFetch } from '../auth'
 import HonestNote from '../components/HonestNote.vue'
-import { actorChip, actorFlowClass, stageText } from '../ledgerText'
+import { actorChip, actorFlowClass, editDiff, stageText } from '../ledgerText'
 
 /** 一次最多读多少条（与后端 N17 的上限 1000 对齐；默认给 200，别一次拉爆）。 */
 const LIMIT = 200
@@ -103,6 +120,16 @@ const layer = ref('')
 const taskOptions = ref([])
 const tasksNote = ref('')
 const opened = ref(new Set())
+
+/**
+ * 列表用的行：**在取数后把 diff 算一次**（别在模板里反复调函数）。
+ *
+ * `diff` 只有"译文编辑"那一条才有（`ledgerText.editDiff` —— 拿不到就 `null`，
+ * 模板据此回落到原始 JSON，**不许编一段 diff**）。
+ */
+const viewRows = computed(() =>
+  rows.value.map((row) => ({ ...row, diff: editDiff(row) })),
+)
 
 /** 台账行是否值得给"看明细"：`payload` 得是**有内容的对象**（空对象不算）。 */
 function hasPayload(row) {

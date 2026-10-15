@@ -79,6 +79,10 @@ export const MOCK_ROUTES = [
   { n: 'N21', method: 'GET', path: '/api/drafts/{id}/citations' },
   { n: 'N21', method: 'DELETE', path: '/api/drafts/{id}/citations' },
   { n: 'N31', method: 'GET', path: '/api/drafts/{id}/bibliography' },
+  // 埋点 1（契约 §2.9–§2.10 / N33–N34）：译文改动与块曝光
+  { n: 'N33', method: 'POST', path: '/api/block-edits' },
+  { n: 'N33', method: 'GET', path: '/api/block-edits' },
+  { n: 'N34', method: 'POST', path: '/api/block-exposures' },
   { n: 'N22', method: 'POST', path: '/api/check' },
   { n: 'N23', method: 'GET', path: '/api/check/{run_id}' },
   { n: 'N24', method: 'GET', path: '/api/me/storage' },
@@ -321,7 +325,11 @@ function seed() {
       { id: 1, created_at: SEED_AT, expires_at: '2026-11-13T02:00:00Z', last_seen_at: SEED_AT, user_agent: 'Chrome / Windows（mock）' },
       { id: 2, created_at: SEED_AT, expires_at: '2026-11-13T02:00:00Z', last_seen_at: SEED_AT, user_agent: 'Safari / iPhone（mock）' },
     ],
-    next_id: { collections: 4, smart_collections: 5, materials: 3, ask_logs: 2, drafts: 2, citations: 2, check_runs: 13 },
+    // 埋点 1（N33 / N34）：译文改动与块曝光。⚠️ 曝光**按 (task, block, session) 去重**
+    // —— mock 也照契约 §2.10 的唯一键做幂等，别让离线开发看到"重复上报长新行"。
+    block_edits: [],
+    block_exposures: [],
+    next_id: { collections: 4, smart_collections: 5, materials: 3, ask_logs: 2, drafts: 2, citations: 2, check_runs: 13, block_edits: 1, block_exposures: 1 },
   }
 }
 
@@ -863,6 +871,69 @@ const HANDLERS = {
     // ⚠️ 契约 §2.5：这个 POST 只给服务端内部用（写入方是服务端，不是前端手工埋点）。
     // 所以 mock 这里**故意不返回假数据**——前端真去调它，说明埋点写错了地方。
     fail(405, 'N17 的 POST 只给服务端内部用（契约 §2.5）：前端只调 GET，不许手工埋点'),
+
+  // ---- §2.9 埋点：译文改动与块曝光（N33 / N34）
+  'POST /api/block-edits': ({ body }) => {
+    const taskId = intOf(body.task_id)
+    if (!state.tasks.some((item) => item.id === taskId)) return fail(404, '任务不存在')
+    const blockId = String(body.block_id ?? '')
+    if (!blockId) return fail(400, 'block_id 不能为空')
+    const after = String(body.after ?? '').trim()
+    const before = String(body.before ?? '').trim()
+    if (!after) return fail(400, '译文不能清空；要撤销请重新编辑')
+    if (after === before) return fail(400, '译文没有变化，未记录')
+    const created = {
+      id: state.next_id.block_edits,
+      task_id: taskId,
+      block_id: blockId,
+      before: String(body.before ?? ''),
+      after,
+      // 真后端由服务端算原文 sha256；mock 不持有原文，**如实给空串**而不是编一个哈希
+      text_hash: '',
+      created_at: new Date().toISOString(),
+    }
+    state.next_id.block_edits += 1
+    state.block_edits.push(created)
+    return ok({ id: created.id, block_id: blockId, edited: true }, 201)
+  },
+
+  'GET /api/block-edits': ({ query }) => {
+    const taskId = query.get('task_id') || ''
+    const blockId = query.get('block_id') || ''
+    const rows = state.block_edits.filter(
+      (item) =>
+        (!taskId || String(item.task_id) === String(taskId)) &&
+        (!blockId || item.block_id === blockId),
+    )
+    // 新的在前（与真后端一致）
+    return ok({ items: [...rows].reverse() })
+  },
+
+  'POST /api/block-exposures': ({ body }) => {
+    const taskId = intOf(body.task_id)
+    if (!state.tasks.some((item) => item.id === taskId)) return fail(404, '任务不存在')
+    const blockId = String(body.block_id ?? '')
+    const sessionId = String(body.session_id ?? '')
+    if (!blockId || !sessionId) return fail(400, 'block_id 与 session_id 都不能为空')
+    const hit = state.block_exposures.find(
+      (item) =>
+        item.task_id === taskId &&
+        item.block_id === blockId &&
+        item.session_id === sessionId,
+    )
+    // ⭐ 幂等（契约 §2.10 的唯一键）：重复上报**不长新行**
+    if (hit) return ok({ id: hit.id, created: false }, 201)
+    const created = {
+      id: state.next_id.block_exposures,
+      task_id: taskId,
+      block_id: blockId,
+      session_id: sessionId,
+      created_at: new Date().toISOString(),
+    }
+    state.next_id.block_exposures += 1
+    state.block_exposures.push(created)
+    return ok({ id: created.id, created: true }, 201)
+  },
 
   // ---- §2.6 起草
   'GET /api/drafts': () => ok({ items: state.drafts.map(draftView) }),

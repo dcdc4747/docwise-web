@@ -23,6 +23,24 @@ export const STAGE_TEXT = {
   check: '收口检查',
   cite: '引文',
   edit: '译文编辑',
+  // 块曝光（M2 埋点的分母）：一次会话开始记曝光时写一条，不是每块一条
+  exposure: '阅读曝光',
+}
+
+/**
+ * 「译文编辑」那一条的 diff（埋点 1，契约 §2.9）。
+ *
+ * 返回 `{before, after}`；**不是编辑事件、或明细不可读 → `null`**——
+ * 调用方据此"这条没有明细"如实说，**不许编一段 diff 出来**。
+ */
+export function editDiff(row) {
+  if (!row || row.stage !== 'edit') return null
+  const payload = row.payload
+  if (!payload || typeof payload !== 'object') return null
+  const before = payload.before
+  const after = payload.after
+  if (typeof before !== 'string' || typeof after !== 'string') return null
+  return { before, after, blockId: String(payload.block_id || '') }
 }
 
 /** 环节人话；认不出的阶段**原样显示**（不编、不吞）。 */

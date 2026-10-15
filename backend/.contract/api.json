@@ -14,7 +14,7 @@
     "真实性来源：本清单的 anchors 是由 backend/scripts/check_contract.py --print 打出来的真实路由表逐条核对的，",
     "  不是从文档抄的 —— 手抄文档正是第一版把 25 个端点写成 23 个的原因。"
   ],
-  "declared_endpoint_count": 60,
+  "declared_endpoint_count": 63,
   "anchors": [
     { "method": "GET", "path": "/api/health", "note": "真检查（数据库+worker）；无需鉴权" },
 
@@ -85,7 +85,11 @@
     { "method": "PUT", "path": "/api/tasks/{param}/tags", "note": "N7 按名字 upsert 标签，并全量替换该文献的标签集" },
     { "method": "GET", "path": "/api/smart-collections", "note": "N9 智能集合列表（规则即数据；每条带当场算出来的 count）" },
     { "method": "POST", "path": "/api/smart-collections", "note": "N10 新建智能集合；400 query 非法（形状与白名单见契约 §2.3）" },
-    { "method": "DELETE", "path": "/api/smart-collections/{param}", "note": "N11 400 内置规则不许删" }
+    { "method": "DELETE", "path": "/api/smart-collections/{param}", "note": "N11 400 内置规则不许删" },
+
+    { "method": "POST", "path": "/api/block-edits", "note": "N33 记一条译文改动（人工修改留痕）；404 块不在本任务；400 译文没变化或为空；同时把该块 translated 更新为用户版本" },
+    { "method": "GET", "path": "/api/block-edits", "note": "N33 读改动（新的在前）?task_id? &block_id? &limit?；只回本账号的" },
+    { "method": "POST", "path": "/api/block-exposures", "note": "N34 块曝光上报（修改率的分母）；幂等＝唯一键 (user_id, task_id, block_id, session_id)，重复上报不长行、只把 left_at 往后推" }
   ],
   "expected_new": []
 }

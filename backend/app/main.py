@@ -23,6 +23,7 @@ from .routers.admin import router as admin_router
 from .routers.ask import router as ask_router
 from .routers.auth import router as auth_router
 from .routers.bibliography import router as bibliography_router
+from .routers.block_events import router as block_events_router
 from .routers.check import router as check_router
 from .routers.collections import router as collections_router
 from .routers.collections import task_router as collections_task_router
@@ -250,6 +251,8 @@ app.include_router(collections_task_router)
 app.include_router(tags_router)
 app.include_router(tags_task_router)
 app.include_router(smart_collections_router)
+# 埋点 1：译文改动与块曝光（契约 §2.9–§2.10 / N33–N34）。同样在挂载之前。
+app.include_router(block_events_router)
 
 
 def _database_writable() -> tuple[bool, str | None]:
