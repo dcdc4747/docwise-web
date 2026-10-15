@@ -153,14 +153,18 @@ describe('挂载点真的钉在外壳里（第 7 步的全部价值）', () => {
 
   it('两个组件都在模板里挂上了（不是只 import 不用）', () => {
     expect(app).toMatch(/<AppStatusBar\s*\/>/)
-    expect(app).toMatch(/<AppTabbar\s*\/>/)
+    // ⚠️ R6（2026-10-16）起标签栏**收参数**了，所以不再匹配 `<AppTabbar />` 这种裸写法
+    expect(app).toMatch(/<AppTabbar[^>]*\/>/)
   })
 
-  it('⭐ 挂载点都是"不传数据"的：R6 / R8 只要改自己的文件就能放出来', () => {
-    // 挂载处不许传 tabs / slots —— 一旦在这里传了，就等于"外壳决定内容"，
-    // R6/R8 又得回来改 App.vue，第 7 步白做
-    expect(app).not.toMatch(/<AppTabbar[^>]*\stabs=/)
+  it('⭐ 状态条仍是"不传数据"的座位；标签栏自 R6 起改为外壳传参（口径已改，见理由）', () => {
+    // 座位期口径（第 7 步）：挂载处不许传数据，R6/R8 只改自己的文件就能放出来。
+    // ⚠️ R6 落地时**有意改了这条**：标签栏要的导航地址表就在本文件里（`RAIL_TARGETS` 是唯一真源），
+    //    复用同一份表比让标签栏再存一份地址更不容易漂移 —— 代价是**以后动 App.vue 要留意这一处**。
+    //    状态条（R8）不受影响，继续按座位口径钉住。
     expect(app).not.toMatch(/<AppStatusBar[^>]*\sslots=/)
+    // 绑定写法是 `:tabs="MOBILE_TABS"`（带冒号），别漏了它
+    expect(app).toMatch(/<AppTabbar[^>]*\s:tabs=/)
   })
 
   it('账号区插槽仍是空的（R7 的座位，空插槽才不多出一个空的按钮）', () => {

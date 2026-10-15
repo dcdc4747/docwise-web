@@ -60,7 +60,7 @@ import {
   stopProgress,
 } from './stores/useReader'
 import { clearTasks, tasks } from './stores/useTasks'
-import { openCheck, resetWrite } from './stores/useWrite'
+import { checkOpen, openCheck, resetWrite } from './stores/useWrite'
 import {
   activeNav,
   closeMenus,
@@ -356,6 +356,73 @@ function onRailSelect(key) {
   navigateToHash(go)
 }
 
+// ============================================================ 手机底部标签栏（R6）
+//
+// 形态 v2 §2.3：**手机端（<720px）左栏换成底部标签栏 5 个** ——
+// **库 / 起草 / 检查 / 记忆 / 我的**。命名口径（§2.3 原文）：桌面叫「收口」、
+// 手机标签因字数显示「检查」；第一个叫「**库**」不叫「读懂」（窄屏用户看到"读懂"会以为进的是阅读页）。
+// ⚠️ 形态 §2.3 的产品判断：**不在手机上做精读**；⚠️ 不许在手机上照搬"左下角头像"。
+
+/**
+ * ⚠️ **为什么单独算一个 `isPhone`，而不是用 `isNarrow`**：
+ * `stores/useUi.js` 的 `isNarrow` 是 **<1024**（它是"左栏收起 / 助手换抽屉"那几档用的），
+ * 而形态文档给标签栏的档位是 **<720**（§2.3）。两处阈值不一致是**已知问题**、
+ * 由外壳负责人拍板怎么统一 —— 本卡按文档那一档实现，**不动 `isNarrow`**。
+ */
+const isPhone = ref(false)
+
+function syncPhone() {
+  isPhone.value = window.innerWidth < 720
+}
+
+/** 5 个标签。图标名都取自 `index.html` 的 sprite（5 个都已存在，不是新画的）。 */
+const MOBILE_TABS = [
+  { key: 'library', label: '库', icon: 'layers' },
+  { key: 'write', label: '起草', icon: 'pen' },
+  { key: 'check', label: '检查', icon: 'check-search' },
+  { key: 'memory', label: '记忆', icon: 'gear' },
+  { key: 'me', label: '我的', icon: 'user' },
+]
+
+/**
+ * 标签落到哪：**复用左栏那张表**（`RAIL_TARGETS` 是导航的唯一真源，
+ * 在这里再写第二套地址映射＝迟早两套地址不一致）。
+ * 「我的」不在 `RAIL_TARGETS` 里（桌面那条路只有顶栏账号菜单），所以单独在 `onTabSelect` 里处理。
+ */
+const TAB_TARGETS = {
+  library: 'lib-all', // 「库」= 回库页**并清筛选**（与左栏「全部文献」同一条路）
+  write: 'write',
+  check: 'check', // 「检查」= 进起草页并当场拉开检查抽屉（形态 §3.3：收口是抽屉不是新页面）
+  memory: 'memory',
+  me: 'me',
+}
+
+/**
+ * 当前该亮哪一个：按**屏**算，不读 `location.hash`（契约 §0.5：地址只在 `router.js` 里读写）。
+ * `view === 'reader'`（正在读一篇）也归「库」—— 手机上读文献是从库里点进去的，
+ * 而形态 §2.3 明确**不做精读标签**。
+ */
+const tabbarActive = computed(() => {
+  if (view.value === 'me') return 'me'
+  if (view.value === 'write') return checkOpen.value ? 'check' : 'write'
+  return 'library'
+})
+
+/** 点一条标签：走与左栏**同一条路**（"先动状态、地址跟着状态走"的完整理由在 `onRailSelect` 上）。 */
+function onTabSelect(key) {
+  const railKey = TAB_TARGETS[key]
+  if (!railKey) return
+  // 「我的」：左栏表里没有这一条，所以这一处单独设状态 + 写地址（与 `onRailSelect` 同一顺序）
+  if (railKey === 'me') {
+    closeMenus()
+    view.value = 'me'
+    activeNav.value = 'me'
+    navigateToHash({ name: 'me' })
+    return
+  }
+  onRailSelect(railKey)
+}
+
 /** 关掉管理后台并回库页：**地址与屏一起改**（只改一个会让刷新回到后台、像关不掉）。 */
 function closeAdmin() {
   showAdmin.value = false
@@ -368,9 +435,11 @@ onMounted(async () => {
   // 收起态先读回来（刷新后仍是收起的样子 —— R4 判据④）
   loadRailMin()
   syncNarrow()
+  syncPhone()
   // 偏好里的「翻译档位」= 上传卡的默认档位（M5 存下来的东西在这里被消费掉）
   selectedTier.value = shellPrefs.value.tier
   window.addEventListener('resize', syncNarrow)
+  window.addEventListener('resize', syncPhone)
   window.addEventListener('keydown', onGlobalKeydown)
   setUnauthorizedHandler(handleUnauthorized)
   startRouteWatch()
@@ -397,6 +466,7 @@ function onGlobalKeydown(event) {
 
 onUnmounted(() => {
   window.removeEventListener('resize', syncNarrow)
+  window.removeEventListener('resize', syncPhone)
   window.removeEventListener('keydown', onGlobalKeydown)
   if (stopRouteWatch) stopRouteWatch()
   stopProgress()
@@ -476,7 +546,16 @@ function handleUnauthorized() {
     <!-- 未登录：整页登录 / 注册 -->
     <LoginView v-else-if="!authUser" :demo-autologin="demoAutologin" @success="onLoginSuccess" />
 
-    <div v-else class="dw" :style="shellStyle" :data-motion="motionMode" @click="closeMenus">
+    <!-- ⭐ 根上挂 `has-tabbar`：手机档才有底部标签栏，内容列据此让出等高下边距
+         （**由 JS 决定"有没有"，CSS 只管几何**——两处各判一次阈值必然漂移）。 -->
+    <div
+      v-else
+      class="dw"
+      :class="{ 'has-tabbar': isPhone }"
+      :style="shellStyle"
+      :data-motion="motionMode"
+      @click="closeMenus"
+    >
       <!-- 管理后台（M5）：面板本身没有返回口（v1 从账号菜单进来，只能刷出去）。
            既然 `#/admin` 现在是真地址，就得有个正常的出口——否则从地址进来的人被困住。 -->
       <template v-if="showAdmin">
@@ -554,11 +633,19 @@ function handleUnauthorized() {
         </div>
       </div>
 
-      <!-- ⭐ 手机底部标签栏挂载点（R6 的 `AppTabbar.vue`）。
-           ⚠️ 放在 `.dw-layout` **之外**：它要横跨整个屏宽（形态 §3.4 的底部标签栏压在左栏上方），
-           放进内容列会缩在左栏右边。同样**不传 tabs** → 自门控、整条不渲染。
-           R6 传 5 个标签进来就出来了，**外壳这一行不用再改**。 -->
-      <AppTabbar />
+      <!-- ⭐ 手机底部标签栏（R6 已接线：形态 v2 §2.3 的 **库 / 起草 / 检查 / 记忆 / 我的**）。
+           ⚠️ 放在 `.dw-layout` **之外**是**必须的两件事之一**：
+           ① 留在布局之外 → 不被 `height:100dvh; overflow:hidden` 裁掉；
+           ② 样式里 `position:fixed` → 真的贴视口底（留在外面但在正常流里，它会排到
+              100dvh 之后 = **屏幕外**，这正是窄屏走查指出的隐患）。
+           内容不被盖住不靠这里，靠根上的 `has-tabbar` 类（`.dw-main` 让出等高下边距，含安全区）。
+           ⚠️ 只在**手机档（<720）**出现，见脚本里 `isPhone` 的说明（不动 `isNarrow` 的 1024）。 -->
+      <AppTabbar
+        v-if="isPhone"
+        :tabs="MOBILE_TABS"
+        :active="tabbarActive"
+        @select="onTabSelect"
+      />
 
       <!-- 隐藏的文件选择器（上传 / 换档位重译都用它） -->
       <input ref="fileInput" type="file" accept="application/pdf" class="hidden-file" @change="onFilePicked" />
