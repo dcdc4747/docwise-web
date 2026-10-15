@@ -62,11 +62,12 @@ const anchorKeys = (manifest.anchors || []).map((item) => asKey(item.method, ite
  *   不然前端就失去"后端一行没写也能把界面做完"那条路。
  *
  * 于是"只用 `expected_new` 对账"，在**第一个端点被实现的那天**就会红：
- * 起草那一组（N18–N21）实现并搬进 `anchors` 之后，mock 这边就成了"多余的 8 条"。
+ * 起草那一组（N18–N21）实现并搬进 `anchors` 之后，mock 这边就成了"多余的 8 条"；
+ * 收口检查那一组（N22–N23）实现之后同理（2026-10-16 加的前缀）。
  * 这里显式列出「**已实现但仍要 mock**」的资源前缀，对账时把这几组从 `anchors` 里补回来。
  * （新实现一组就加一个前缀；**基线端点绝不在列** —— 基线必须继续打真后端。）
  */
-const IMPLEMENTED_BUT_MOCKED = ['/api/drafts']
+const IMPLEMENTED_BUT_MOCKED = ['/api/drafts', '/api/check']
 const reconcileKeys = [
   ...expectedNewKeys,
   ...anchorKeys.filter((key) => IMPLEMENTED_BUT_MOCKED.some((prefix) => key.includes(prefix))),

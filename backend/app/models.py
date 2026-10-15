@@ -369,6 +369,32 @@ class Citation(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
 
+class CheckRun(Base):
+    """收口检查的一次运行（契约 §2.7 / N22–N23）。
+
+    **只存"一次运行 + 它出的那份报告"**，报告整体放 `report`（JSON）：
+    报告的形状是契约冻的 `CheckReport`，为它拆成几张表反而不好回放。
+
+    ⚠️ **不建"逐条处置"的表**：那是下一版的功能，契约 §5 明写**别预建**
+    （与"草稿只存当前稿、不建版本历史表"同一个理由）。
+    ⚠️ `ruleset_version` **单独存一列**（不只躺在 JSON 里）：以后翻旧报告、
+    或者按版本统计"哪版规则准"，都要能直接筛。
+    """
+
+    __tablename__ = "check_runs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    draft_id: Mapped[int | None] = mapped_column(
+        ForeignKey("drafts.id"), index=True, nullable=True
+    )
+    lang: Mapped[str] = mapped_column(String(16))
+    citation_style: Mapped[str] = mapped_column(String(16))
+    ruleset_version: Mapped[int] = mapped_column(Integer)
+    report: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
 class MemoryEvent(Base):
     """L0 环节台账（**M2 写 / M5 读 / M7 吃** 三方共用的地基）。
 
