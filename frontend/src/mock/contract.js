@@ -48,6 +48,10 @@ export const MOCK_FLAG_KEY = 'docwise_mock'
  * **不是新端点**、也不该出现在 `expected_new` 里——单独放 `MOCK_DELTAS`（见下）。
  * ⚠️ **N17 只有 GET 是真的给前端用的**（POST 是服务端内部埋点，见 `memory-events` 那条处理）。
  */
+
+/** N31 支持的样式 key（与后端 `routers/bibliography.py` 的白名单一致：多了会 400）。 */
+const BIB_STYLES = ['apa', 'ieee', 'gb-t-7714-2015-numeric', 'gb-t-7714-2015-author-date']
+
 export const MOCK_ROUTES = [
   { n: 'N1', method: 'GET', path: '/api/collections' },
   { n: 'N2', method: 'POST', path: '/api/collections' },
@@ -74,6 +78,7 @@ export const MOCK_ROUTES = [
   { n: 'N20', method: 'POST', path: '/api/drafts/{id}/citations' },
   { n: 'N21', method: 'GET', path: '/api/drafts/{id}/citations' },
   { n: 'N21', method: 'DELETE', path: '/api/drafts/{id}/citations' },
+  { n: 'N31', method: 'GET', path: '/api/drafts/{id}/bibliography' },
   { n: 'N22', method: 'POST', path: '/api/check' },
   { n: 'N23', method: 'GET', path: '/api/check/{run_id}' },
   { n: 'N24', method: 'GET', path: '/api/me/storage' },
@@ -939,6 +944,36 @@ const HANDLERS = {
     const removed = citationsOf(draftId).length
     state.citations = state.citations.filter((item) => item.draft_id !== draftId)
     return ok({ deleted: true, count: removed })
+  },
+
+  // ---- §2.6 参考文献格式化（N31）
+  // ⚠️ **mock 不排版**：真正的 CSL 渲染在引擎侧（citeproc-py + 样式数据），离线这里只保证
+  // **形状与契约一致**、条目数跟着引文走。所以示例条目带"（示例条目）"前缀——
+  // 别把它当成"真格式化结果"，也别拿它去核对期刊样式。
+  'GET /api/drafts/{id}/bibliography': ({ params, query }) => {
+    const draftId = Number(params.id)
+    if (!state.drafts.some((item) => item.id === draftId)) return fail(404, '草稿不存在')
+    const style = String(query.get('style') || '')
+    if (!BIB_STYLES.includes(style)) {
+      return fail(400, `style 只支持 ${BIB_STYLES.join(' / ')}`)
+    }
+    const cites = citationsOf(draftId)
+    const entries = cites.map((item, index) => {
+      const material = state.materials.find((m) => m.id === item.material_id)
+      const name = material ? material.source_name : '（来源未知）'
+      return `[${index + 1}]（示例条目 · ${style}）${name}`
+    })
+    return ok({
+      style,
+      locale: null,
+      entries,
+      item_texts: Object.fromEntries(
+        cites.map((item, index) => [`material-${item.material_id}`, entries[index]]),
+      ),
+      count: entries.length,
+      skipped: [],
+      styles: BIB_STYLES,
+    })
   },
 
   // ---- §2.7 收口检查

@@ -22,6 +22,7 @@ from .models import Task, User
 from .routers.admin import router as admin_router
 from .routers.ask import router as ask_router
 from .routers.auth import router as auth_router
+from .routers.bibliography import router as bibliography_router
 from .routers.check import router as check_router
 from .routers.drafts import router as drafts_router
 from .routers.materials import router as materials_router
@@ -231,6 +232,8 @@ app.include_router(check_router)
 app.include_router(materials_router)
 # 我的数据与个人中心（契约 §2.8 / N24–N29）。同理。
 app.include_router(me_router)
+# 参考文献格式化（契约 §2.6 / N31）。同理**必须在 `webapp.mount_frontend(app)` 之前**。
+app.include_router(bibliography_router)
 
 
 def _database_writable() -> tuple[bool, str | None]:

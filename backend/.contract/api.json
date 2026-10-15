@@ -14,7 +14,7 @@
     "真实性来源：本清单的 anchors 是由 backend/scripts/check_contract.py --print 打出来的真实路由表逐条核对的，",
     "  不是从文档抄的 —— 手抄文档正是第一版把 25 个端点写成 23 个的原因。"
   ],
-  "declared_endpoint_count": 45,
+  "declared_endpoint_count": 46,
   "anchors": [
     { "method": "GET", "path": "/api/health", "note": "真检查（数据库+worker）；无需鉴权" },
 
@@ -67,7 +67,9 @@
     { "method": "DELETE", "path": "/api/me", "note": "N27 删除账号与全部数据（不可逆；二次确认在界面）" },
     { "method": "PATCH", "path": "/api/me", "note": "N28 改显示名 {display_name?}（1–64 字；空 body 幂等）" },
     { "method": "GET", "path": "/api/me/sessions", "note": "N29 登录设备与会话列表（只列未过期的）" },
-    { "method": "DELETE", "path": "/api/me/sessions/{param}", "note": "N29 逐个吊销会话；别人的 404" }
+    { "method": "DELETE", "path": "/api/me/sessions/{param}", "note": "N29 逐个吊销会话；别人的 404" },
+
+    { "method": "GET", "path": "/api/drafts/{param}/bibliography", "note": "N31 参考文献格式化，?style ∈ {apa, ieee, gb-t-7714-2015-numeric, gb-t-7714-2015-author-date}；503 = 引擎环境没配好（不给半成品）" }
   ],
   "expected_new": [
     { "method": "GET", "path": "/api/collections", "note": "N1 集合列表（doc_count 直接成员 / doc_count_deep 含子集合）" },

@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     docwise_engine_medium_python: str | None = None
     docwise_engine_medium_script: str | None = None
     docwise_engine_medium_service: str | None = None
+    # 参考文献格式化脚本（N31）：不配就按 `DOCWISE_ENGINE_SCRIPT` 所在目录
+    # 找 `run_bibliography.py`；两处都拿不到就是"未配置"（接口回 503，别假装成功）。
+    docwise_engine_bibliography_script: str | None = None
     # 前端跨域白名单追加项（逗号分隔，如手机真机访问 http://192.168.1.5:5173）；
     # 默认已允许本地开发端口（5173/4173）。**同源部署（后端托管前端产物）用不上
     # CORS**，这里只在"前端与后端不同源"时才需要。
@@ -68,6 +71,9 @@ def _to_env() -> dict[str, str]:
         "DOCWISE_ENGINE_MEDIUM_PYTHON": settings.docwise_engine_medium_python,
         "DOCWISE_ENGINE_MEDIUM_SCRIPT": settings.docwise_engine_medium_script,
         "DOCWISE_ENGINE_MEDIUM_SERVICE": settings.docwise_engine_medium_service,
+        "DOCWISE_ENGINE_BIBLIOGRAPHY_SCRIPT": (
+            settings.docwise_engine_bibliography_script
+        ),
         "DEEPSEEK_API_KEY": settings.deepseek_api_key,
         "DEEPSEEK_MODEL": settings.deepseek_model,
         "DEEPSEEK_BASE_URL": settings.deepseek_base_url,
