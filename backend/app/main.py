@@ -73,6 +73,11 @@ def _ensure_schema() -> None:
         "regions": "JSON",
         # 演示库策展（2026-10-08）：非空 = 不在库里显示（数据不删，详情照旧可访问）
         "archived_at": "DATETIME",
+        # B1（形态 v2，2026-10-14）：阅读状态（todo / reading / done）——
+        # 「待读 / 在读 / 已读」三个入口的数据源。
+        # DDL 必须与 `models.Task.reading_status` 生成的建表语句一致
+        # （`tests/test_migration_v2_schema.py` 钉的就是这条一致性）。
+        "reading_status": "VARCHAR(16) DEFAULT 'todo' NOT NULL",
     }
         # task_blocks 的补列：版面信号（2026-09-30）。
         # 老任务为 NULL，分级器自动退回文字形状。
@@ -83,6 +88,12 @@ def _ensure_schema() -> None:
                 conn.execute(text(f"ALTER TABLE tasks ADD COLUMN {column} {ddl}"))
         conn.execute(
             text("CREATE INDEX IF NOT EXISTS ix_tasks_user_id ON tasks (user_id)")
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_tasks_reading_status "
+                "ON tasks (reading_status)"
+            )
         )
         if "task_blocks" in tables:
             block_existing = {

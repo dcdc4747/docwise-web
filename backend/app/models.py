@@ -7,15 +7,18 @@ from sqlalchemy import (
     Enum,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .db import Base
 from .engine.base import BlockState
+from .timeutil import utc_now
 
 
 class Task(Base):
@@ -70,6 +73,17 @@ class Task(Base):
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
+    )
+    # 阅读状态（2026-10-14，B1）：todo（待读）/ reading（在读）/ done（已读）。
+    # 为什么是 `tasks` 的列、不是关联表：**状态是文献自己的属性（跟文献走），
+    # 集合是人的组织（跟人走）**——"标签可以迁移，但收藏集不能"。
+    # 默认 `todo` 是一个决定：刚上传的文献，用户的默认意图就是"待读"，
+    # 它直接喂「待读 N」这个入口。
+    # ⚠️ 它与 `kind='status'` 的标签**不互为镜像、不做同步**（否则又是"改了 A 没改 B"）；
+    # 也与块级曝光埋点不是一回事——前者是用户的状态，后者是进视口就记的分母。
+    # 定义在**最后一列**：老库靠 ALTER 补列只能追加到末尾，两边顺序才对得上。
+    reading_status: Mapped[str] = mapped_column(
+        String(16), default="todo", nullable=False, server_default="todo", index=True
     )
 
 
@@ -178,3 +192,254 @@ class AuthTicket(Base):
     scope: Mapped[str] = mapped_column(String(16))  # files / events
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     expires_at: Mapped[datetime] = mapped_column(DateTime)
+
+
+class Collection(Base):
+    """集合（可嵌套：`parent_id` 自指）。
+
+    ⭐ 语义定死（照抄 Zotero，不发明第三种）：**子集合的文献不算在父集合里**——
+    集合只含**直接成员**，计数＝直接成员数。展示层要给"含子集合共 N"，只能用
+    括号辅数（`doc_count_deep`），**不改这里的语义**。
+    ⚠️ 成环（把集合移进自己的后代）必须由**服务端**挡（`parent_id` 链上走一遍），
+    返回 400——不许只靠前端。
+    """
+
+    __tablename__ = "collections"
+    # 同一父下不许重名；不同父下可以同名
+    __table_args__ = (UniqueConstraint("user_id", "parent_id", "name"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    name: Mapped[str] = mapped_column(String(64))
+    # null = 顶层集合
+    parent_id: Mapped[int | None] = mapped_column(
+        ForeignKey("collections.id"), nullable=True, index=True
+    )
+    sort: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
+class TaskCollection(Base):
+    """文献 ↔ 集合（多对多）。一篇文献可属多个集合。
+
+    ⚠️ **别在这张表上盖更多东西**（权限 / 排序 / 备注一律不加）：埋点 2 要验证
+    "多挂率 < 10% → 退化为 `tasks` 上的单选字段"，届时这张表要能一刀切掉。
+    """
+
+    __tablename__ = "task_collections"
+    __table_args__ = (UniqueConstraint("task_id", "collection_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id"), index=True)
+    collection_id: Mapped[int] = mapped_column(
+        ForeignKey("collections.id"), index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
+class Tag(Base):
+    """标签，分三类：主题 / 方法 / 状态（`kind`）。
+
+    状态类最有价值——它驱动"我今天该干什么"。
+    ⚠️ 与 `tasks.reading_status` 的关系要拎清：`reading_status` 是驱动
+    「待读 / 在读 / 已读」三个入口的那一份数据（有索引、可高效筛）；`kind='status'`
+    的标签是**用户自己额外打的**状态标签。两者**不互为镜像、不做同步**。
+    """
+
+    __tablename__ = "tags"
+    __table_args__ = (UniqueConstraint("user_id", "kind", "name"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    name: Mapped[str] = mapped_column(String(64))
+    kind: Mapped[str] = mapped_column(String(16))  # topic / method / status
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
+class TaskTag(Base):
+    """文献 ↔ 标签。"""
+
+    __tablename__ = "task_tags"
+    __table_args__ = (UniqueConstraint("task_id", "tag_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id"), index=True)
+    tag_id: Mapped[int] = mapped_column(ForeignKey("tags.id"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
+class SmartCollection(Base):
+    """智能集合＝已保存的搜索规则（**规则即数据**）。
+
+    为什么把筛选规则做成一行数据、而不是几个 `if`：判据**不是文献有多少篇，而是
+    规则有多少条、规则是不是数据**——筛选逻辑写在代码里时，加一条规则＝改代码＋
+    测试；规则是数据时，加一条规则＝插一行表。**硬编码分支超过 2 处就回本**，
+    而我们有待读 / 在读 / 已读三条，已经过线。
+    本期只做**预置规则**（`builtin`，迁移时种下），不做用户自定义查询构建器：
+    预置扩张同样走"插一行表"，**上限约 8–10 条**；超过说明该上"把当前筛选存为
+    智能集合"那一档了。
+    `query` 形状（冻结）：`{"all": [{"field": …, "op": …, "value": …}]}`，
+    `field ∈ {reading_status, tag, collection, native, text_source}`、
+    `op ∈ {eq, in, not_in}`。
+    """
+
+    __tablename__ = "smart_collections"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    name: Mapped[str] = mapped_column(String(64))
+    query: Mapped[dict] = mapped_column(JSON)
+    builtin: Mapped[bool] = mapped_column(Boolean, default=False)
+    sort: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
+class Material(Base):
+    """素材卡（**快照，不是活引用**）。
+
+    ⭐⭐ 这张表的全部意义就在四个"创建时拷贝"的列：`text_quote` /
+    `translated_quote` / `page` / `source_name`。判据是"**删掉源任务后素材卡仍显示
+    出处**"——所以**不许 JOIN `tasks` 取 `source_name` / `page`**，那就退回活引用了。
+    ⚠️ `task_id` 只用于"回跳原文"，源文献被删后置 null，**不级联删素材**；界面此时
+    必须如实说"源文献已删除，仅存快照"，**不许做成死链装活链**。
+    """
+
+    __tablename__ = "materials"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    task_id: Mapped[int | None] = mapped_column(
+        ForeignKey("tasks.id"), nullable=True
+    )
+    block_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    text_quote: Mapped[str] = mapped_column(Text)
+    translated_quote: Mapped[str | None] = mapped_column(Text, nullable=True)
+    page: Mapped[int] = mapped_column(Integer)
+    source_name: Mapped[str] = mapped_column(String(255))
+    note: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=utc_now, onupdate=utc_now
+    )
+
+
+class Draft(Base):
+    """草稿（本期只存当前稿，**不建版本历史表**——需要时再加，别预建）。"""
+
+    __tablename__ = "drafts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    title: Mapped[str] = mapped_column(String(200))
+    body_md: Mapped[str] = mapped_column(Text, default="")
+    # 期刊 / 学位论文模板标识：**本期只存标识，不做模板渲染**
+    template_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=utc_now, onupdate=utc_now
+    )
+
+
+class Citation(Base):
+    """引文：**插入时就生成并落库 CSL-JSON**。
+
+    ⭐ `csl_json` 是 M4 格式检查的**唯一输入**（不接 Word、不做版面分析）；
+    格式为 CSL-JSON 1.0.2 单条 item。
+    ⭐ "点 `[1]` 回原文高亮"靠 `material_id` → `materials.task_id` / `block_id`；
+    源文献已删（`task_id` 为 null）时如实说"源文献已删"。
+    """
+
+    __tablename__ = "citations"
+    __table_args__ = (UniqueConstraint("draft_id", "order"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    draft_id: Mapped[int] = mapped_column(ForeignKey("drafts.id"), index=True)
+    material_id: Mapped[int] = mapped_column(ForeignKey("materials.id"), index=True)
+    order: Mapped[int] = mapped_column(Integer)  # 文内引用编号
+    csl_json: Mapped[dict] = mapped_column(JSON)
+    anchor: Mapped[dict] = mapped_column(JSON)  # {block_id?, offset}：文内插入位置
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
+class MemoryEvent(Base):
+    """L0 环节台账（**M2 写 / M5 读 / M7 吃** 三方共用的地基）。
+
+    ⭐⭐ 它是"AI 使用台账"与"处理过程一屏"的**唯一真源**：`/api/memory-events`（N17）
+    与 `/api/me/ledger`（N26）**同源**，**不许做两份台账**。
+    ⚠️ `actor` 就是"数据流向"的证据：取字与扫描件 OCR 是真本地 → `local`；
+    外文翻译、扫描件逐段翻译、导读 / 问答三条路发往云端模型 API → `api`。
+    ⚠️ 口径红线：**不能讲"数据不出本机"**，只能讲"服务自持 + 文献存本地"。
+    ⚠️ 写入方是**服务端**（前端只 GET），不许在前端手工埋点。
+    """
+
+    __tablename__ = "memory_events"
+    __table_args__ = (
+        Index("ix_memory_events_user_layer_created", "user_id", "layer", "created_at"),
+        Index("ix_memory_events_task_id", "task_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    task_id: Mapped[int | None] = mapped_column(ForeignKey("tasks.id"), nullable=True)
+    layer: Mapped[str] = mapped_column(String(8))  # L0 / L1 / L2（本期只写 L0）
+    stage: Mapped[str] = mapped_column(
+        String(32)
+    )  # extract / translate / ocr / understanding / ask / cite / edit …
+    actor: Mapped[str] = mapped_column(String(16))  # local / api / user
+    tool: Mapped[str | None] = mapped_column(String(64), nullable=True)  # 中性名
+    summary: Mapped[str] = mapped_column(String(500))  # 人话一句，直接上台账界面
+    payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
+class BlockEdit(Base):
+    """埋点 1（分子）：译文修改。**M5 的逐条 diff 依赖它**。
+
+    ⭐ 它是个人中心"哪些被人改过（可逐条看 diff）"的数据源——埋点先布、M5 才有数据；
+    数据就位前那一区显示"暂无人改记录"（沿用诚实机制，不硬编）。
+    ⭐ 附带收益：它是"**人改留痕**"的证据（哪些句是 AI 译的、哪些被学生改过），
+    同时喂合规与材料。
+    `text_hash` 存**原文哈希**而不是原文本身：省空间且够用。
+    """
+
+    __tablename__ = "block_edits"
+    __table_args__ = (
+        Index("ix_block_edits_task_id_block_id", "task_id", "block_id"),
+        Index("ix_block_edits_user_id_created_at", "user_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id"), index=True)
+    block_id: Mapped[str] = mapped_column(String(64))
+    text_hash: Mapped[str] = mapped_column(String(64))
+    before: Mapped[str] = mapped_column(Text)  # 模型译文
+    after: Mapped[str] = mapped_column(Text)  # 用户译文
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
+class BlockExposure(Base):
+    """埋点 1（分母）：块曝光。同一 session 同一块只记一次（唯一约束即幂等）。
+
+    ⚠️⚠️ 分期口径：**修改率 ＝ 被改块数 / 被曝光块数**，**不是 / 总块数**——
+    一篇 212 块的文献只精读 80 块时，用 212 会把真实的 18% 稀释成 7%，
+    直接改变"建 / 砍记忆"的结论。
+    ⚠️ 生效前提：**观测期 ≥14 天且曝光块数 ≥500** 才允许判"建 / 砍"。
+    ⚠️ 引用这个数字**必须带前提**："修改率是在提供了编辑入口的条件下测的"
+    （入口本身会抬高修改率，观察者效应）。
+    """
+
+    __tablename__ = "block_exposures"
+    __table_args__ = (
+        UniqueConstraint("user_id", "task_id", "block_id", "session_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id"), index=True)
+    block_id: Mapped[str] = mapped_column(String(64))
+    session_id: Mapped[str] = mapped_column(String(64))  # 前端一次打开阅读页一个
+    entered_at: Mapped[datetime] = mapped_column(DateTime)
+    left_at: Mapped[datetime] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)

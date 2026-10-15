@@ -9,6 +9,7 @@
 | `reset_password.py` | 忘记密码时由管理员重置某账号密码（本项目不做邮箱找回） | 已加（B 批） |
 | `cleanup_data.py` | 清理孤儿产物（`data/outputs/`、无人引用的 `data/uploads/`、陈旧引擎临时目录）；**默认干跑**，加 `--yes` 才真删 | 已加（E 批） |
 | `backup_db.py` | 数据库备份（SQLite `VACUUM INTO`，备份后自动校验并只留最近 N 份） | 已加（E 批） |
+| `migrate_v2_schema.py` | 形态 v2 数据层一次性迁移：建 11 张新表 + `tasks.reading_status` + 种三条内置智能集合；**默认只预览**，`--apply` 才写，`--restore` 能撤 | 已加（B1） |
 
 服务启动时也会自动回收「孤儿结果目录 + 陈旧引擎临时目录」，所以 `cleanup_data.py` 是"想立刻清一次"时用的手动工具。
 
