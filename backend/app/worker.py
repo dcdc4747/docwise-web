@@ -19,6 +19,7 @@ from .engine import (
     TranslationResult,
     get_engine,
 )
+from .ledger import record_event
 from .models import Task, TaskBlock, TaskHistory
 from .timeutil import utc_now
 
@@ -488,6 +489,99 @@ class TranslationWorker:
             _record_history(session, task_id, terminal, result.error)
             session.commit()
             session.refresh(task)
+            # 台账要用的值**先取好**（出了 with，task 就与会话脱钩了）
+            owner_id = task.user_id
+            blocks_total = len(result.blocks)
+            blocks_translated = sum(1 for block in result.blocks if block.translated)
+            pipeline_mode = result.mode
+
+        self._record_pipeline_events(
+            task_id=task_id,
+            owner_id=owner_id,
+            terminal=terminal,
+            mode=pipeline_mode,
+            blocks_total=blocks_total,
+            blocks_translated=blocks_translated,
+            error=result.error,
+        )
+
+    @staticmethod
+    def _record_pipeline_events(
+        *,
+        task_id: int,
+        owner_id: int | None,
+        terminal: str,
+        mode: str | None,
+        blocks_total: int,
+        blocks_translated: int,
+        error: str | None,
+    ) -> None:
+        """把「取字 / OCR / 翻译」这三件**真发生过**的事写进台账（M2 写 / M5 读）。
+
+        ⚠️ 只记真实发生的事：
+
+        - 没跑完（failed / cancelled）→ 写**未完成**，不写"翻译完成"；
+        - 扫描件那条路写 `ocr`，文字层写 `extract`（`mode` 由引擎给，
+          见 `TranslationResult`）；
+        - **块级译文为 0 时不许写"翻译完成"**（中文文献本来就不翻译，
+          只如实说这一篇没有块级译文）。
+        """
+        if not owner_id:
+            return
+        if terminal != TaskState.COMPLETED.value:
+            record_event(
+                user_id=owner_id,
+                task_id=task_id,
+                stage="translate",
+                actor="api",
+                tool="engine",
+                summary=f"引擎处理未完成（{terminal}）：{error or '未给出原因'}",
+                payload={"status": terminal, "mode": mode},
+            )
+            return
+
+        if mode == "ocr":
+            record_event(
+                user_id=owner_id,
+                task_id=task_id,
+                stage="ocr",
+                actor="local",
+                tool="local-ocr",
+                summary=f"OCR 识别：{blocks_total} 段（本地模型，离线）",
+                payload={"blocks": blocks_total},
+            )
+        else:
+            record_event(
+                user_id=owner_id,
+                task_id=task_id,
+                stage="extract",
+                actor="local",
+                tool="text-layer",
+                summary=f"抽取文字层：{blocks_total} 块",
+                payload={"blocks": blocks_total},
+            )
+
+        if blocks_translated:
+            record_event(
+                user_id=owner_id,
+                task_id=task_id,
+                stage="translate",
+                actor="api",
+                tool="engine",
+                summary=f"翻译完成：{blocks_translated}/{blocks_total} 块有译文",
+                payload={"blocks": blocks_total, "translated": blocks_translated},
+            )
+        elif blocks_total:
+            # ⚠️ 不写"翻译完成"、也不猜语言：只如实说这一篇没有块级译文
+            record_event(
+                user_id=owner_id,
+                task_id=task_id,
+                stage="extract",
+                actor="local",
+                tool="engine",
+                summary=f"该篇未产生块级译文：{blocks_total} 块按原文入库",
+                payload={"blocks": blocks_total, "translated": 0},
+            )
 
     def _persist_failure(self, task_id: int, error: str) -> None:
         with SessionLocal() as session:
@@ -502,6 +596,18 @@ class TranslationWorker:
             task.finished_at = utc_now()
             _record_history(session, task_id, TaskState.FAILED.value, error)
             session.commit()
+            owner_id = task.user_id
+
+        # 台账：失败也要如实记（否则台账上会"看起来一切正常"）
+        record_event(
+            user_id=owner_id,
+            task_id=task_id,
+            stage="translate",
+            actor="api",
+            tool="engine",
+            summary=f"处理失败：{error}",
+            payload={"status": TaskState.FAILED.value},
+        )
 
     def _persist_cancelled(self, task_id: int) -> None:
         """落库为"已取消"——取消不算失败，也不覆盖别的终态。"""

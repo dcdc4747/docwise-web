@@ -44,6 +44,7 @@ from ..deps import (
     load_owned_task,
 )
 from ..engine import TaskState, Tier, is_native_pair
+from ..ledger import record_event
 from ..llm import extract_understanding
 from ..models import (
     AuthTicket,
@@ -746,4 +747,31 @@ def compute_understanding(
         u.status = "failed"
         u.error = str(exc)
     db.commit()
+    # 台账（M2 写 / M5 读）：导读与术语是**发往云端模型 API** 的那条路 → `actor=api`。
+    # ⚠️ 这是"生成了一次"的事件：命中缓存（`status == ready` 的早退）不写，
+    # 所以重复点开术语页签不会把台账灌满重复事件。
+    if u.status == "ready":
+        try:
+            terms_count = len(json.loads(u.terms_json or "[]"))
+        except (TypeError, ValueError):
+            terms_count = 0
+        record_event(
+            user_id=user.id,
+            task_id=task_id,
+            stage="understanding",
+            actor="api",
+            tool="model-api",
+            summary=f"生成导读与术语表：5 个字段、{terms_count} 条术语",
+            payload={"terms": terms_count},
+        )
+    else:
+        record_event(
+            user_id=user.id,
+            task_id=task_id,
+            stage="understanding",
+            actor="api",
+            tool="model-api",
+            summary=f"理解层失败：{u.error or '未给出原因'}",
+            payload={"status": u.status},
+        )
     return _serialize_understanding(u)

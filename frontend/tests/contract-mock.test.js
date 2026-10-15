@@ -67,7 +67,15 @@ const anchorKeys = (manifest.anchors || []).map((item) => asKey(item.method, ite
  * 这里显式列出「**已实现但仍要 mock**」的资源前缀，对账时把这几组从 `anchors` 里补回来。
  * （新实现一组就加一个前缀；**基线端点绝不在列** —— 基线必须继续打真后端。）
  */
-const IMPLEMENTED_BUT_MOCKED = ['/api/drafts', '/api/check', '/api/materials', '/api/me']
+const IMPLEMENTED_BUT_MOCKED = [
+  '/api/drafts',
+  '/api/check',
+  '/api/materials',
+  '/api/me',
+  // 台账那一组（N15–N17，2026-10-16 加的前缀）：已实现但仍要 mock
+  '/api/ask-logs',
+  '/api/memory-events',
+]
 const reconcileKeys = [
   ...expectedNewKeys,
   ...anchorKeys.filter((key) => IMPLEMENTED_BUT_MOCKED.some((prefix) => key.includes(prefix))),

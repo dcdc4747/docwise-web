@@ -16,6 +16,7 @@ from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from ..deps import get_current_user, get_db, load_owned_task, settings
+from ..ledger import record_ask
 from ..llm import answer_question
 from ..models import TaskBlock, User
 
@@ -132,6 +133,32 @@ def _keep_known_sources(ids: list[str], known: set[str]) -> list[str]:
     return kept
 
 
+def _finish_ask(
+    *,
+    user: User,
+    task_id: int,
+    question: str,
+    answer: str,
+    source_ids: list[str],
+    mode: str,
+    called_model: bool = True,
+) -> dict:
+    """问答收尾：**落一条台账**（N15 的服务端写入路径），再按契约形状返回。
+
+    ⚠️ 台账写失败**不影响回答**：`record_ask` 自己容错（内部单开会话、异常只记日志），
+    所以这里连返回值都不用判——用户照样拿到答案。
+    """
+    record_ask(
+        user_id=user.id,
+        task_id=task_id,
+        question=question,
+        answer=answer,
+        source_block_ids=source_ids,
+        called_model=called_model,
+    )
+    return {"answer": answer, "source_block_ids": source_ids, "mode": mode}
+
+
 @router.post("/{task_id}/ask")
 def ask_paper(
     task_id: int,
@@ -167,21 +194,27 @@ def ask_paper(
     total_chars = sum(len(text) for _, text in items)
     if total_chars <= settings.docwise_ask_full_context_max_chars:
         result = answer_question(items, question, **focus_kwargs)
-        return {
-            "answer": result["answer"],
-            "source_block_ids": _keep_known_sources(
-                result["source_block_ids"], known_ids
-            ),
-            "mode": "full_context",
-        }
+        return _finish_ask(
+            user=user,
+            task_id=task_id,
+            question=question,
+            answer=result["answer"],
+            source_ids=_keep_known_sources(result["source_block_ids"], known_ids),
+            mode="full_context",
+        )
 
     hits = _fts_search(db, task_id, question)
     if not hits:
-        return {
-            "answer": _HONEST_NO_HIT,
-            "source_block_ids": [],
-            "mode": "fts",
-        }
+        # 检索没召回 → **一次模型都没调**，如实兜底（台账也照这个事实记）
+        return _finish_ask(
+            user=user,
+            task_id=task_id,
+            question=question,
+            answer=_HONEST_NO_HIT,
+            source_ids=[],
+            mode="fts",
+            called_model=False,
+        )
     # 锚点必须真的进上下文：用户明确指着这一段问，检索没召回就补进来
     # （否则"锚点"只是一句空话）
     hit_ids = {block_id for block_id, _ in hits}
@@ -190,10 +223,13 @@ def ask_paper(
     ]
     hits = anchor_rows + hits
     result = answer_question(hits, question, **focus_kwargs)
-    return {
-        "answer": result["answer"],
-        "source_block_ids": _keep_known_sources(
+    return _finish_ask(
+        user=user,
+        task_id=task_id,
+        question=question,
+        answer=result["answer"],
+        source_ids=_keep_known_sources(
             result["source_block_ids"], {block_id for block_id, _ in hits}
         ),
-        "mode": "fts",
-    }
+        mode="fts",
+    )
