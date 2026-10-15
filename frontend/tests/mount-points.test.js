@@ -167,8 +167,13 @@ describe('挂载点真的钉在外壳里（第 7 步的全部价值）', () => {
     expect(app).toMatch(/<AppTabbar[^>]*\s:tabs=/)
   })
 
-  it('账号区插槽仍是空的（R7 的座位，空插槽才不多出一个空的按钮）', () => {
-    expect(app).toMatch(/<template #account\s*\/>/)
+  it('⭐ 账号区插槽**已被 R7 填上**（座位期那条"保持空插槽"的口径到此结束）', () => {
+    // 座位期（第 6/7 步）要求这里是**空插槽**，理由是"空插槽才不多出一个空的按钮"。
+    // ⚠️ R7 落地后这条**有意作废**：账号区就是要那个按钮（形态 v2 §1.2 第 60 行：
+    //    「账号区（点进个人中心，进入后高亮）」；M0 判据同款）。
+    // **不会多出空的 Tab 停靠点**：整个外壳只在已登录时渲染（`!authUser` 走 `LoginView`，压根没有左栏）。
+    expect(app).toMatch(/<template #account>[\s\S]{0,160}<RailAccount/)
+    expect(app).toContain("import RailAccount from './components/RailAccount.vue'")
   })
 
   it('三个挂载点在结构上的位置写对了：状态条在内容列内、标签栏在布局之外', () => {

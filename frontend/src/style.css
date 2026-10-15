@@ -2242,6 +2242,61 @@ svg.ic-inl {
 @media (max-width: 1023px) {
   .dw .sheet { padding-bottom: env(safe-area-inset-bottom, 0px); }
 }
+/* ============================================================
+   [R7] 左栏账号区 —— `components/RailAccount.vue`
+   （形态 v2 §1.2 布局图第 60 行：`│ 小研 › │ ← 账号区（点进个人中心，进入后高亮）`；
+     M0 判据：**账号区点进个人中心且进入后高亮**）
+
+   ⚠️ **类名不叫 `.rail-item`**：`app.smoke.test.js` 有一条用例断言 `button.rail-item`
+   **恰好 12 个**（左栏 12 项）——账号区借用那个类名会把它数成 13。
+   所以下面的形状与交互**照 `.rail-item` 逐条对齐**（同一套 hover / 选中态 / 焦点环），
+   只多两样它没有的：**首字头像**与右侧那个 `›`。
+   ============================================================ */
+.dw .rail-account {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  margin-top: var(--sp-1);
+  padding: var(--sp-2) var(--sp-2);
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: #c3cbdb;
+  font: inherit;
+  font-size: var(--fs-ui);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+}
+.dw .rail-account:hover { background: #1b2740; color: #fff; }
+.dw .rail-account.on { background: var(--accent); color: #fff; }
+/* §7.6 第 1 条：鼠标点击不加焦点环，只在键盘导航时显示（与 `.rail-item` 同款） */
+.dw .rail-account:focus { outline: none; }
+.dw .rail-account:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--rail), 0 0 0 4px var(--accent);
+}
+/* 首字头像：收起态**只剩它**，所以它不许跟着 `.rail-lbl` 一起被藏 */
+.dw .rail-av {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #1b2740;
+  color: #fff;
+  font-size: 12px;
+  line-height: 1;
+  text-transform: uppercase;
+}
+.dw .rail-account.on .rail-av { background: rgba(255, 255, 255, 0.22); }
+/* `›` 推到最右（形态图里就是「小研 ›」）；收起态不显示它 */
+.dw .rail-account .rail-arrow { margin-left: auto; opacity: 0.65; }
+.dw .rail-min .rail-account { justify-content: center; padding: var(--sp-2) 0; }
+.dw .rail-min .rail-account .rail-arrow { display: none; }
 
 
 
