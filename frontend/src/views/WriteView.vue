@@ -47,6 +47,7 @@
       >
         保存
       </button>
+      <button class="btn ghost sm wr-check-toggle" @click="toggleCheck">收口检查</button>
       <button class="btn ghost sm wr-helper-toggle" @click="helperOpen = !helperOpen">助手</button>
     </div>
 
@@ -309,6 +310,84 @@
       </aside>
     </div>
 
+    <!-- ==================== 收口检查抽屉（形态 §3.3） ====================
+         ⭐ 收口**是起草页里的抽屉，不是独立页面**：检查时要一边看着自己的稿子
+         （"这句该引没引"得对着上下文看）。`Esc` 可关、点遮罩可关。
+         ⚠️ 抽屉**只出报告**：没有"一键修好/自动改写"（形态 §3.3 ②：并列摆出两处，不自动改）。 -->
+    <div v-if="checkOpen" class="wr-checkmask" @click="closeCheck" />
+    <aside v-if="checkOpen" class="wr-check" role="dialog" aria-label="收口检查">
+      <div class="wr-checkhead">
+        <span>收口检查</span>
+        <span class="spacer" />
+        <button class="btn ghost sm" @click="closeCheck">关闭</button>
+      </div>
+
+      <div class="wr-checkbody">
+        <p class="wr-muted">
+          检查只看不改：每一条都指得出出处，改不改由你定。
+        </p>
+
+        <div class="wr-checkrun">
+          <button
+            class="btn primary sm"
+            :disabled="checkRunning || !currentDraft"
+            @click="runCheck"
+          >
+            {{ checkRunning ? '正在检查…' : checkReport ? '重新检查' : '跑一次检查' }}
+          </button>
+          <span v-if="!currentDraft" class="wr-muted">先建一份草稿</span>
+        </div>
+
+        <HonestNote v-if="checkError" :text="`检查没跑成：${checkError}`" />
+
+        <div v-if="checkStep" class="wr-checkstep">
+          <span>语言：{{ checkStep.lang }}</span>
+          <span>引用制式：{{ checkStep.style }}</span>
+        </div>
+        <HonestNote
+          v-if="checkStep && (checkStep.unknownLang || checkStep.unknownStyle)"
+          text="判不出语言或引用制式时，「该引未引」整族不判——引擎不硬猜（判错比不判更糟）。"
+        />
+
+        <template v-if="checkReport">
+          <p class="wr-checksum">
+            报出 {{ checkSummary.reported }} 处<template v-if="checkSummary.unknown">，另有
+              {{ checkSummary.unknown }} 处判不出</template>
+          </p>
+
+          <p v-if="!checkGroups.length" class="wr-muted">这份稿子没查出问题。</p>
+
+          <section v-for="group in checkGroups" :key="group.kind" class="wr-checkgroup">
+            <div class="wr-checkgrouphead">
+              <span class="wr-checkkind">{{ group.label }}</span>
+              <span class="spacer" />
+              <span class="wr-muted">
+                {{ group.reported }} 处待处理<template v-if="group.unknown">，{{ group.unknown }} 处判不出</template>
+              </span>
+            </div>
+
+            <article v-for="item in group.items" :key="item.id" class="wr-checkitem">
+              <p class="wr-checkquote">{{ item.sentence }}</p>
+              <p class="wr-checkreason">{{ item.reason }}</p>
+              <p class="wr-checkrule">判据：{{ item.rule_ref }}</p>
+
+              <div v-if="item.suggest" class="wr-checksuggest">
+                <span class="wr-checksuggest-t">建议引这一条：</span>
+                <CiteChip
+                  :cites="{
+                    source_name: suggestedSource(item),
+                    page: item.suggest.page,
+                    quote: item.suggest.quote,
+                  }"
+                  @locate="jumpToSuggested(item)"
+                />
+              </div>
+            </article>
+          </section>
+        </template>
+      </div>
+    </aside>
+
     <!-- 隐藏的模板文件选择器（「上传自己的模板」用它） -->
     <input
       ref="fileEl"
@@ -352,6 +431,14 @@ import {
   citationStateOf,
   citations,
   clearCitations,
+  checkError,
+  checkGroups,
+  checkOpen,
+  checkReport,
+  checkRunning,
+  checkStep,
+  checkSummary,
+  closeCheck,
   currentDraft,
   disposeWrite,
   drafts,
@@ -359,6 +446,7 @@ import {
   insertCitation,
   jumpByOrder,
   jumpToMaterial,
+  jumpToSuggested,
   jumpToSource,
   loadDrafts,
   loadMaterials,
@@ -372,8 +460,10 @@ import {
   saveWithFeedback,
   savedAt,
   selectDraft,
+  runCheck,
   sessionLog,
   title,
+  toggleCheck,
 } from '../stores/useWrite'
 import { closeMenus, openMenu, showToast, toggleMenu } from '../stores/useUi'
 import MaterialCard from '../components/MaterialCard.vue'
@@ -434,16 +524,31 @@ const saveText = computed(() => {
 // ============================================================ 取数
 
 onMounted(async () => {
+  window.addEventListener('keydown', onWriteKeydown)
   await Promise.all([loadDrafts(), loadMaterials()])
   // 进来时没选草稿：打开最近更新的一篇（列表已按 updated_at 倒序），没有就停在"起稿四入口"
   if (!currentDraft.value && drafts.value.length) selectDraft(drafts.value[0].id)
 })
 
 onUnmounted(() => {
+  window.removeEventListener('keydown', onWriteKeydown)
   // 离开起草页（含点 [1] 跳去阅读区）前，把没存上的字送出去
   void saveNow().catch(() => {})
   disposeWrite()
 })
+
+// ============================================================ 收口检查（M4）
+
+/** `Esc` 关抽屉（形态 §3.3：`Esc` 可关、点遮罩可关）。 */
+function onWriteKeydown(event) {
+  if (event.key === 'Escape' && checkOpen.value) closeCheck()
+}
+
+/** 候选素材的文献名：素材在列表里就用它的快照，**不在就如实说**（不编一个来源）。 */
+function suggestedSource(item) {
+  const material = materials.value.find((one) => one.id === item?.suggest?.material_id)
+  return material ? material.source_name : '素材已不在列表里'
+}
 
 // ============================================================ 起稿四入口
 
