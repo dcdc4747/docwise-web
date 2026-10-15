@@ -1366,6 +1366,258 @@ svg.ic-inl {
   pointer-events: none;
 }
 
+/* ============================================================================
+   [M5] 个人中心 —— `views/MeView.vue`（issue #112 / 任务卡：卡④）
+   ============================================================================
+   自己的那一段：只加 `.me-` 前缀的规则，不动上面任何人的段。
+   颜色 / 字号 / 间距一律 token 名；语义色的**文字**走 `-ink` 版（原色只做边、底、图标）。
+   ⚠️ 本段**插在末尾「布局」之前**而不是文件末尾：同时在开的 #117 也在末尾追加，
+   两段都落 EOF 会白造一次冲突。
+   ============================================================================ */
+
+.dw .me-view {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  max-width: var(--measure);
+  padding: var(--sp-4);
+}
+
+.dw .me-top {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+/* 头像：`--accent` 底 + 白字首字母（照 R7 卡的口径）。白字这一处没有对应 token，
+   与 `.rail-min` 的 tooltip 同款写法（`color: #fff`）。 */
+.dw .me-avatar {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--r-sm);
+  background: var(--accent);
+  color: #fff;
+  font-size: var(--fs-h3);
+  font-weight: 600;
+}
+.dw .me-top-name {
+  color: var(--ink);
+  font-size: var(--fs-h3);
+  font-weight: 600;
+}
+.dw .me-top-sub {
+  color: var(--muted);
+  font-size: var(--fs-meta);
+}
+
+/* 六个区块：一块一张卡 */
+.dw .me-sec {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+.dw .me-sec-t {
+  margin: 0;
+  color: var(--ink);
+  font-size: var(--fs-h3);
+  font-weight: 600;
+}
+.dw .me-sub-t {
+  margin: var(--sp-2) 0 0;
+  color: var(--ink);
+  font-size: var(--fs-ui);
+  font-weight: 600;
+}
+
+.dw .me-field {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+.dw .me-fieldset {
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-sm);
+}
+.dw .me-label {
+  flex: none;
+  min-width: 6em;
+  color: var(--muted);
+  font-size: var(--fs-meta);
+}
+.dw .me-input {
+  min-width: 220px;
+  padding: var(--sp-1) var(--sp-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--fs-ui);
+}
+.dw .me-input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.dw .me-hint {
+  color: var(--muted);
+  font-size: var(--fs-meta);
+}
+.dw .me-line {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--fs-meta);
+}
+
+.dw .me-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2) var(--sp-5);
+  margin: 0;
+}
+.dw .me-fact {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+}
+.dw .me-fact dt {
+  color: var(--muted);
+  font-size: var(--fs-meta);
+}
+.dw .me-fact dd {
+  margin: 0;
+  color: var(--ink);
+  font-size: var(--fs-ui);
+}
+
+.dw .me-check,
+.dw .me-radio {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  color: var(--ink);
+  font-size: var(--fs-ui);
+}
+
+/* 表：会话列表与台账共用 */
+.dw .me-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-meta);
+}
+.dw .me-table th {
+  padding: var(--sp-1) var(--sp-2);
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-weight: 600;
+  text-align: left;
+}
+.dw .me-table td {
+  padding: var(--sp-1) var(--sp-2);
+  border-bottom: 1px solid var(--line-soft);
+  color: var(--ink);
+}
+/* 时间与数字列对齐（"数字列 tabular-nums"是设计规范里点过名的一条） */
+.dw .me-table td:nth-child(2),
+.dw .me-table td:nth-child(3),
+.dw .me-table td:nth-child(4),
+.dw .me-table td:last-child {
+  font-variant-numeric: tabular-nums;
+}
+/* 行内动作按钮不许折成两行（"吊 / 销"这种断字很难看） */
+.dw .me-kill { white-space: nowrap; }
+
+/* 数据流向芯片：本地 / 发往模型 API —— **形状与文字都要分得开**（色盲安全） */
+.dw .me-flow {
+  display: inline-flex;
+  padding: 1px var(--sp-2);
+  border-radius: var(--r-sm);
+  font-size: var(--fs-micro);
+}
+.dw .me-flow.is-local {
+  background: var(--surface-3);
+  color: var(--ink);
+}
+.dw .me-flow.is-api {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+/* 磁盘占用：条形 + **文字明细**（明细才是信息本体，条形只是顺带看一眼） */
+.dw .me-kinds {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.dw .me-kind {
+  display: grid;
+  grid-template-columns: 150px 1fr 96px;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.dw .me-kind-name {
+  color: var(--muted);
+  font-size: var(--fs-meta);
+}
+.dw .me-kind-bar {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+.dw .me-kind-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+.dw .me-kind-num {
+  color: var(--ink);
+  font-size: var(--fs-meta);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.dw .me-ops {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+/* 危险区：边用原色、字用 -ink（语义色的规矩） */
+.dw .me-danger {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  border: 1px solid var(--danger);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+}
+.dw .me-danger-text {
+  margin: 0;
+  color: var(--ink);
+  font-size: var(--fs-ui);
+}
+.dw .me-danger-text strong {
+  color: var(--danger-ink);
+}
+.dw .me-delete:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* ============================================================
    布局：左栏（常驻）+ 右侧内容列
    ⚠️ `.dw` 由"整页块"变成"左栏 + 内容列的 flex 行"，所以这里给布局三条。
