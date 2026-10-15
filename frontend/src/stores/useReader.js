@@ -27,6 +27,7 @@ import {
   sourceLabel,
 } from '../blockLabel'
 import { enginePageText, queueText, relativeTime, runningLine, stageTextFor } from '../progressText'
+import { buildTocTree } from '../tocTree'
 import { askAnchor, askQuestion, resetAsk, submitAsk } from './useAsk'
 import { ACTIVE_STATES, TERMINAL_STATES, tierTextMap } from './useTasks'
 import {
@@ -265,8 +266,53 @@ export const outlineItems = computed(() =>
     }))
     .filter((item) => item.text),
 )
-export const showOutline = computed(() => outlineItems.value.length >= 3)
+export const showOutline = computed(() => tocItems.value.length >= 3)
 export const outlineOpen = ref(false)
+
+/**
+ * ⭐ C3：**结构那条路**（引擎侧 PDF 书签 → 真层级）。
+ *
+ * 引擎给出 `tasks.structure.headings`（`{block_id, level, text}`）；后端**原样透传、不重算**。
+ * 老任务 / 扫描件 / 没跑过结构脚本的一律是 `null` → **退回上面那条平铺目录**（一屏都不许空）。
+ */
+export const structureHeadings = computed(() => {
+  const raw = currentTask.value?.structure
+  const headings = raw && typeof raw === 'object' ? raw.headings : null
+  return Array.isArray(headings) ? headings : null
+})
+
+/** 结构 → 扁平带深度（纯函数在 `src/tocTree.js`，那边单测）。产不出东西就 `null`。 */
+export const tocTree = computed(() => {
+  const headings = structureHeadings.value
+  if (!headings) return null
+  const tree = buildTocTree(headings)
+  return tree.length ? tree : null
+})
+
+/**
+ * 目录最终用哪一份（**两条路都存在时以结构那条为准**）：
+ *
+ * - **有结构**：层级来自引擎；**显示文字与页码仍取自块**（`main` 是中文译文，目录是给读中文的人看的），
+ *   块对不上就退回结构自己那份文字、页码留空（不编页码）；
+ * - **没结构**：退回按块类型判出来的平铺目录（`outlineItems`），`depth` 一律 0。
+ */
+export const tocItems = computed(() => {
+  const tree = tocTree.value
+  if (!tree) return outlineItems.value.map((item) => ({ ...item, depth: 0 }))
+  const byId = new Map()
+  for (const row of paragraphRows.value) {
+    if (row.kind === 'block' && row.block?.block_id) byId.set(row.block.block_id, row)
+  }
+  return tree.map((item) => {
+    const row = item.blockId ? byId.get(item.blockId) : null
+    return {
+      ...item,
+      type: row?.block?.type || 'heading',
+      page: typeof row?.page === 'number' ? row.page : null,
+      text: (row?.main || row?.block?.text || item.text).replace(/\s+/g, ' ').trim().slice(0, 90),
+    }
+  })
+})
 
 /** 点目录里的一条：收起目录 → 滚到那一段并高亮（复用出处那套 traceTo，口径只有一处）。 */
 export async function goOutline(item) {
