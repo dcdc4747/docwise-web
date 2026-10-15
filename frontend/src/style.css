@@ -1385,6 +1385,186 @@ svg.ic-inl {
   overflow-y: auto;
 }
 
+/* ============================================================
+   [M3] 起草页 —— `#/write` 三栏（素材 ｜ 写作 ｜ 助手）
+   形态 v2 §3.2 / 契约 §3.1（`.wr-` 前缀）。
+   ⚠️ **只加自己的段**：上面任何一条已有选择器都不动、不重排（契约 §3.3 的排队规矩）。
+   断点（形态 §2.4）：≥1100px 三栏全展开；1024–1100px 助手改抽屉；
+   <1024px 单栏三档切换（素材 / 写作 / 助手）。
+   ============================================================ */
+.dw .screen-write { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.dw .wr { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+
+/* ---------- 顶栏：选草稿 / 起稿四入口 / 保存状态 ---------- */
+.dw .wr-top {
+  display: flex; align-items: center; gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--surface); border-bottom: 1px solid var(--line);
+}
+.dw .wr-save { font-size: var(--fs-meta); color: var(--muted); }
+.dw .wr-save.st-dirty { color: var(--warn-ink); }
+.dw .wr-save.st-error { color: var(--danger-ink); }
+.dw .wr-menu-meta { color: var(--muted); font-size: var(--fs-micro); margin-left: var(--sp-1); }
+/* 手机上才出现（断点②里打开） */
+.dw .wr-switch { display: none; }
+.dw .wr-helper-toggle { display: none; }
+
+/* ---------- 三栏骨架 ---------- */
+.dw .wr-body {
+  flex: 1; min-height: 0;
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr) 340px;
+}
+.dw .wr-materials,
+.dw .wr-helper { display: flex; flex-direction: column; min-height: 0; background: var(--surface-2); }
+.dw .wr-materials { border-right: 1px solid var(--line); }
+.dw .wr-helper { border-left: 1px solid var(--line); }
+.dw .wr-colhead {
+  display: flex; align-items: center; gap: var(--sp-2);
+  padding: var(--sp-3); font-size: var(--fs-ui); font-weight: 600;
+  border-bottom: 1px solid var(--line-soft);
+}
+.dw .wr-colbody,
+.dw .wr-helper-body { flex: 1; min-height: 0; overflow: auto; padding: var(--sp-3); }
+.dw .wr-muted { margin: var(--sp-2) 0; font-size: var(--fs-meta); color: var(--muted); line-height: 1.7; }
+.dw .wr-select {
+  font: inherit; font-size: var(--fs-meta); max-width: 160px;
+  padding: 2px var(--sp-1); color: var(--ink);
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-sm);
+}
+
+/* ---------- 素材卡 ---------- */
+.dw .wr-mat {
+  padding: var(--sp-3); margin-bottom: var(--sp-3);
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md);
+}
+.dw .wr-mat-quote { margin: 0; font-size: var(--fs-ui); line-height: 1.7; }
+.dw .wr-mat-tr { margin: var(--sp-1) 0 0; font-size: var(--fs-meta); color: var(--muted); line-height: 1.7; }
+.dw .wr-mat-note { margin: var(--sp-2) 0 0; font-size: var(--fs-meta); color: var(--accent); }
+.dw .wr-mat-foot { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-2); margin-top: var(--sp-3); }
+/* 死链（源文献已删 / 素材卡没了）：**中性灰、不是按钮**——见形态硬约束② */
+.dw .wr-dead { font-size: var(--fs-meta); color: var(--unknown); line-height: 1.6; }
+/* ⚠️ 出处芯片是**复用**已有 `.cite-chip`（全站唯一形态），但它在阅读区是挂在 340–400px 宽的
+   助手栏里；起草页的素材栏窄到 240px 时，长文献名（没有空格的 `math_arXiv_…pdf`）撑不住、
+   会把卡片顶出去（浏览器实测：卡片 214px、芯片 224px）。所以这里**只在自己的容器下**加两条
+   覆盖（契约 §3.2：改样式用更具体的选择器，不动它本身的类名）。 */
+.dw .wr-materials .cite-chip,
+.dw .wr-cite-body .cite-chip { max-width: 100%; min-width: 0; }
+.dw .wr-materials .cite-chip .cite-src,
+.dw .wr-cite-body .cite-chip .cite-src { min-width: 0; overflow-wrap: anywhere; }
+
+/* ---------- 写作区 ---------- */
+.dw .wr-doc { display: flex; flex-direction: column; min-height: 0; background: var(--surface); }
+.dw .wr-start { padding: var(--sp-6); overflow: auto; }
+.dw .wr-start-grid { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-top: var(--sp-3); }
+.dw .wr-tpl {
+  margin-top: var(--sp-5); padding: var(--sp-3);
+  border: 1px solid var(--line); border-radius: var(--r-md);
+}
+.dw .wr-tpl-head { display: flex; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-2); }
+.dw .wr-tpl-item {
+  display: flex; flex-direction: column; gap: 2px; width: 100%; text-align: left;
+  font: inherit; padding: var(--sp-3); margin-bottom: var(--sp-2); cursor: pointer;
+  background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-sm);
+}
+.dw .wr-tpl-item:hover { border-color: var(--accent); }
+.dw .wr-tpl-item .wr-muted { margin: 0; }
+.dw .wr-doc-head {
+  display: flex; align-items: center; gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-5); border-bottom: 1px solid var(--line-soft);
+}
+.dw .wr-title {
+  flex: 1; min-width: 0; font: inherit; font-size: var(--fs-h3); font-weight: 600;
+  padding: var(--sp-1) 0; color: var(--ink); background: transparent;
+  border: 0; border-bottom: 1px dashed transparent;
+}
+.dw .wr-title:focus { outline: none; border-bottom-color: var(--accent-line); }
+.dw .wr-mode { flex: 0 0 auto; }
+.dw .wr-editor {
+  flex: 1; min-height: 0; width: 100%; resize: none;
+  font: inherit; font-size: var(--fs-body); line-height: var(--lh-body);
+  padding: var(--sp-5); color: var(--ink); background: var(--surface); border: 0;
+}
+.dw .wr-editor:focus { outline: none; }
+.dw .wr-preview { flex: 1; min-height: 0; overflow: auto; padding: var(--sp-5); }
+.dw .wr-pv-h { margin: var(--sp-4) 0 var(--sp-2); font-size: var(--fs-h3); }
+.dw .wr-pv-p { margin: 0 0 var(--sp-3); font-size: var(--fs-body); line-height: var(--lh-body); white-space: pre-wrap; }
+/* 预览里的 [n]：**能点**——这就是"点 [1] 回原文"那个动作（textarea 里点不了，所以有预览态） */
+.dw .wr-cite-inline {
+  font: inherit; font-size: var(--fs-meta); vertical-align: baseline; cursor: pointer;
+  padding: 0 3px; color: var(--cite-fg); background: var(--cite-bg);
+  border: 1px solid var(--cite-line); border-radius: var(--r-sm);
+}
+.dw .wr-cite-inline:hover { border-color: var(--cite-fg); }
+.dw .wr-doc-foot {
+  display: flex; align-items: center; gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-5); border-top: 1px solid var(--line-soft);
+  font-size: var(--fs-meta); color: var(--muted);
+}
+.dw .wr-doc-foot .wr-muted { margin: 0; }
+
+/* ---------- 助手：提纲 / 引用 / 过程 ---------- */
+.dw .wr-outline { list-style: none; margin: 0; padding: 0; }
+.dw .wr-outline li { margin-bottom: 2px; }
+.dw .wr-outline button {
+  width: 100%; text-align: left; font: inherit; font-size: var(--fs-ui); cursor: pointer;
+  padding: var(--sp-1) var(--sp-2); color: var(--ink);
+  background: transparent; border: 0; border-radius: var(--r-sm);
+}
+.dw .wr-outline button:hover { background: var(--hover); }
+.dw .wr-lv-2 { padding-left: var(--sp-3); }
+.dw .wr-lv-3 { padding-left: var(--sp-6); }
+.dw .wr-cite { display: flex; gap: var(--sp-2); padding: var(--sp-2) 0; border-bottom: 1px solid var(--line-soft); }
+.dw .wr-cite-no {
+  flex: 0 0 auto; height: fit-content; font: inherit; font-size: var(--fs-meta); cursor: pointer;
+  padding: 1px var(--sp-1); color: var(--cite-fg); background: var(--cite-bg);
+  border: 1px solid var(--cite-line); border-radius: var(--r-sm);
+}
+.dw .wr-cite-no:hover { border-color: var(--cite-fg); }
+/* 回不了原文的引文编号：灰的、不可点（死链不许做成活链样式） */
+.dw .wr-cite-no.dead { color: var(--unknown); background: transparent; border-color: var(--line); cursor: default; }
+.dw .wr-cite-body { flex: 1; min-width: 0; }
+.dw .wr-confirm {
+  margin: var(--sp-2) 0; padding: var(--sp-3); font-size: var(--fs-meta);
+  background: #fdf6f6; border: 1px solid var(--danger); border-radius: var(--r-md);
+}
+.dw .wr-confirm p { margin: 0 0 var(--sp-2); }
+.dw .wr-log { list-style: none; margin: 0; padding: 0; font-size: var(--fs-meta); }
+.dw .wr-log li { padding: var(--sp-1) 0; border-bottom: 1px solid var(--line-soft); line-height: 1.6; }
+.dw .wr-log-at { margin-right: var(--sp-2); color: var(--muted); }
+
+/* ---------- 断点①：1024–1100px —— 助手改抽屉（形态 §2.4） ---------- */
+@media (min-width: 1024px) and (max-width: 1099px) {
+  .dw .wr-body { grid-template-columns: 300px minmax(0, 1fr); }
+  .dw .wr-helper-toggle { display: inline-flex; }
+  .dw .wr-helper {
+    position: fixed; top: 0; right: 0; bottom: 0; z-index: 60; width: 340px;
+    border-left: 1px solid var(--line); box-shadow: -8px 0 24px rgba(0, 0, 0, 0.12);
+    transform: translateX(100%); transition: transform var(--dur-base) var(--ease);
+  }
+  .dw .wr-helper-open .wr-helper { transform: none; }
+}
+
+/* ---------- 断点②：<1024px —— 单栏 + 三档切换 ---------- */
+@media (max-width: 1023px) {
+  .dw .wr-switch { display: flex; gap: 2px; }
+  .dw .wr-switch button {
+    font: inherit; font-size: var(--fs-meta); padding: 3px var(--sp-2); cursor: pointer;
+    background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-sm);
+  }
+  .dw .wr-switch button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .dw .wr-body { display: flex; flex-direction: column; }
+  .dw .wr-materials,
+  .dw .wr-doc,
+  .dw .wr-helper { display: none; flex: 1; min-height: 0; border: 0; }
+  .dw .wr-pane-materials .wr-materials,
+  .dw .wr-pane-doc .wr-doc,
+  .dw .wr-pane-helper .wr-helper { display: flex; }
+  .dw .wr-top { flex-wrap: wrap; padding: var(--sp-2) var(--sp-3); }
+  .dw .wr-doc-head,
+  .dw .wr-doc-foot,
+  .dw .wr-editor,
+  .dw .wr-preview { padding-left: var(--sp-3); padding-right: var(--sp-3); }
 /* ============================================================================
    [M2] 素材卡 —— `MaterialCard.vue`（issue #110 / 任务卡：卡②）
    ============================================================================

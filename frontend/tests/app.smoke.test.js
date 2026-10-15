@@ -1547,10 +1547,10 @@ describe('App.vue 页面渲染', () => {
     expect(readItem().classes()).toContain('on')
   })
 
-  it('左栏：点还没做的页（起草）如实说一句、把地址回库页，不假装打开了', async () => {
+  it('左栏：点「起草」进起草页（M3 已接上），地址落到 #/write 且「起草」高亮', async () => {
     const { task, detail } = completedFixture()
     globalThis.fetch = stubFetch({ tasks: [task], detail })
-    // 从 `#/read/:id` 出发，才看得出"地址真的被挪回去了"（本来就在 `#/` 的话不写也是对的）
+    // 从 `#/read/:id` 出发，才看得出"地址真的被挪过去了"（本来就在 `#/` 的话不写也是对的）
     window.history.replaceState(null, '', `#/read/${task.id}`)
     wrapper = mountApp()
     await flushPromises()
@@ -1559,9 +1559,26 @@ describe('App.vue 页面渲染', () => {
     await wrapper.findAll('button.rail-item').find((b) => b.text() === '起草').trigger('click')
     await flushPromises()
 
+    expect(window.location.hash).toBe('#/write')
+    expect(wrapper.find('.wr-body').exists()).toBe(true)
+    expect(wrapper.find('.screen-reader').exists()).toBe(false)
+    const writeItem = () => wrapper.findAll('button.rail-item').find((b) => b.text() === '起草')
+    expect(writeItem().classes()).toContain('on')
+  })
+
+  it('左栏：点还没做的页（记忆）如实说一句、把地址回库页，不假装打开了', async () => {
+    const { task, detail } = completedFixture()
+    globalThis.fetch = stubFetch({ tasks: [task], detail })
+    window.history.replaceState(null, '', `#/read/${task.id}`)
+    wrapper = mountApp()
+    await flushPromises()
+
+    await wrapper.findAll('button.rail-item').find((b) => b.text() === '记忆').trigger('click')
+    await flushPromises()
+
     expect(window.location.hash).toBe('#/')
     expect(wrapper.find('.lib-wrap').exists()).toBe(true)
-    expect(wrapper.find('.toast.show').text()).toContain('起草')
+    expect(wrapper.find('.toast.show').text()).toContain('记忆')
   })
 
   it('左栏：每一项都点得动（R4 判据①），且不许把地址写到不知道的地方去', async () => {
