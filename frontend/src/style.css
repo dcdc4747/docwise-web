@@ -2298,6 +2298,116 @@ svg.ic-inl {
 .dw .rail-min .rail-account { justify-content: center; padding: var(--sp-2) 0; }
 .dw .rail-min .rail-account .rail-arrow { display: none; }
 
+/* ============================================================
+   [E15] 处理过程一屏 —— `views/ProcessView.vue`（`#/process`）
+   —— 把环节台账（`memory_events` / 契约 N17）摆成"新的在前"的列表。
+
+   ⚠️ 只追加，不动上面任何一段。窄档（<720 手机 / <860 收栏）都要**不溢出**：
+   全部用 `flex-wrap` + `min-width: 0`，**不写 `100vw`、不写固定宽度**；
+   手机档底部要给 R6 的标签栏让位（`--tabbar-h` + 安全区）。
+   流向芯片沿用 `.me-flow` 那套形状（本地 = 灰底、发往 API = 强调色底），
+   **同一件事在两页必须是同一个观感**。
+   ============================================================ */
+.dw .proc { max-width: 1080px; padding: var(--sp-5) var(--sp-5) var(--sp-8); }
+.dw .proc-top {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+  align-items: flex-start;
+  justify-content: space-between;
+}
+.dw .proc-t { margin: 0; font-size: 20px; font-weight: 700; }
+.dw .proc-sub { margin: var(--sp-1) 0 0; font-size: var(--fs-meta); color: var(--muted); line-height: 1.7; }
+.dw .proc-ops { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+.dw .proc-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-3);
+  margin: var(--sp-4) 0;
+}
+.dw .proc-field { display: inline-flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-meta); color: var(--muted); }
+.dw .proc-select { max-width: 220px; }
+.dw .proc-muted { color: var(--muted); font-size: var(--fs-meta); }
+.dw .proc-empty {
+  margin: var(--sp-3) 0;
+  padding: var(--sp-4);
+  border: 1px dashed var(--line);
+  border-radius: var(--r-md);
+  color: var(--muted);
+  font-size: var(--fs-meta);
+  line-height: 1.8;
+}
+.dw .proc-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  margin: var(--sp-3) 0 0;
+  padding: 0;
+  list-style: none;
+}
+.dw .proc-item {
+  min-width: 0;
+  padding: var(--sp-3);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+}
+.dw .proc-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
+.dw .proc-at { color: var(--muted); font-size: var(--fs-micro); font-variant-numeric: tabular-nums; }
+.dw .proc-stage { font-size: var(--fs-meta); font-weight: 600; }
+/* 数据流向芯片：与 `.me-flow` 同形（色盲安全：**文字本身就分得开**） */
+.dw .proc-flow {
+  display: inline-flex;
+  padding: 1px var(--sp-2);
+  border-radius: var(--r-sm);
+  font-size: var(--fs-micro);
+  white-space: nowrap;
+}
+.dw .proc-flow.is-local { background: var(--surface-3); color: var(--ink); }
+.dw .proc-flow.is-api { background: var(--accent-soft); color: var(--accent); }
+.dw .proc-tool { color: var(--muted); font-size: var(--fs-micro); }
+.dw .proc-sum {
+  margin: var(--sp-2) 0 0;
+  font-size: var(--fs-meta);
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.dw .proc-detail { margin-top: var(--sp-2); }
+.dw .proc-more {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-size: var(--fs-micro);
+  cursor: pointer;
+}
+.dw .proc-json {
+  margin: var(--sp-2) 0 0;
+  padding: var(--sp-3);
+  background: var(--surface-2);
+  border-radius: var(--r-sm);
+  font-size: var(--fs-micro);
+  line-height: 1.7;
+  /* 长 JSON 只在**自己这一块**里横滚，绝不把整页撑宽（窄屏判据） */
+  overflow-x: auto;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+/* 窄档：间距收一点，别让两侧 padding 吃掉可读宽度 */
+@media (max-width: 859px) {
+  .dw .proc { padding: var(--sp-4) var(--sp-3) var(--sp-8); }
+}
+
+/* 手机档（<720）：底部给 R6 的标签栏让位，否则最后一条会被标签栏盖住 */
+@media (max-width: 719px) {
+  .dw .proc {
+    padding: var(--sp-3) var(--sp-3) calc(var(--tabbar-h, 0px) + env(safe-area-inset-bottom, 0px) + var(--sp-6));
+  }
+  .dw .proc-select { max-width: 100%; }
+}
+
 
 
 
