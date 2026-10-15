@@ -20,7 +20,7 @@ from app.check.engine import (
     run_check,
     split_sentences,
 )
-from app.check.rules import HEDGES, RULES, SELF_REF_WINDOW, SELF_REFS
+from app.check.rules import HEDGES, RULES, RULES_BY_CODE, SELF_REF_WINDOW, SELF_REFS
 
 ZH_NUMERIC = (
     "本文研究酶催化反应的动力学。"
@@ -303,11 +303,18 @@ def test_empty_text_reports_unknown_not_crash():
     assert report["summary"]["unknown"] == 1
 
 
-def test_disabled_rule_never_appears():
+def test_no_rule_is_left_disabled():
+    """⭐ **没有未启用的规则了**（R6 术语一致性已启用）。
+
+    这条原来断言"R6 还没启用"——那是个占位。现在把它翻过来：规则表里不该再留
+    一条"写了但不跑"的规则（骗自己也骗读者），同时钉住 R6 的 `kind` 名。
+    """
     disabled = {rule["code"] for rule in RULES if not rule["enabled"]}
-    assert disabled == {"R6"}  # 术语一致性本轮没启用（要术语表对齐）
+    assert disabled == set()
+    assert RULES_BY_CODE["R6"]["kind"] == "term_inconsistent"
+    # 这篇的文献没有术语表 → R6 一条都不该报（只进筛子账）
     report = run_check(ZH_NUMERIC, citations=CITATIONS, materials=MATERIALS)
-    assert not (disabled & {item["rule_id"] for item in report["findings"]})
+    assert "term_inconsistent" not in kinds(report)
 
 
 # ------------------------------------------------- 模糊词表（words/hedges，MIT）
@@ -425,3 +432,152 @@ def test_short_en_self_ref_still_works():
     """短的自指词是好的（英语稿就靠它）。"""
     doc = LONG_HEAD + MARKED + "We found an average improvement of 4.7% here."
     assert run_check(doc, citations=ONE_CITATION, materials=[])["findings"] == []
+
+
+# ------------------------------------------------- 术语一致性（R6）
+
+
+def _term_findings(report: dict) -> list[dict]:
+    return [item for item in report["findings"] if item["kind"] == "term_inconsistent"]
+
+
+def _term_ledger(report: dict) -> str:
+    """R6 的那本筛子账（写进 `step.notes`）。"""
+    return next(
+        note for note in report["step"]["notes"] if note.startswith("术语一致性：")
+    )
+
+
+def _term_report(doc: str, terms: list[dict]) -> dict:
+    """跑一次带术语表的检查（R6 用例都从这里过，口径只写一处）。"""
+    return run_check(doc, citations=CITATIONS, terms=terms)
+
+
+# 两篇被引文献把**同一个术语**译成了两个名字（跨文献译名分歧）
+TERMS_CONFLICT = [
+    {
+        "term": "self-supervised pretraining",
+        "cn": "自监督预训练",
+        "source_name": "survey_2024.pdf",
+        "task_id": 11,
+    },
+    {
+        "term": "self-supervised pretraining",
+        "cn": "自监督式预训练",
+        "source_name": "methods_2023.pdf",
+        "task_id": 12,
+    },
+]
+
+
+def test_r6_reports_the_version_used_and_who_else_uses_the_other():
+    """⭐ 正文用了其中一版、另一版来自**别篇**被引文献 → 报，且两版并列。"""
+    doc = LONG_HEAD + MARKED + "我们采用自监督预训练来缓解标注不足。"
+    report = _term_report(doc, TERMS_CONFLICT)
+
+    hits = _term_findings(report)
+    assert len(hits) == 1
+    assert hits[0]["rule_id"] == "R6"
+    assert hits[0]["severity"] == "report"
+    assert "自监督预训练" in hits[0]["sentence"]
+    # 两版并列 + 哪版来自哪篇（**不说"错了"、不替你改**）
+    assert "自监督预训练" in hits[0]["reason"]
+    assert "自监督式预训练" in hits[0]["reason"]
+    assert "survey_2024.pdf" in hits[0]["reason"]
+    assert "methods_2023.pdf" in hits[0]["reason"]
+    assert "改不改由你定" in hits[0]["reason"]
+
+
+def test_r6_reports_when_one_sentence_holds_both_versions():
+    """同一句里两版并存 —— 最实的一种不一致，也要报。"""
+    doc = LONG_HEAD + MARKED + "有人写自监督预训练，有人写自监督式预训练。"
+    report = _term_report(doc, TERMS_CONFLICT)
+
+    hits = _term_findings(report)
+    assert len(hits) == 1
+    assert "2 种写法" in hits[0]["reason"]
+    assert "自监督预训练" in hits[0]["reason"]
+    assert "自监督式预训练" in hits[0]["reason"]
+
+
+def test_r6_stays_silent_when_the_draft_uses_neither_version():
+    """正文一处都没用到 → **不报**（文献层面的分歧与你的稿子无关），只记账。"""
+    doc = LONG_HEAD + MARKED + "本文只讨论数据增强策略。"
+    report = _term_report(doc, TERMS_CONFLICT)
+
+    assert _term_findings(report) == []
+    ledger = _term_ledger(report)
+    # ⚠️ 账上的 N 是**去重后的术语条数**：`TERMS_CONFLICT` 两篇论文里的同一个 `term`
+    # 只算一条（多引一篇不该把 N 灌大）。
+    assert "比对 1 条术语" in ledger
+    assert "译名分歧 1 组" in ledger
+    assert "正文命中 0 句" in ledger
+    assert "报出 0 处" in ledger
+    assert any("不是失灵" in note for note in report["step"]["notes"])
+
+
+def test_r6_without_terms_explains_in_notes_and_adds_no_unknown():
+    """⭐ **有引用、但那些文献没有术语表** → 只写 notes。
+
+    验收样例二正是这种稿子：**不许报 `unknown` 发现**（那等于偷偷改它的 N）。
+    """
+    report = run_check(ZH_NUMERIC, citations=CITATIONS, materials=MATERIALS)
+    assert _term_findings(report) == []
+    assert any("被引文献还没有术语表" in note for note in report["step"]["notes"])
+    assert report["summary"]["unknown"] == 0
+
+
+def test_r6_without_citations_only_explains_in_notes():
+    """**没有引用** → 只写 notes，一条都不报（连术语表都不比）。"""
+    doc = LONG_HEAD + MARKED + "我们采用自监督预训练来缓解标注不足。"
+    report = run_check(doc, materials=MATERIALS, terms=TERMS_CONFLICT)
+
+    assert _term_findings(report) == []
+    assert any("草稿还没有引用" in note for note in report["step"]["notes"])
+
+
+def test_r6_skips_blank_and_same_as_term_translations():
+    """`cn` 为空串、或与 `term` 同名 → 跳过（拿它去报只会制造噪音）。"""
+    terms = [
+        {"term": "noise", "cn": "", "source_name": "a.pdf", "task_id": 1},
+        {"term": "noise", "cn": "noise", "source_name": "b.pdf", "task_id": 2},
+    ]
+    doc = LONG_HEAD + MARKED + "noise 这个词在正文里出现过。"
+    report = _term_report(doc, terms)
+
+    assert _term_findings(report) == []
+    assert "比对 0 条术语" in _term_ledger(report)
+
+
+def test_r6_same_paper_two_names_is_not_reported():
+    """两版出自**同一篇** → 不报（那是那篇自己的写法，与我们这篇稿子无关）。"""
+    terms = [
+        {"term": "X", "cn": "甲方案", "source_name": "same.pdf", "task_id": 1},
+        {"term": "X", "cn": "乙方案", "source_name": "same.pdf", "task_id": 1},
+    ]
+    doc = LONG_HEAD + MARKED + "我们使用甲方案来完成这件事。"
+    report = _term_report(doc, terms)
+
+    assert _term_findings(report) == []
+    ledger = _term_ledger(report)
+    assert "译名分歧 1 组" in ledger  # 分歧照样计入账
+    assert "正文命中 1 句" in ledger
+    assert "报出 0 处" in ledger
+
+
+def test_r6_ledger_counts_sentences_and_reports():
+    """一本账：比对几条、分歧几组、正文命中几句、报了几处。"""
+    doc = (
+        LONG_HEAD
+        + MARKED
+        + "甲方案用了自监督预训练。"
+        + "乙方案用了自监督式预训练。"
+    )
+    report = _term_report(doc, TERMS_CONFLICT)
+
+    ledger = _term_ledger(report)
+    assert "比对 1 条术语" in ledger  # 去重后的术语条数（见上一条用例的说明）
+    assert "译名分歧 1 组" in ledger
+    assert "正文命中 2 句" in ledger
+    assert "报出 2 处" in ledger
+    assert len(_term_findings(report)) == 2

@@ -62,6 +62,7 @@ const REPORT = {
       '语言：zh（中文字符 120 / 拉丁字母 0）',
       '引用制式：numeric（`[n]` 2 处 / 著者-年 0 处）',
       '该引未引：命中标记词 4 句——已有引用 2、含模糊限定 0、属作者自指 2，报出 0 处',
+      '术语一致性：比对 2 条术语——译名分歧 1 组、正文命中 0 句，报出 0 处',
     ],
   },
   findings: [
@@ -164,6 +165,11 @@ describe('收口检查抽屉（M4 / 形态 §3.3）', () => {
     expect(ledger.exists()).toBe(true)
     expect(ledger.text()).toContain('命中标记词 4 句')
     expect(ledger.text()).toContain('报出 0 处')
+    // ⭐ R6 启用后**术语那本账也要露出来**（少了它，"术语没报"就又成了黑箱）
+    // 夹具与报告自洽：这份报告里没有术语类 finding，所以账写的是"报出 0 处"
+    expect(ledger.text()).toContain(
+      '术语一致性：比对 2 条术语——译名分歧 1 组、正文命中 0 句，报出 0 处',
+    )
     // 语言/制式已经在上面两个 chip 里了，账里**不重复**它们（别把抽屉塞成一坨日志）
     expect(ledger.text()).not.toContain('语言：')
     expect(ledger.text()).not.toContain('引用制式：')

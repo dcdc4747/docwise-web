@@ -14,12 +14,14 @@
 
 from __future__ import annotations
 
+import json
+
 from fastapi.testclient import TestClient
 from helpers import TEST_USER_ID, create_user_row
 
 from app.db import SessionLocal
 from app.main import app
-from app.models import CheckRun, Citation, Draft, Material
+from app.models import CheckRun, Citation, Draft, Material, Task, TaskUnderstanding
 from app.timeutil import utc_now
 
 ZH_DRAFT = (
@@ -199,3 +201,106 @@ def test_get_other_users_report_is_404():
 def test_get_unknown_report_is_404():
     with TestClient(app) as client:
         assert client.get("/api/check/10000002").status_code == 404
+
+
+# ------------------------------------------------- R6 术语一致性（走接口）
+
+
+TERM_DOC = (
+    "图像分割是计算机视觉中的基础任务之一。"
+    "已有结果见[1]，另有方法见[2]。"
+    "我们采用自监督预训练来缓解标注不足。"
+)
+
+
+def _make_task_with_terms(terms: list[dict], *, filename: str) -> int:
+    """建一个任务 + 它的理解层术语表（**R6 的数据来源就是这里**）。"""
+    with SessionLocal() as session:
+        task = Task(user_id=TEST_USER_ID, filename=filename, status="completed")
+        session.add(task)
+        session.commit()
+        session.add(
+            TaskUnderstanding(
+                task_id=task.id,
+                terms_json=json.dumps(terms, ensure_ascii=False),
+                status="ready",
+            )
+        )
+        session.commit()
+        return task.id
+
+
+def _cite_task(draft_id: int, *, task_id: int, source_name: str, order: int) -> None:
+    """把"某篇文献"引进草稿：素材卡（快照）+ 引文。
+
+    ⚠️ `source_name` 落在**素材快照**那一列（M2 口径）—— R6 报告里的出处名
+    就是从这儿来的，**不去 JOIN `tasks.filename`**。
+    """
+    with SessionLocal() as session:
+        material = Material(
+            user_id=TEST_USER_ID,
+            task_id=task_id,
+            block_id="p0_b1",
+            text_quote="（快照原文）",
+            translated_quote=None,
+            page=1,
+            source_name=source_name,
+            created_at=utc_now(),
+        )
+        session.add(material)
+        session.commit()
+        session.add(
+            Citation(
+                draft_id=draft_id,
+                material_id=material.id,
+                order=order,
+                csl_json={
+                    "type": "article-journal",
+                    "title": source_name,
+                    "author": [{"literal": "X"}],
+                },
+                anchor={"offset": 0},
+                created_at=utc_now(),
+            )
+        )
+        session.commit()
+
+
+def test_check_reports_term_versions_of_cited_papers():
+    """⭐ R6 走接口：两篇被引文献把**同一个术语**译成了两个名字，正文用了其中一版。"""
+    draft_id = _make_draft(body_md=TERM_DOC)
+    survey = _make_task_with_terms(
+        [{"term": "self-supervised pretraining", "cn": "自监督预训练"}],
+        filename="survey_2024.pdf",
+    )
+    methods = _make_task_with_terms(
+        [{"term": "self-supervised pretraining", "cn": "自监督式预训练"}],
+        filename="methods_2023.pdf",
+    )
+    _cite_task(draft_id, task_id=survey, source_name="survey_2024.pdf", order=1)
+    _cite_task(draft_id, task_id=methods, source_name="methods_2023.pdf", order=2)
+
+    with TestClient(app) as client:
+        response = _post_check(client, draft_id, TERM_DOC)
+
+    assert response.status_code == 200, response.text
+    report = response.json()
+    hits = [
+        item for item in report["findings"] if item["kind"] == "term_inconsistent"
+    ]
+    assert len(hits) == 1, report["findings"]
+    assert hits[0]["rule_id"] == "R6"
+    assert "自监督预训练" in hits[0]["reason"]
+    assert "自监督式预训练" in hits[0]["reason"]
+    # 出处名来自**素材快照**（源文献名不靠 JOIN tasks 取）
+    assert "survey_2024.pdf" in hits[0]["reason"]
+    assert "methods_2023.pdf" in hits[0]["reason"]
+    # 这一条**算进了 summary**（不是只挂在 findings 里）：这篇稿子只该报这一处
+    assert report["summary"]["reported"] == 1
+    assert report["summary"]["unknown"] == 0
+    ledger = next(
+        note for note in report["step"]["notes"] if note.startswith("术语一致性：")
+    )
+    assert "译名分歧 1 组" in ledger
+    assert "正文命中 1 句" in ledger
+    assert "报出 1 处" in ledger

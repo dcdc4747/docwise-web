@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -22,7 +23,7 @@ from sqlalchemy.orm import Session
 
 from ..check.engine import run_check
 from ..deps import get_current_user, get_db
-from ..models import CheckRun, Citation, Draft, Material, User
+from ..models import CheckRun, Citation, Draft, Material, TaskUnderstanding, User
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +77,54 @@ def _materials_of(db: Session, user: User) -> list[dict]:
     ]
 
 
+def _terms_of(db: Session, user: User, draft_id: int) -> list[dict]:
+    """**被引文献**的术语表，摊平成 `{term, cn, source_name, task_id}`（给 R6 用）。
+
+    取法：草稿的引文 → `Citation.material_id` → `Material.task_id` → 那些任务的
+    `task_understanding.terms_json`。
+
+    ⚠️ 两条口径：
+    - `source_name` 用**素材快照里的**那一份（M2 口径：素材卡是快照）：
+      **不 JOIN `tasks`** —— 源文献删了名字还在（快照的意义）；
+    - `task_id` 为 null（源文献已删）就取不到术语表，那就**不比**（如实记账）。
+    """
+    rows = db.execute(
+        select(
+            Material.task_id, Material.source_name, TaskUnderstanding.terms_json
+        )
+        .join(Citation, Citation.material_id == Material.id)
+        .join(TaskUnderstanding, TaskUnderstanding.task_id == Material.task_id)
+        .where(
+            Citation.draft_id == draft_id,
+            Material.user_id == user.id,
+            Material.task_id.is_not(None),
+        )
+    ).all()
+
+    out: list[dict] = []
+    for task_id, source_name, terms_json in rows:
+        if not terms_json:
+            continue
+        try:
+            items = json.loads(terms_json)
+        except (TypeError, ValueError):
+            # 理解层写坏了一条不该让整次检查失败 —— 跳过它，少比一篇
+            continue
+        if not isinstance(items, list):
+            continue
+        for item in items:
+            if isinstance(item, dict):
+                out.append(
+                    {
+                        "term": item.get("term"),
+                        "cn": item.get("cn"),
+                        "source_name": source_name,
+                        "task_id": task_id,
+                    }
+                )
+    return out
+
+
 @router.post("")
 def create_check(
     body: CheckRequest,
@@ -92,6 +141,7 @@ def create_check(
         body.doc_text,
         citations=_citations_of(db, body.draft_id),
         materials=_materials_of(db, user),
+        terms=_terms_of(db, user, body.draft_id),
     )
 
     row = CheckRun(

@@ -327,22 +327,128 @@ def _run_csl_fields(report: _Report, *, citations: list[dict]) -> None:
             )
 
 
+def _term_reason(
+    term: str, sources: dict[str, set[str]], used: list[str]
+) -> str | None:
+    """一句话里"用了哪版、另一版来自哪篇"的如实并列；不该报时返回 `None`。
+
+    - 同一句里**两版都在** → 报（最实的一种不一致）；
+    - 只用了其中一版，而**另一版来自别篇被引文献** → 报；
+    - 只用了其中一版，两版其实出自**同一篇** → 不报（那是那篇自己的写法）。
+    """
+
+    def describe(cn: str) -> str:
+        return f"「{cn}」（来自《{'、'.join(sorted(sources[cn]))}》）"
+
+    if len(used) >= 2:
+        pairs = " 与 ".join(describe(cn) for cn in used[:2])
+        return f"{term}：同一句里出现了 {len(used)} 种写法 —— {pairs}"
+
+    only = used[0]
+    others = [
+        cn
+        for cn, srcs in sources.items()
+        if cn != only and any(src not in sources[only] for src in srcs)
+    ]
+    if not others:
+        # 两版出自同一篇：那是那篇文献自己的写法，与我们这篇稿子无关
+        return None
+    return (
+        f"{term}：这句用的是 {describe(only)}，另一篇被引文献用的是"
+        f" {describe(others[0])} —— 两版并列，改不改由你定"
+    )
+
+
+def _run_term_consistency(
+    report: _Report,
+    *,
+    doc_text: str,
+    terms: list[dict] | None,
+) -> dict:
+    """R6：术语一致性（形态 §3.3 ② —— **并列摆出两处，不自动改**）。
+
+    输入是**被引文献**理解层的术语表，已摊平成 `{term, cn, source_name}`。
+    查两件事：
+
+    ① **译名分歧**：同一个 `term` 在不同被引文献里有没有 ≥2 个不同的 `cn`；
+    ② **正文用到了哪一版**：只在正文真的用到分歧里的版本时才报 ——
+       正文一处都没用到时**不报**（文献层面的译名分歧与你的稿子无关），只记账。
+
+    ⚠️ 没有术语表时**只写 notes、绝不报 `unknown` 发现**：那会给"有引用但那些文献
+    没有术语表"的稿子凭空加一条 unknown，等于偷偷改验收数字（样例二正是这种）。
+    """
+    stats = {"terms": 0, "conflicts": 0, "sentences": 0, "reported": 0}
+    if not terms:
+        return stats
+
+    # ① 收版本：`term -> {cn: {来源文献}}`（同一个 `cn` 可能出现在多篇里）
+    versions: dict[str, dict[str, set[str]]] = {}
+    for item in terms:
+        term = str(item.get("term") or "").strip()
+        cn = str(item.get("cn") or "").strip()
+        # 空译名、或译名与原文同名 → 拿它去报只会制造噪音
+        if not term or not cn or cn == term:
+            continue
+        source = str(item.get("source_name") or "").strip() or "（未记来源）"
+        versions.setdefault(term, {}).setdefault(cn, set()).add(source)
+    # 账上的 N = **去重后的术语条数**（一个 `term` 不管出现在几篇里都算一条）——
+    # 这样多引一篇也不会把 N 灌大，"比对了几条术语"读起来才是那个意思。
+    stats["terms"] = len(versions)
+
+    conflicts = {term: cns for term, cns in versions.items() if len(cns) >= 2}
+    stats["conflicts"] = len(conflicts)
+    if not conflicts:
+        return stats
+
+    # ② 逐句找"这句用了分歧里的哪几版"；一句话最多一条 finding
+    #    （指纹是 `(规则号, 句子)`，同一句报两条会让处置认不出是哪一条）
+    for _, sentence in split_sentences(doc_text):
+        used: dict[str, list[str]] = {}
+        for term, cns in conflicts.items():
+            hit = [cn for cn in cns if _contains(sentence, cn, "zh")]
+            if hit:
+                used[term] = hit
+        if not used:
+            continue
+        stats["sentences"] += 1
+        parts: list[str] = []
+        for term, hit in used.items():
+            reason = _term_reason(term, versions[term], hit)
+            if reason:
+                parts.append(reason)
+        if not parts:
+            continue
+        stats["reported"] += 1
+        report.add(
+            rule_code="R6",
+            kind="term_inconsistent",
+            severity="report",
+            sentence=sentence,
+            reason="；".join(parts),
+            rule_ref="形态 §3.3 ② 依据＝被引文献术语表（并列摆出，不自动改）",
+        )
+    return stats
+
+
 def run_check(
     doc_text: str,
     *,
     citations: list[dict] | None = None,
     materials: list[dict] | None = None,
+    terms: list[dict] | None = None,
 ) -> dict:
     """跑一次收口检查。
 
     - `doc_text`：稿子正文（契约 N22 的入参）；
     - `citations`：引文列表，每条至少带 `order` 与 `csl_json`；
-    - `materials`：素材卡列表（给「该引未引」挑候选出处）。
+    - `materials`：素材卡列表（给「该引未引」挑候选出处）；
+    - `terms`：**被引文献**的术语表（摊平成 `{term, cn, source_name}`）—— 给 R6 用。
 
-    ⭐ 三个入参**都可以缺**：缺了不是报错，而是少做那几条能做的检查并如实说明。
+    ⭐ 四个入参**都可以缺**：缺了不是报错，而是少做那几条能做的检查并如实说明。
     """
     citations = citations or []
     materials = materials or []
+    terms = terms or []
     report = _Report()
 
     lang, lang_evidence = detect_language(doc_text)
@@ -390,6 +496,25 @@ def run_check(
 
     _run_citation_format(report, doc_text=doc_text, citations=citations)
     _run_csl_fields(report, citations=citations)
+
+    # ⭐ R6：三种情况分开说 —— **没数据时只如实说明，绝不报 finding**
+    # （报 `unknown` 会给"有引用但那些文献没有术语表"的稿子凭空加一条；验收样例二
+    #   正是这种：有引用、没术语表，它那 N=2 不许被这一项改掉）
+    if not citations:
+        notes.append("术语一致性：草稿还没有引用，没有可比的术语表——这一项没判")
+    elif not terms:
+        notes.append("术语一致性：被引文献还没有术语表，这一项没判")
+    else:
+        term_stats = _run_term_consistency(report, doc_text=doc_text, terms=terms)
+        # 与 R1 同一本账的口径：把"为什么只报这么少"摆出来
+        notes.append(
+            "术语一致性：比对 {terms} 条术语——译名分歧 {conflicts} 组、"
+            "正文命中 {sentences} 句，报出 {reported} 处".format(**term_stats)
+        )
+        if term_stats["conflicts"] and not term_stats["sentences"]:
+            notes.append(
+                "（译名有分歧，但正文一处都没用到——**不是失灵，是不硬报**）"
+            )
 
     reported = sum(1 for item in report.findings if item["severity"] == "report")
     unknown = sum(1 for item in report.findings if item["severity"] == "unknown")
