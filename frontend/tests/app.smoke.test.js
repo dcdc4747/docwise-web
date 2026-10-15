@@ -700,6 +700,46 @@ describe('App.vue 页面渲染', () => {
     }
   })
 
+  /**
+   * 取某条规则**所在的最近一个 `@media` 段**（找不到就返回空串）。
+   * 用来断言"这条规则必须写在窄档里"——只看规则文本会漏掉"写在媒体查询外"这种回归。
+   * ⚠️ 本文件里的媒体块内部没有行首右括号，所以按 `\n}` 找块尾够用。
+   */
+  function mediaOf(css, index) {
+    const at = css.slice(0, index).lastIndexOf('@media')
+    if (at === -1) return ''
+    const close = css.indexOf('\n}', css.indexOf('{', at))
+    return css.slice(at, close === -1 ? undefined : close)
+  }
+
+  it('窄屏：<860px 左栏收成 58px（形态 v2 §3 第 106 行）——否则 390px 下内容列只剩 ~130px', () => {
+    const css = srcText('style.css')
+    const rule = /\.dw \.rail\s*\{[^}]*flex-basis:\s*var\(--rail-w-min\)[^}]*\}/.exec(css)
+    expect(rule, '找不到"左栏收成 58px"这条规则').toBeTruthy()
+    expect(mediaOf(css, rule.index)).toMatch(/max-width:\s*859px/)
+  })
+
+  it('窄屏：会话 / 台账表自己滚，不许把整页撑宽（表里有不可断行的时间戳）', () => {
+    const css = srcText('style.css')
+    const rule = /\.dw \.me-table\s*\{[^}]*overflow-x:\s*auto[^}]*\}/.exec(css)
+    expect(rule, '表格没有横向滚动容器').toBeTruthy()
+    expect(mediaOf(css, rule.index)).toMatch(/max-width:\s*859px/)
+  })
+
+  it('窄屏：手机顶栏按钮抬到触控下限 44px（原来约 20px，拇指点不中）', () => {
+    const css = srcText('style.css')
+    const rule = /\.dw \.ptop \.btn\s*\{[^}]*min-height:\s*44px[^}]*\}/.exec(css)
+    expect(rule, '手机顶栏没有 44px 触控高度').toBeTruthy()
+    expect(mediaOf(css, rule.index)).toMatch(/max-width:\s*1023px/)
+  })
+
+  it('窄屏：底部抽屉让开 iPhone 安全区（原来贴屏幕底，抓手压在 home indicator 上）', () => {
+    const css = srcText('style.css')
+    const rule = /\.dw \.sheet\s*\{[^}]*env\(safe-area-inset-bottom[^}]*\}/.exec(css)
+    expect(rule, '抽屉没有安全区内边距').toBeTruthy()
+    expect(mediaOf(css, rule.index)).toMatch(/max-width:\s*1023px/)
+  })
+
   it('出处只说「第 X 页 ·「这一句的开头…」」——不说第几段；点击必高亮那一段', async () => {
     const { task, detail } = completedFixture()
     const answer = {

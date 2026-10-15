@@ -2127,6 +2127,75 @@ svg.ic-inl {
 .dw .wr-matundo .btn { margin-left: auto; }
 
 
+/* ============================================================================
+   [D] 窄屏走查修复（2026-10-16）—— 只修"能说清坏在哪"的四条
+   ============================================================================
+   口径来源：形态 v2 §3 第 105–107 行的三档
+     · 1024–1100px：右栏改抽屉、左栏仍在   → 已实现（上面「断点①」）
+     · **<860px：左栏收成 58px 图标态**     → ⚠️ 此前**一条都没写**，本节①补上
+     · <720px：手机底部标签栏              → 归 R6 的 `AppTabbar`（尚未传 tabs → 自门控
+       不渲染），本卡**不动**；见交付说明里的"未修但已报告"
+   ⚠️ 本节只加规则、不动上面任何人的段（与仓库既有排队规矩一致）。
+   ============================================================================ */
+
+/* ① <860px：左栏收成 58px 图标态（形态 §3 第 106 行）。
+   ⚠️ 修之前的实测后果：390px 宽下左栏仍占 `--rail-w`（260px），
+      右侧内容列只剩 ~130px —— 手机上根本没法用。
+   ⚠️ 为什么不复用 `.rail-min`（用户手动收起那一套）：那一档是**用户偏好**（还写进
+      localStorage），这一档是**视口决定**且不该覆盖偏好；靠给 `.dw-layout` 加类来做，
+      窗口变宽后会把用户的展开态弄丢。所以这里用媒体查询独立表达，
+      声明**与 `.rail-min` 逐条对齐**（改那边时这里要跟着改，两处都是"58px 图标态"）。 */
+@media (max-width: 859px) {
+  .dw .rail { flex-basis: var(--rail-w-min); padding: var(--sp-3) var(--sp-2); }
+  .dw .rail-lbl,
+  .dw .rail-sec-t,
+  .dw .rail-brand span { display: none; }
+  .dw .rail-brand { font-size: 0; }
+  .dw .rail-head { padding: var(--sp-1) 0 var(--sp-3); justify-content: center; }
+  .dw .rail-item { justify-content: center; padding: var(--sp-2) 0; }
+  .dw .rail-sec { padding: var(--sp-1) 0; }
+  .dw .rail-div { margin: var(--sp-2) 0; }
+  .dw .rail-sw { justify-content: center; padding: var(--sp-2) 0; }
+  .dw .rail-foot { padding-top: var(--sp-2); }
+}
+
+/* ② <860px：会话表 / 台账表不许把整页撑宽。
+   ⚠️ 修之前：`.me-table` 是 `width: 100%` 但**没有任何横向滚动容器**，而表里有
+      ISO 时间戳这种不可断行的长 token（`2026-10-16T05:11:23+00:00`）——
+      表格的 min-content 超过 390px 时 `width: 100%` 拦不住，**整个 `.screen-me`
+      被撑宽 → 整页横向滚动**（手机上表现为"卡片被切一半、页面能左右滑"）。
+   `display: block` 让表格自己成为滚动容器：无论它是溢出还是折行，都不会再把父级顶宽。
+   ⚠️ 只在窄档生效，桌面下表格排版一字不变。 */
+@media (max-width: 859px) {
+  .dw .me-table { display: block; max-width: 100%; overflow-x: auto; }
+}
+
+/* ③ ≤1023px：手机顶栏的按钮抬到触控下限。
+   ⚠️ 修之前：顶栏按钮是 `.btn.sm`（`padding: 3px 10px` + 12px 字）再叠
+      `.ptop-icon`（`padding: 2px 6px`）→ 可点高度 **约 20px**，拇指极易点偏
+      （尤其 ⤓ 与 ⋯ 相邻）。`44px` 是触控下限。
+   同时把顶栏左右 padding 从 12px 收到 8px：390px 宽要放 ← / 文件名 / 原版·段落 /
+      ⤓ / ⋯ 五件东西，按钮长高必然长宽，靠这两笔把横向省回来；
+      文件名本来就会按 `max-width: 46vw` 出省略号，不会挤掉按钮。
+   代价如实记：顶栏因此从约 34px 变约 56px 高 —— 手机上这一条是"点得中"换"多占 22px"，
+      值得（这一屏其余部分本来就可滚）。 */
+@media (max-width: 1023px) {
+  .dw .ptop { padding: 6px 8px; }
+  .dw .ptop .btn { min-height: 44px; }
+  .dw .ptop-icon { min-width: 36px; }
+}
+
+/* ④ ≤1023px：底部抽屉让开 iPhone 的 home indicator。
+   ⚠️ 修之前：全仓 `safe-area` **0 命中**，而 `.sheet` 是
+      `position: absolute; bottom: 0`（贴着屏幕底）→ peek 档那 118px 里的
+      抓手与摘要会落在指示条区域上，点不准。
+   `env()` 在桌面与没有安全区的设备上取 0，所以这条对桌面零影响；
+   ⚠️ 只在窄档写，桌面抽屉（1024–1100 那条 fixed 右栏）不受影响。 */
+@media (max-width: 1023px) {
+  .dw .sheet { padding-bottom: env(safe-area-inset-bottom, 0px); }
+}
+
+
 
 
 
