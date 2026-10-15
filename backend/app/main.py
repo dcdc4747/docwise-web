@@ -24,6 +24,7 @@ from .routers.ask import router as ask_router
 from .routers.auth import router as auth_router
 from .routers.check import router as check_router
 from .routers.drafts import router as drafts_router
+from .routers.materials import router as materials_router
 from .routers.tasks import router as tasks_router
 from .timeutil import utc_now
 from .worker import TaskEventBus, TranslationWorker
@@ -225,6 +226,8 @@ app.include_router(tasks_router)
 app.include_router(drafts_router)
 # 收口检查（契约 §2.7 / N22–N23）。同样**必须在 `webapp.mount_frontend(app)` 之前**。
 app.include_router(check_router)
+# 素材卡（契约 §2.4 / N12–N14）。同样**必须在 `webapp.mount_frontend(app)` 之前**。
+app.include_router(materials_router)
 
 
 def _database_writable() -> tuple[bool, str | None]:

@@ -2070,5 +2070,63 @@ svg.ic-inl {
 }
 
 
+/* ============================================================
+   [M2 素材写入] 「存为素材」三处入口 + 客户端撤销窗口（2026-10-16）
+   - 三处入口共用 `MaterialSaveButton.vue`，靠 `variant` 换皮：
+     chip = 划词浮标旁 / src = 问答出处旁 / guide = 导读要点旁；
+   - 撤销窗口在**发出 DELETE 之前**（契约没有恢复端点），所以起草页那条提示条
+     只在 5 秒内出现，点「撤销」＝什么都没发生。
+   ============================================================ */
+
+.dw .mat-save {
+  font: inherit;
+  font-size: 12px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.dw .mat-save:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.dw .mat-save:disabled { opacity: 0.55; cursor: default; }
+.dw .mat-save.saved { border-color: var(--accent); color: var(--accent); }
+.dw .mat-save.failed { border-color: #d9534f; color: #d9534f; }
+
+/* 划词浮标旁：绝对定位（坐标由 ReadView 传进来），放在「就这句提问」上方 */
+.dw .selchip-save { position: absolute; transform: translateY(-4px); z-index: 2; }
+
+/* 问答出处旁：与 `.src-tag` 同一行，但**弱一档**（它是次要动作） */
+.dw .mat-save.src { margin-left: 6px; }
+
+/* 导读要点旁：与 `.guide-card .ops button` 同一行的文字型按钮 */
+.dw .mat-save.guide { border-style: dashed; }
+
+/* 存素材失败时的人话（阅读页两处页签各一条，只可能出现一条） */
+.dw .mat-saveerr {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #d9534f;
+}
+
+/* 起草页：5 秒撤销提示条 */
+.dw .wr-matundo {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+  padding: 8px 10px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  font-size: var(--fs-meta);
+  color: var(--muted);
+}
+
+.dw .wr-matundo .btn { margin-left: auto; }
+
+
+
 
 

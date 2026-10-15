@@ -14,7 +14,7 @@
     "真实性来源：本清单的 anchors 是由 backend/scripts/check_contract.py --print 打出来的真实路由表逐条核对的，",
     "  不是从文档抄的 —— 手抄文档正是第一版把 25 个端点写成 23 个的原因。"
   ],
-  "declared_endpoint_count": 35,
+  "declared_endpoint_count": 38,
   "anchors": [
     { "method": "GET", "path": "/api/health", "note": "真检查（数据库+worker）；无需鉴权" },
 
@@ -55,7 +55,11 @@
     { "method": "GET", "path": "/api/drafts/{param}/citations", "note": "N21 引文列表，每条带 csl_json" },
     { "method": "DELETE", "path": "/api/drafts/{param}/citations", "note": "N21 整篇清空引文（契约只给了一个删路径，没有按 id 单删）" },
     { "method": "POST", "path": "/api/check", "note": "N22 收口检查；CheckReport（unknown 是一等公民，不报百分比；带 ruleset_version）" },
-    { "method": "GET", "path": "/api/check/{param}", "note": "N23 回看某次检查报告（与 POST 当场返回的逐字节一致）" }
+    { "method": "GET", "path": "/api/check/{param}", "note": "N23 回看某次检查报告（与 POST 当场返回的逐字节一致）" },
+
+    { "method": "POST", "path": "/api/materials", "note": "N12 存为素材卡（**快照**，创建时深拷贝出处）；404 块不存在 / 非本人" },
+    { "method": "GET", "path": "/api/materials", "note": "N13 素材列表，?task_id? &collection_id? &tag?；软删的不返回" },
+    { "method": "DELETE", "path": "/api/materials/{param}", "note": "N14 软删 7 天（§7.7 撤销窗口）；幂等" }
   ],
   "expected_new": [
     { "method": "GET", "path": "/api/collections", "note": "N1 集合列表（doc_count 直接成员 / doc_count_deep 含子集合）" },
@@ -70,10 +74,6 @@
     { "method": "GET", "path": "/api/smart-collections", "note": "N9 智能集合列表（规则即数据）" },
     { "method": "POST", "path": "/api/smart-collections", "note": "N10 新建智能集合；400 query 非法" },
     { "method": "DELETE", "path": "/api/smart-collections/{param}", "note": "N11 400 内置规则不许删" },
-
-    { "method": "POST", "path": "/api/materials", "note": "N12 存为素材卡（快照）；404 块不存在" },
-    { "method": "GET", "path": "/api/materials", "note": "N13 素材列表，?collection_id? &tag? &task_id?" },
-    { "method": "DELETE", "path": "/api/materials/{param}", "note": "N14 软删 7 天" },
 
     { "method": "POST", "path": "/api/ask-logs", "note": "N15 问答落库；201 {id}" },
     { "method": "GET", "path": "/api/ask-logs", "note": "N16 问答台账，?task_id?" },

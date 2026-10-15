@@ -104,10 +104,27 @@
                  ⚠️ 第一版这里自己写了一套 `.wr-mat*` 的卡片——同一形态两套前缀，
                  样式与行为必然各走各的（已删掉，见 style.css 同一次提交）。 -->
             <div v-for="m in shownMaterials" :key="m.id" class="wr-matslot">
+              <!-- ⚠️ 这里**故意不挂 `@restore`**：契约里没有"恢复"端点（N14 只有软删），
+                   所以卡片那个「撤销删除」只可能出现在自跑演示（`:demo` / `?demo=mock`）里；
+                   生产路径上的"删错了"由下面那条 5 秒撤销提示兜（**在发 DELETE 之前**）。 -->
               <MaterialCard :material="m" @locate="jumpToMaterial(m)" />
               <div class="wr-matslot-ops">
                 <button class="btn sm" @click="insertMaterial(m)">插入引文</button>
+                <button
+                  class="btn ghost sm"
+                  title="从素材里移除（5 秒内可撤销）"
+                  @click="removeMaterial(m.id)"
+                >
+                  移除
+                </button>
               </div>
+            </div>
+            <!-- ⭐ 客户端撤销窗口：5 秒内**一个请求都没发**，点撤销就什么都不发生 -->
+            <div v-if="pendingDelete" class="wr-matundo">
+              <span>
+                已移除「{{ pendingQuote }}…」，5 秒内可撤销。
+              </span>
+              <button class="btn sm" @click="cancelPendingDelete()">撤销</button>
             </div>
           </template>
         </div>
@@ -470,6 +487,12 @@ import {
   title,
   toggleCheck,
 } from '../stores/useWrite'
+// 素材卡的写入路径（M2）：移除 + 客户端 5 秒撤销窗口
+import {
+  cancelPendingDelete,
+  pendingDelete,
+  removeMaterial,
+} from '../stores/useMaterials'
 import { closeMenus, openMenu, showToast, toggleMenu } from '../stores/useUi'
 import MaterialCard from '../components/MaterialCard.vue'
 import {
@@ -510,8 +533,20 @@ const showTemplates = ref(false)
 const clearArmed = ref(false)
 
 const shownMaterials = computed(() => {
-  if (!sourceFilter.value) return materials.value
-  return materials.value.filter((item) => item.source_name === sourceFilter.value)
+  // ⭐ 待删（撤销窗口内）的那条先不出现在列表里——但**一个请求都还没发**，
+  // 点「撤销」就原地回来（见 `useMaterials.removeMaterial`）。
+  const pendingId = pendingDelete.value ? pendingDelete.value.id : null
+  const rows = pendingId
+    ? materials.value.filter((item) => item.id !== pendingId)
+    : materials.value
+  if (!sourceFilter.value) return rows
+  return rows.filter((item) => item.source_name === sourceFilter.value)
+})
+
+/** 撤销提示里那句"已移除的是哪一条"（只说开头，别把整段原文铺在提示条上）。 */
+const pendingQuote = computed(() => {
+  const text = pendingDelete.value ? pendingDelete.value.material.text_quote : ''
+  return String(text || '').replace(/\s+/g, ' ').trim().slice(0, 24)
 })
 
 const outline = computed(() => outlineOf(body.value))

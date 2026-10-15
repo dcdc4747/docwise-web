@@ -147,6 +147,16 @@
             <svg class="ic-inl" aria-hidden="true"><use href="#i-info" /></svg>
             就这句提问
           </button>
+          <!-- ⭐ 入口①：划词浮标上的「存为素材」（与"就这句提问"同一处、同一个 store）。
+               ⚠️ 它必须是**兄弟节点**，不能塞进上面那个 `<button>` ——按钮套按钮是非法结构。 -->
+          <MaterialSaveButton
+            v-if="selChip && selChip.pageKey === page.key && selChip.blockId"
+            class="selchip-save"
+            variant="chip"
+            :task-id="currentTask && currentTask.id"
+            :block-id="selChip.blockId"
+            :style="{ left: selChip.left + 'px', top: Math.max(0, selChip.top - 34) + 'px' }"
+          />
         </div>
       </template>
     </div>
@@ -371,18 +381,31 @@
                 <div class="srcs">
                   <span class="lbl">出处：</span>
                   <template v-if="turn.sources.length">
-                    <button
-                      v-for="src in turn.sources"
-                      :key="src.id"
-                      class="src-tag"
-                      :class="{ unknown: !src.found }"
-                      :title="'原文块 ' + src.ids.join(' + ')"
-                      @click="traceTo(src.id, { text: src.text })"
-                    >
-                      {{ src.label || '出处未能定位' }} ▸
-                    </button>
+                    <template v-for="src in turn.sources" :key="src.id">
+                      <button
+                        class="src-tag"
+                        :class="{ unknown: !src.found }"
+                        :title="'原文块 ' + src.ids.join(' + ')"
+                        @click="traceTo(src.id, { text: src.text })"
+                      >
+                        {{ src.label || '出处未能定位' }} ▸
+                      </button>
+                      <!-- ⭐ 入口②：问答答案的出处后面「存为素材」。
+                           ⚠️ 只给出处**定位得到**的那些：模型编出来的块编号存下去只会 404。 -->
+                      <MaterialSaveButton
+                        v-if="src.found"
+                        variant="src"
+                        label="存素材"
+                        :task-id="currentTask && currentTask.id"
+                        :block-id="src.id"
+                      />
+                    </template>
                   </template>
                   <span v-else class="lbl">（回答未给出处）</span>
+                </div>
+                <!-- 存素材失败要说人话（不是静默什么都不发生） -->
+                <div v-if="saveState.status === 'error'" class="mat-saveerr">
+                  {{ saveState.message }}
                 </div>
               </div>
               <div class="a-tools">
@@ -412,18 +435,30 @@
               <div class="v">{{ point.text }}</div>
               <div class="ops">
                 <template v-if="point.sources.length">
-                  <button
-                    v-for="src in point.sources"
-                    :key="src.id"
-                    :title="'原文块 ' + src.ids.join(' + ')"
-                    @click="traceTo(src.id, { text: src.text })"
-                  >
-                    看原文（{{ src.label || '位置待定' }}）▸
-                  </button>
+                  <template v-for="src in point.sources" :key="src.id">
+                    <button
+                      :title="'原文块 ' + src.ids.join(' + ')"
+                      @click="traceTo(src.id, { text: src.text })"
+                    >
+                      看原文（{{ src.label || '位置待定' }}）▸
+                    </button>
+                    <!-- ⭐ 入口③：导读要点的出处后面「存为素材」（同一条 store 路径） -->
+                    <MaterialSaveButton
+                      v-if="src.found"
+                      variant="guide"
+                      label="存素材"
+                      :task-id="currentTask && currentTask.id"
+                      :block-id="src.id"
+                    />
+                  </template>
                 </template>
                 <!-- 没有单一段落出处 → 降级态置灰、不可点、不给箭头 -->
                 <button v-else class="dead" disabled>无单一段落出处</button>
                 <button @click="probePoint(point)">就这条追问</button>
+              </div>
+              <!-- 存素材失败要说人话 -->
+              <div v-if="saveState.status === 'error'" class="mat-saveerr">
+                {{ saveState.message }}
               </div>
               <div v-if="!point.sources.length" class="dead-note">
                 该要点由全文综合而成，没有哪一段能单独代表它——所以这里不给「看原文」。
@@ -487,6 +522,7 @@
  * 所以由 `App.vue` 算好、当 prop 传进来。
  */
 import Icon from '../components/Icon.vue'
+import MaterialSaveButton from '../components/MaterialSaveButton.vue'
 import PdfPane from '../components/PdfPane.vue'
 import {
   askChipsHint,
@@ -503,6 +539,8 @@ import {
   submitAsk,
 } from '../stores/useAsk'
 import { canRetryCurrent, openDeletePanel, openPanel, retryCurrent } from '../stores/useLibrary'
+// 素材卡的写入路径（M2）：三处入口共用它；`saveState` 用来就地反馈失败原因
+import { saveState } from '../stores/useMaterials'
 import {
   askSelectedSentence,
   assistTabs,
