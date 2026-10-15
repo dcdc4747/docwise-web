@@ -985,6 +985,146 @@ body {
   margin-top: var(--sp-1, 4px);
 }
 
+/* ============================================================================
+   [M1] 知识库筛选与概况 —— `LibFilters.vue` / `LibOverview.vue`（issue #111 / 卡③）
+   ============================================================================
+   自己的那一段：只加 `.lib-fl-` / `.lib-chip` / `.lib-ov` / `.lib-cloud` / `.lib-tag`
+   这些**新类名**（`.lib-wrap` 是 L1 既有类，不在本段里动它），不动上面任何人的段。
+   颜色 / 字号 / 间距一律 token 名，不写字面值。
+   ⚠️ 本段**插在 [F1] 与 [R3] 之间**而不是文件末尾：同时进行的 #117（[M2] 素材卡）也在末尾追加，
+   两段都追加在 EOF 会白造一次冲突；放在这里两边互不相邻。
+   ============================================================================ */
+
+.dw .lib-filters {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+/* 筛选条自己那张卡：**只包住筛选控件**。
+   筛空态落在卡外（它说的是"列表是空的"，塞进筛选卡的边框里会像"筛选控件自己坏了"）。 */
+.dw .lib-fl-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+
+.dw .lib-fl-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+.dw .lib-fl-key {
+  flex: none;
+  min-width: 4em;
+  color: var(--muted);
+  font-size: var(--fs-meta);
+}
+.dw .lib-fl-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+}
+
+.dw .lib-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--sp-1);
+  padding: var(--sp-1) var(--sp-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--fs-meta);
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease),
+    background var(--dur-fast) var(--ease);
+}
+.dw .lib-chip:hover { background: var(--hover); }
+/* 键盘焦点态：芯片是键盘可达的（原生 button），焦点必须看得见 */
+.dw .lib-chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+/* 选中档：底、边、字三处一起变 —— 只改一点深浅，扫一眼分不出筛没筛 */
+.dw .lib-chip.is-on {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+.dw .lib-chip-n {
+  color: var(--muted);
+  font-size: var(--fs-micro);
+}
+.dw .lib-chip.is-on .lib-chip-n { color: var(--accent); }
+
+/* 「当前筛选 + 清除」那一行：与上面的选项区分开（它是状态，不是又一组可选项） */
+.dw .lib-fl-active {
+  padding-top: var(--sp-2);
+  border-top: 1px solid var(--line-soft);
+}
+.dw .lib-fl-sum {
+  color: var(--ink);
+  font-size: var(--fs-meta);
+}
+.dw .lib-fl-clear { margin-left: auto; }
+
+/* 概况底行：**文字明细为主**（数字列 tabular-nums 对齐），标签云跟在后面 */
+.dw .lib-ov {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  padding: var(--sp-2) 0;
+}
+.dw .lib-ov-line {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--fs-meta);
+  font-variant-numeric: tabular-nums;
+}
+.dw .lib-cloud {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.dw .lib-tag {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--sp-1);
+  padding: 2px var(--sp-2);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-sm);
+  background: var(--surface-3);
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--fs-micro);
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+}
+.dw .lib-tag:hover {
+  border-color: var(--accent-line);
+  color: var(--accent);
+}
+.dw .lib-tag:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.dw .lib-tag-n {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
 /* ============================================================
    [R3] 图标 —— sprite（35 个 <symbol id="i-…">）已整段 inline 进 index.html
    用法与三条纪律照 03_形态与设计/设计参考/图标集_用法.md §二 抄。
@@ -1244,6 +1384,3 @@ svg.ic-inl {
   flex-direction: column;
   overflow-y: auto;
 }
-
-
-
