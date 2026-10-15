@@ -32,6 +32,7 @@ import {
 } from './auth'
 import AdminView from './components/AdminView.vue'
 import AppRail from './components/AppRail.vue'
+import RailAccount from './components/RailAccount.vue'
 import AppStatusBar from './components/AppStatusBar.vue'
 import AppTabbar from './components/AppTabbar.vue'
 import LoginView from './components/LoginView.vue'
@@ -408,16 +409,27 @@ const tabbarActive = computed(() => {
   return 'library'
 })
 
+/**
+ * 进个人中心。左栏底部账号区（R7）与手机标签栏「我的」（R6）**走同一条路**：
+ * 「先动状态、地址跟着状态走」——理由与 `onRailSelect` 上那段注释同源
+ * （`navigateToHash` 会把目标 hash 记进 `expectedHash`，紧接着的 `hashchange` 便不再替我们设状态）。
+ * ⚠️ `RAIL_TARGETS` 里**没有** `me` 这一条（桌面那条路到 R7 才有入口），所以它单独成函数，
+ * 两个入口都调它，避免两处各写一遍顺序。
+ */
+function goMe() {
+  closeMenus()
+  view.value = 'me'
+  activeNav.value = 'me'
+  navigateToHash({ name: 'me' })
+}
+
 /** 点一条标签：走与左栏**同一条路**（"先动状态、地址跟着状态走"的完整理由在 `onRailSelect` 上）。 */
 function onTabSelect(key) {
   const railKey = TAB_TARGETS[key]
   if (!railKey) return
   // 「我的」：左栏表里没有这一条，所以这一处单独设状态 + 写地址（与 `onRailSelect` 同一顺序）
   if (railKey === 'me') {
-    closeMenus()
-    view.value = 'me'
-    activeNav.value = 'me'
-    navigateToHash({ name: 'me' })
+    goMe()
     return
   }
   onRailSelect(railKey)
@@ -570,12 +582,17 @@ function handleUnauthorized() {
         <!-- ==================== 左栏（常驻，260 ⇄ 58） ==================== -->
         <aside class="rail">
           <AppRail :rail-min="railMin" :active-nav="activeNav" @toggle="toggleRail" @select="onRailSelect">
-            <!-- ⭐ 账号区挂载点（R7 的 `RailAccount.vue` 挂在这个具名插槽上）。
-                 第 6 步就留好了座位，第 7 步（本卡）复核仍是**空插槽** —— 收起 / 展开都不会
-                 多出一个空的按钮（空的可聚焦元素会白白多一次 Tab）。
-                 R7 填进来时把 `authUser` / `accountLabel` 交下去即可，
-                 **外壳这一行不用再改**（这正是"预留挂载点"要的效果）。 -->
-            <template #account />
+            <!-- ⭐ 账号区挂载点（第 6 步留的座位，**R7 已填上**：`components/RailAccount.vue`）。
+                 数据一律由外壳交下去（`accountLabel` / `activeNav === 'me'`），
+                 组件本身不认识 store、不读地址 —— `AppRail.vue` 的"哑组件"约定不破。
+                 点它走 `goMe()`，与手机标签栏「我的」同一条路。 -->
+            <template #account>
+              <RailAccount
+                :label="accountLabel"
+                :active="activeNav === 'me'"
+                @select="goMe"
+              />
+            </template>
           </AppRail>
         </aside>
 

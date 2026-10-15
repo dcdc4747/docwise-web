@@ -1744,4 +1744,62 @@ describe('App.vue 页面渲染', () => {
     expect(wrapper.find('.screen-me').exists()).toBe(true)
     expect(tabByLabel('我的').classes()).toContain('on')
   })
+
+  // ============================================================ R7 左栏账号区
+  //
+  // 形态 v2 §1.2 布局图第 60 行：`│ 小研 ›   │  ← 账号区（点进个人中心，进入后高亮）`；
+  // M0 判据原文：「**账号区点进个人中心且进入后高亮**」。
+  // 这一卡之前是**空插槽**（`<template #account />`），所以桌面端一直只能从顶栏账号菜单进个人中心。
+
+  it('R7：账号区露出现在是谁，而且是**原生可点**的（键盘可达，不许 div+@click）', async () => {
+    setViewportWidth(1440)
+    wrapper = mountApp()
+    await flushPromises()
+
+    const account = wrapper.find('button.rail-account')
+    expect(account.exists()).toBe(true)
+    expect(account.element.tagName).toBe('BUTTON')
+    expect(account.attributes('type')).toBe('button')
+    // 显示的是外壳那份 `accountLabel`（`tester（普通用户）`），**不是**另拼一套名字
+    expect(account.text()).toContain('tester')
+    // 首字头像：收起态就靠它（`.rail-lbl` 会被既有的 `.rail-min .rail-lbl` 藏掉）
+    expect(account.find('.rail-av').text()).toBe('t')
+    // 还没进个人中心 → 不该亮
+    expect(account.classes()).not.toContain('on')
+  })
+
+  it('R7：点账号区进 `#/me`，到了那里要**亮**（与左栏同一套选中态，且读屏也知道是当前页）', async () => {
+    setViewportWidth(1440)
+    wrapper = mountApp()
+    await flushPromises()
+
+    await wrapper.find('button.rail-account').trigger('click')
+    await flushPromises()
+
+    expect(window.location.hash).toBe('#/me')
+    expect(wrapper.find('.screen-me').exists()).toBe(true)
+    const account = wrapper.find('button.rail-account')
+    expect(account.classes()).toContain('on')
+    expect(account.attributes('aria-current')).toBe('page')
+  })
+
+  it('R7：账号区不借 `.rail-item` 类名，且收起态只留首字头像（靠既有 `.rail-min .rail-lbl`）', () => {
+    const rail = srcText('components/AppRail.vue')
+    const accountSrc = srcText('components/RailAccount.vue')
+    const css = srcText('style.css')
+    const section = css.slice(css.indexOf('[R7] 左栏账号区'))
+
+    // ⚠️ 借用 `.rail-item` 会把那条「恰好 12 个」的用例数成 13
+    expect(accountSrc).not.toMatch(/class="rail-item/)
+    // 座位还在（R4 留的具名插槽），只是外壳把它填上了
+    expect(rail).toContain('<slot name="account" />')
+    expect(srcText('App.vue')).toMatch(/<RailAccount[\s\S]*?:label="accountLabel"/)
+    // 与 `.rail-item` 同一套交互，一个都不能少
+    expect(section).toMatch(/\.dw \.rail-account \{[^}]*display: flex/)
+    expect(section).toMatch(/\.dw \.rail-account\.on \{/)
+    expect(section).toMatch(/\.dw \.rail-account:focus-visible \{/)
+    // 收起态：只藏名字（`.rail-lbl` 走既有规则）、留头像；`›` 也藏
+    expect(section).toMatch(/\.dw \.rail-min \.rail-account \.rail-arrow \{ display: none; \}/)
+    expect(section).toMatch(/\.dw \.rail-av \{[^}]*width: 22px/)
+  })
 })
