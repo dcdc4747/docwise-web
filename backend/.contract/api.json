@@ -14,7 +14,7 @@
     "真实性来源：本清单的 anchors 是由 backend/scripts/check_contract.py --print 打出来的真实路由表逐条核对的，",
     "  不是从文档抄的 —— 手抄文档正是第一版把 25 个端点写成 23 个的原因。"
   ],
-  "declared_endpoint_count": 50,
+  "declared_endpoint_count": 60,
   "anchors": [
     { "method": "GET", "path": "/api/health", "note": "真检查（数据库+worker）；无需鉴权" },
 
@@ -74,20 +74,18 @@
     { "method": "POST", "path": "/api/ask-logs", "note": "N15 问答落库；201 {id}（服务端答题时就已写一条，这里给补齐/重放）" },
     { "method": "GET", "path": "/api/ask-logs", "note": "N16 问答台账，?task_id?；与台账**同源**（同一张 memory_events，stage=ask）" },
     { "method": "GET", "path": "/api/memory-events", "note": "N17 台账读取（前端只调 GET），?task_id? &layer? &limit?（默认 200 / 上限 1000）" },
-    { "method": "POST", "path": "/api/memory-events", "note": "N17 只给服务端内部写（前端不该手工埋点）；写失败 → 503，不给假 id" }
-  ],
-  "expected_new": [
+    { "method": "POST", "path": "/api/memory-events", "note": "N17 只给服务端内部写（前端不该手工埋点）；写失败 → 503，不给假 id" },
+
     { "method": "GET", "path": "/api/collections", "note": "N1 集合列表（doc_count 直接成员 / doc_count_deep 含子集合）" },
     { "method": "POST", "path": "/api/collections", "note": "N2 新建集合；400 同父重名 / 父不存在" },
-    { "method": "PATCH", "path": "/api/collections/{param}", "note": "N3 改名 / 移动；400 成环" },
-    { "method": "DELETE", "path": "/api/collections/{param}", "note": "N4 只删集合，不动文献" },
-
-    { "method": "PUT", "path": "/api/tasks/{param}/collections", "note": "N5 文献归集，全量替换" },
-    { "method": "GET", "path": "/api/tags", "note": "N6 标签列表，?kind? ∈ {topic, method, status}" },
-    { "method": "PUT", "path": "/api/tasks/{param}/tags", "note": "N7 按名字 upsert 标签" },
-
-    { "method": "GET", "path": "/api/smart-collections", "note": "N9 智能集合列表（规则即数据）" },
-    { "method": "POST", "path": "/api/smart-collections", "note": "N10 新建智能集合；400 query 非法" },
+    { "method": "PATCH", "path": "/api/collections/{param}", "note": "N3 改名 / 移动；400 成环（不许把自己移进自己的后代）" },
+    { "method": "DELETE", "path": "/api/collections/{param}", "note": "N4 只删集合，不动文献；`{deleted, moved_to_parent}`" },
+    { "method": "PUT", "path": "/api/tasks/{param}/collections", "note": "N5 文献归集，全量替换；别人/不存在的集合 id 一律 400（同句，不暴露存在性）" },
+    { "method": "GET", "path": "/api/tags", "note": "N6 标签列表，?kind? ∈ {topic, method, status}；认不出的 kind 回空表" },
+    { "method": "PUT", "path": "/api/tasks/{param}/tags", "note": "N7 按名字 upsert 标签，并全量替换该文献的标签集" },
+    { "method": "GET", "path": "/api/smart-collections", "note": "N9 智能集合列表（规则即数据；每条带当场算出来的 count）" },
+    { "method": "POST", "path": "/api/smart-collections", "note": "N10 新建智能集合；400 query 非法（形状与白名单见契约 §2.3）" },
     { "method": "DELETE", "path": "/api/smart-collections/{param}", "note": "N11 400 内置规则不许删" }
-  ]
+  ],
+  "expected_new": []
 }

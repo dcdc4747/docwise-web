@@ -75,6 +75,10 @@ const IMPLEMENTED_BUT_MOCKED = [
   // 台账那一组（N15–N17，2026-10-16 加的前缀）：已实现但仍要 mock
   '/api/ask-logs',
   '/api/memory-events',
+  // 知识库那一组（N1–N7、N9–N11，2026-10-16 加的前缀）：已实现但仍要 mock
+  '/api/collections',
+  '/api/tags',
+  '/api/smart-collections',
 ]
 const reconcileKeys = [
   ...expectedNewKeys,
