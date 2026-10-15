@@ -248,6 +248,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 
 import { apiJson, authFetch, clearToken } from '../auth'
+import { actorText, stageText } from '../ledgerText'
 import HonestNote from '../components/HonestNote.vue'
 
 const PREFS_KEY = 'docwise_prefs'
@@ -416,27 +417,8 @@ async function download(path, filename) {
 }
 
 // ---------------------------------------------------------------- ④ 台账
-const STAGE_TEXT = {
-  extract: '取字',
-  ocr: '扫描件 OCR',
-  translate: '逐段翻译',
-  understanding: '导读 / 术语',
-  ask: '问答',
-  check: '收口检查',
-}
-
-function stageText(stage) {
-  if (!stage) return '—'
-  return STAGE_TEXT[stage] ? `${STAGE_TEXT[stage]}` : String(stage)
-}
-
-/** `actor` 就是"数据流向"的证据（契约 §2.8）。 */
-function actorText(actor) {
-  if (actor === 'local') return '本地处理'
-  if (actor === 'api') return '发往模型 API'
-  if (actor === 'user') return '你（人工）'
-  return actor ? String(actor) : '—'
-}
+// ⚠️ 环节与流向的文案映射**不在本文件**：`ledgerText.js` 是全站唯一一份，
+// 「处理过程」一屏（`ProcessView.vue`）读的是**同一张表**，两边必须一个说法。
 
 // ---------------------------------------------------------------- ⑤ 偏好
 /**
