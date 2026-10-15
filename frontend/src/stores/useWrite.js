@@ -440,6 +440,121 @@ export async function jumpByOrder(order) {
   return jumpToSource(hit)
 }
 
+// ============================================================ 收口检查（M4）
+
+/**
+ * 收口检查（形态 §3.3 / 契约 §2.7 的 N22–N23）。
+ *
+ * ⚠️ **它是"看"，不是"改"**：这里只把报告取回来摆出来，
+ * **一个"一键修好/自动改写"都没有**（形态 §3.3 ②：并列摆出两处，不自动改）。
+ * ⚠️ **判不出就说判不出**：`unknown` 是一等公民，界面上**单独一栏**，
+ * 绝不混进"该报的"里充数。
+ * ⚠️ **不报百分比**（卡④⑧）：只给「报出 N 处、另有 M 处判不出」。
+ */
+export const checkOpen = ref(false)
+export const checkReport = ref(null)
+export const checkRunning = ref(false)
+export const checkError = ref('')
+
+/** 分组的顺序**写死**（与后端 `rules.py` 的 `KIND_ORDER` 一致）：不靠对象键序去猜。 */
+const CHECK_KINDS = [
+  { kind: 'missing_citation', label: '该引未引' },
+  { kind: 'term_inconsistent', label: '术语一致性' },
+  { kind: 'format', label: '格式自检' },
+  { kind: 'unknown', label: '无法判断' },
+]
+
+/** 报告按 `kind` 分组（空组不出现）；每组带自己的计数，**不出百分比**。 */
+export const checkGroups = computed(() => {
+  const findings = checkReport.value?.findings || []
+  return CHECK_KINDS.map(({ kind, label }) => {
+    const items = findings.filter((item) => item.kind === kind)
+    return {
+      kind,
+      label,
+      items,
+      reported: items.filter((item) => item.severity === 'report').length,
+      unknown: items.filter((item) => item.severity === 'unknown').length,
+    }
+  }).filter((group) => group.items.length)
+})
+
+export const checkSummary = computed(
+  () => checkReport.value?.summary || { reported: 0, unknown: 0 },
+)
+
+/** 引擎判出来的语言与引用制式（说人话；**判不出就写"未能识别"**）。 */
+export const checkStep = computed(() => {
+  const step = checkReport.value?.step
+  if (!step) return null
+  return {
+    lang: step.lang === 'zh' ? '中文' : step.lang === 'en' ? '英文' : '未能识别',
+    style:
+      step.citation_style === 'numeric'
+        ? '顺序编码制（[n]）'
+        : step.citation_style === 'author-year'
+          ? '著者-出版年制（作者，年份）'
+          : '未能识别',
+    unknownLang: step.lang === 'unknown',
+    unknownStyle: step.citation_style === 'unknown',
+  }
+})
+
+export function toggleCheck() {
+  checkOpen.value = !checkOpen.value
+}
+
+export function openCheck() {
+  checkOpen.value = true
+}
+
+export function closeCheck() {
+  checkOpen.value = false
+}
+
+/** 跑一次检查（契约 N22）。**报告只读**：不写回草稿、不动引文。 */
+export async function runCheck() {
+  const draft = currentDraft.value
+  if (!draft) {
+    checkError.value = '先建一份草稿，再跑检查'
+    return false
+  }
+  checkRunning.value = true
+  checkError.value = ''
+  try {
+    const report = await apiJson('/api/check', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ draft_id: draft.id, doc_text: body.value || '' }),
+    })
+    checkReport.value = report
+    const { reported, unknown } = checkSummary.value
+    logEvent(`收口检查：报出 ${reported} 处，另有 ${unknown} 处判不出`)
+    return true
+  } catch (err) {
+    checkReport.value = null
+    checkError.value = err.message || '检查没跑成'
+    return false
+  } finally {
+    checkRunning.value = false
+  }
+}
+
+/**
+ * 点「回素材那一句」：按 `suggest.material_id` 找素材。
+ * **找不到就如实说**（换了草稿 / 素材被删），**绝不装作能跳**。
+ */
+export function jumpToSuggested(finding) {
+  const id = finding?.suggest?.material_id
+  if (id === null || id === undefined) return
+  const material = materials.value.find((item) => item.id === id)
+  if (!material) {
+    showToast('这条候选素材不在当前素材列表里（可能换了草稿，或素材被删了）')
+    return
+  }
+  jumpToMaterial(material)
+}
+
 // ============================================================ 收尾
 
 /** 退出登录 / 换账号时清空（否则下一个人会看到上一个人的草稿）。 */
@@ -455,6 +570,9 @@ export function resetWrite() {
   saveError.value = ''
   savedAt.value = ''
   sessionLog.value = []
+  checkOpen.value = false
+  checkReport.value = null
+  checkError.value = ''
   dirty = false
   if (saveTimer) {
     clearTimeout(saveTimer)

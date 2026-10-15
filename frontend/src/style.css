@@ -1817,6 +1817,12 @@ svg.ic-inl {
   .dw .wr-doc-foot,
   .dw .wr-editor,
   .dw .wr-preview { padding-left: var(--sp-3); padding-right: var(--sp-3); }
+}
+/* ⚠️ 上面这个 `}` 是 2026-10-16 补的：`[M3]` 那段媒体查询**当时没闭合**，
+   把后面所有段（`[M2]` 素材卡自跑、`[M0]` 的动效偏好、`[M4]` 的检查抽屉）
+   全吞进了「只在 <1024px 生效」里 —— 桌面宽度下那几条都不生效。
+   是**浏览器实测**抓出来的（抽屉量出 1180px 宽，本该 460px）。 */
+
 /* ============================================================================
    [M2] 素材卡 —— `MaterialCard.vue`（issue #110 / 任务卡：卡②）
    ============================================================================
@@ -1936,6 +1942,120 @@ svg.ic-inl {
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
   }
+}
+
+/* ============================================================================
+   [M4] 收口检查抽屉（2026-10-16）—— 形态 §3.3：它是起草页里的抽屉，不是独立页面
+   ============================================================================
+   自己的那一段：只加 `.wr-check*`（抽屉本体）与 `.wr-check-toggle`（顶栏那个按钮）。
+   颜色 / 字号 / 间距一律 token 名，不动上面任何人的段。
+   ============================================================================ */
+
+.dw .wr-check-toggle { margin-left: var(--sp-2); }
+
+/* 遮罩：点一下关抽屉（形态 §3.3「点遮罩可关」） */
+.dw .wr-checkmask {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgba(15, 20, 30, 0.35);
+}
+
+.dw .wr-check {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 41;
+  width: min(460px, 92vw);
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border-left: 1px solid var(--line);
+  box-shadow: -8px 0 24px rgba(15, 20, 30, 0.12);
+}
+
+.dw .wr-checkhead {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--line);
+  font-weight: 600;
+}
+
+.dw .wr-checkbody {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--sp-4);
+}
+
+.dw .wr-checkrun {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  margin: var(--sp-3) 0;
+}
+
+.dw .wr-checkstep {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+  margin: var(--sp-3) 0;
+  font-size: var(--fs-meta);
+  color: var(--muted);
+}
+
+.dw .wr-checksum { margin: var(--sp-3) 0; font-weight: 600; }
+.dw .wr-checkgroup { margin-top: var(--sp-4); }
+
+.dw .wr-checkgrouphead {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding-bottom: var(--sp-2);
+  border-bottom: 1px solid var(--line);
+  font-size: var(--fs-meta);
+}
+
+.dw .wr-checkkind { font-weight: 600; }
+
+.dw .wr-checkitem {
+  padding: var(--sp-3) 0;
+  border-bottom: 1px dashed var(--line);
+}
+
+/* 原句是这一条的主角：左边一条竖线，跟"出处高亮"同一个视觉语言 */
+.dw .wr-checkquote {
+  margin: 0;
+  padding-left: var(--sp-2);
+  border-left: 3px solid var(--accent);
+  font-size: var(--fs-ui);
+  line-height: 1.7;
+}
+
+.dw .wr-checkreason { margin: var(--sp-2) 0 0; font-size: var(--fs-meta); }
+
+.dw .wr-checkrule {
+  margin: var(--sp-1) 0 0;
+  font-size: var(--fs-micro);
+  color: var(--unknown);
+}
+
+.dw .wr-checksuggest {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+}
+
+.dw .wr-checksuggest-t { font-size: var(--fs-micro); color: var(--muted); }
+
+/* 起草页在 <1024px 本来就是"单栏分档切换"，抽屉直接占满宽度 */
+@media (max-width: 1023px) {
+  .dw .wr-check { width: 100vw; }
 }
 
 

@@ -60,7 +60,7 @@ import {
   stopProgress,
 } from './stores/useReader'
 import { clearTasks, tasks } from './stores/useTasks'
-import { resetWrite } from './stores/useWrite'
+import { openCheck, resetWrite } from './stores/useWrite'
 import {
   activeNav,
   closeMenus,
@@ -313,7 +313,7 @@ async function applyBootRoute() {
 const RAIL_TARGETS = {
   read: { go: { name: 'library' } },
   write: { go: { name: 'write' } },
-  check: { note: '收口（形态 v2 的 M4）还没做，先回「我的论文」' },
+  check: { go: { name: 'write' }, opens: 'check' },
   // 「全部文献」= 回库页**并清掉筛选**（不传 filter 会沿用上一次的条件，那就不是"全部"了）
   'lib-all': { go: { name: 'library' }, filter: {} },
   'lib-collections': { note: '集合列表接口（契约 N1）还没做——筛选条上的「集合」那一行等它', },
@@ -346,6 +346,8 @@ function onRailSelect(key) {
   // `view` 决定渲染哪一屏，`activeNav` 决定左栏哪一项亮着（那次 hashchange 被吞了，
   // `syncFromRoute` 不会替我们做这件事）。
   const go = target.go || { name: 'library' }
+  // ⭐「收口」= 进起草页**并当场拉开检查抽屉**（形态 §3.3：收口是起草页里的抽屉，不是新页面）
+  if (target.opens === 'check') openCheck()
   view.value = go.name === 'write' ? 'write' : go.name === 'me' ? 'me' : 'library'
   activeNav.value = go.name === 'write' ? 'write' : go.name === 'me' ? 'me' : 'read'
   // ⭐ 带筛选条件的入口（「待读」= 智能集合"状态 = 待读"；「全部文献」= 清掉筛选）：
