@@ -2549,6 +2549,26 @@ svg.ic-inl {
   .dw .pg-edit { margin-left: var(--sp-3); }
 }
 
+/* ============================================================================
+   [E11] 收口报告导出（2026-10-16）—— 报告能带走，且带走的就是界面所见
+   ============================================================================
+   自己的那一段：只加 `.wr-checkexport*`（抽屉里的导出那一行）。
+   颜色 / 字号 / 间距一律 token 名，不动上面任何人的段。
+   ============================================================================ */
+
+.dw .wr-checkexport {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin: var(--sp-2) 0 var(--sp-3);
+  padding-bottom: var(--sp-2);
+  border-bottom: 1px dashed var(--line);
+}
+
+/* 那一行说明文字（"Markdown 带筛子账；CSV 一行一条"）比正文小一档，别抢按钮的位 */
+.dw .wr-checkexport .wr-muted { font-size: var(--fs-micro); }
+
 
 
 
