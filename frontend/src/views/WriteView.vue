@@ -377,6 +377,21 @@
               {{ checkSummary.unknown }} 处判不出</template>
           </p>
 
+          <!-- ⭐ E11：把当前这份报告带走。**导出的内容与界面所见一致**——
+               Markdown 含全部条目 + 筛子账（"为什么只报这么少"不许只导结论）；
+               CSV 一行一条 finding，方便进表格（说明文字只进 Markdown，混进数据行这表就废了）。
+               ⚠️ 没有报告时**没有这颗按钮**（它整段就在 `v-if="checkReport"` 里）。 -->
+          <div class="wr-checkexport">
+            <button class="btn ghost sm" data-format="md" @click="exportReport('md')">
+              导出 Markdown
+            </button>
+            <button class="btn ghost sm" data-format="csv" @click="exportReport('csv')">
+              导出 CSV
+            </button>
+            <span class="wr-muted">Markdown 带筛子账；CSV 一行一条</span>
+          </div>
+          <HonestNote v-if="exportError" :text="`导出没成：${exportError}`" />
+
           <p v-if="!checkGroups.length" class="wr-muted">这份稿子没查出问题。</p>
 
           <section v-for="group in checkGroups" :key="group.kind" class="wr-checkgroup">
@@ -501,6 +516,14 @@ import {
   TEXT_TEMPLATE_RE,
   uploadTemplateId,
 } from '../writeText'
+// 收口报告的导出层（E11）：纯函数序列化单独一层，导出内容与界面所见一致
+import {
+  canExport,
+  exportFilename,
+  exportMimeType,
+  formatStamp,
+  reportToText,
+} from '../checkExport'
 
 /**
  * 内置模板（模板 / 大纲两个入口用）。
@@ -588,6 +611,59 @@ function onWriteKeydown(event) {
 function suggestedSource(item) {
   const material = materials.value.find((one) => one.id === item?.suggest?.material_id)
   return material ? material.source_name : '素材已不在列表里'
+}
+
+// ============================================================ 报告导出（E11 尾）
+
+const exportError = ref('')
+
+/** 导出用标题：草稿名（没稿就叫"未命名草稿"——文件名与报告抬头都用它）。 */
+const exportTitle = computed(() => currentDraft.value?.title || '未命名草稿')
+
+/**
+ * 导出当前这份报告 —— **把界面上看得见的内容抄成文件**：
+ * 不调接口、不动稿子、不写库（报告本身是只读的，导出也不改它）。
+ *
+ * ⚠️ 按钮只在有报告时出现（模板里整段在 `v-if="checkReport"` 内），这里再兜一次底：
+ * 真被调到也**如实说"还没有报告"**，绝不生成一份空报告骗人。
+ * ⚠️ 失败**不许静默**：写进 `exportError`，抽屉里当场出诚实提示。
+ */
+function exportReport(format) {
+  const report = checkReport.value
+  if (!canExport(report)) {
+    exportError.value = '还没有报告——先跑一次检查'
+    return
+  }
+  try {
+    const at = new Date()
+    const text = reportToText(format, {
+      report,
+      step: checkStep.value,
+      groups: checkGroups.value,
+      title: exportTitle.value,
+      stamp: formatStamp(at),
+      sourceNameOf: suggestedSource,
+    })
+    saveAsFile(exportFilename(exportTitle.value, format, at), text, exportMimeType(format))
+    exportError.value = ''
+  } catch (err) {
+    exportError.value = err?.message || '原因不明'
+  }
+}
+
+/** 把一段文本存成文件（Blob + 临时链，用完即撤——不留悬着的 object URL）。 */
+function saveAsFile(filename, text, type) {
+  const url = URL.createObjectURL(new Blob([text], { type }))
+  try {
+    const link = document.createElement('a')
+    link.href = url
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+  } finally {
+    URL.revokeObjectURL(url)
+  }
 }
 
 // ============================================================ 起稿四入口
