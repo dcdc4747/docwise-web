@@ -491,7 +491,14 @@ body {
 .dw .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
 .dw .paper-card { display: flex; flex-direction: column; gap: 10px; }
 .dw .paper-card .row { display: flex; align-items: center; gap: 8px; }
-.dw .paper-card .fname { font-weight: 600; }
+/* ⚠️ 文件名必须**允许在任意位置断开**（2026-10-16 在 390 视口上量出来的）：
+   库里卡片名带上传落盘的存储前缀（32 位 hex + `_` + 原名），那一整串
+   **没有可断点**→ 卡片的 min-content = 465.9px → **网格轨道被顶到 573.3px**，
+   而 `.lib-wrap` 只有 284px 可用宽 → 卡片被裁掉 265px。
+   ⚠️ 病因是"最小内容宽度"，所以 `min-width: 0` / `overflow: hidden` 都**治不了**
+   （实测：加了格子仍是 573px）——**只有能断行的那条** `overflow-wrap: anywhere`
+   把轨道收回 284px。桌面档下文件名本来就短，这条对它们没有可见影响。 */
+.dw .paper-card .fname { font-weight: 600; overflow-wrap: anywhere; }
 .dw .paper-card .meta { font-size: 12px; color: var(--muted); }
 .dw .paper-card .lastpos { font-size: 12px; color: var(--accent); }
 .dw .paper-card .actions { display: flex; gap: 8px; margin-top: auto; }
@@ -653,8 +660,18 @@ body {
 .dw .composer textarea:focus { outline: none; border-color: var(--accent-line); }
 
 /* ---------- 手机端 ---------- */
+/* ⚠️ `min-width: 0` 不是可有可无的装饰（2026-10-16 在真实页面上量出来的）：
+   弹性子项默认 `min-width: auto` = **不许缩到内容的最小宽度以下**，而这条链
+   `.dw-main`(.screen-reader/.reader-body) → `.mobile-reader` → `.pdoc` → `.toc`
+   里任意一环**不缩**，下面全都按"内容想要多宽"排。实测 390 视口下
+   `.mobile-reader` = **904.9px**、目录 = 876.9px，然后被 `.dw-layout`
+   （`overflow: hidden`）**默默裁掉**——`document.scrollingElement.scrollWidth`
+   仍是 390，所以**没有任何自动检查会报红**，只有肉眼看截图才发现目录读到一半就没了。
+   补这一条后：`.mobile-reader` 904.9 → **332**、目录 876.9 → **304**（回到栏内）。
+   ⚠️ 只给 `.mobile-reader` 补就够（`.screen-reader` / `.reader-body` 上补**无效**，实测过）；
+   守卫见 `tests/narrow-overflow.test.js`。 */
 .dw .mobile-reader {
-  flex: 1; display: flex; flex-direction: column; min-height: 0;
+  flex: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0;
   position: relative; background: #fff;
 }
 .dw .ptop { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line); font-size: 12px; }
@@ -2405,7 +2422,18 @@ svg.ic-inl {
   .dw .proc {
     padding: var(--sp-3) var(--sp-3) calc(var(--tabbar-h, 0px) + env(safe-area-inset-bottom, 0px) + var(--sp-6));
   }
-  .dw .proc-select { max-width: 100%; }
+  /* ⚠️ **三个都要，少一个都不行**（2026-10-16 在 390 视口上逐条 A/B 量出来的）：
+     下拉里那个最长的选项名把 `<select>` 撑到 443.5px，`<select>` 又把外层
+     `label.proc-field` 撑到 **464px** → 右边界到 534px，视口只有 390
+     → 「文献」那一条下拉**超出屏幕 144px 被裁掉**。
+     · `label` 上的 `max-width: 100%`：**它先要有个边界，百分比才谈得上**
+       （只写在下拉上时 field 依旧是 464px）；
+     · 下拉上的 `flex: 1 1 auto; min-width: 0`：`max-width: 100%` 是按 label 的
+       **内容盒**算的，加上 `gap` 与「文献」两个字就会多出 8.5px；
+       让下拉自己参与收缩、且允许缩到内容宽以下，才正好落在栏里。
+     实测三条合计：field 464 → **299.3px**、下拉 443.5 → **275.8px**（右边界 378 < 390）。 */
+  .dw .proc-field { max-width: 100%; }
+  .dw .proc-select { max-width: 100%; flex: 1 1 auto; min-width: 0; }
 }
 
 /* =============================================================
