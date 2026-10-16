@@ -101,10 +101,13 @@ describe('出现位置：至少三处可见标注', () => {
     }
   })
 
-  it('⭐ 译文那颗与「已人工修改」互斥：人改过的句子不许被说成模型译的', () => {
-    expect(src).toMatch(
-      /v-if="blockHasTranslated\(row\.block\) && !editedBlockIds\.has\(row\.block\.block_id\)"/,
+  it('⭐ 译文那颗与「已人工修改」互斥，且**两条渲染路径都挂**', () => {
+    // ⚠️ 段落精读有两条渲染路径（桌面 `.page .cols p` 与手机 `.pdoc .zh`）——
+    // 只接一条的后果真发生过：桌面读文献的人看不到 AI 标注（是截图比对时抓出来的）。
+    const hits = src.match(
+      /v-if="blockHasTranslated\(row\.block\) && !editedBlockIds\.has\(row\.block\.block_id\)"/g,
     )
+    expect(hits).toHaveLength(2)
   })
 
   it('问答那颗贴在回答气泡里、导读那颗贴在导读面板里（标注要挨着内容）', () => {
