@@ -83,6 +83,12 @@ export const MOCK_ROUTES = [
   { n: 'N33', method: 'POST', path: '/api/block-edits' },
   { n: 'N33', method: 'GET', path: '/api/block-edits' },
   { n: 'N34', method: 'POST', path: '/api/block-exposures' },
+  // 记忆（M7，契约外的新东西 · §2.10 / N35–N39）：用法偏好
+  { n: 'N35', method: 'GET', path: '/api/memories' },
+  { n: 'N36', method: 'POST', path: '/api/memories' },
+  { n: 'N37', method: 'PATCH', path: '/api/memories/{id}' },
+  { n: 'N38', method: 'DELETE', path: '/api/memories/{id}' },
+  { n: 'N39', method: 'GET', path: '/api/memories/resolve' },
   { n: 'N22', method: 'POST', path: '/api/check' },
   { n: 'N23', method: 'GET', path: '/api/check/{run_id}' },
   { n: 'N24', method: 'GET', path: '/api/me/storage' },
@@ -329,7 +335,9 @@ function seed() {
     // —— mock 也照契约 §2.10 的唯一键做幂等，别让离线开发看到"重复上报长新行"。
     block_edits: [],
     block_exposures: [],
-    next_id: { collections: 4, smart_collections: 5, materials: 3, ask_logs: 2, drafts: 2, citations: 2, check_runs: 13, block_edits: 1, block_exposures: 1 },
+    // 记忆（M7 · N35–N39）：用法偏好。⚠️ 默认**空**——界面要如实显示"还没有记忆"，不许编
+    memories: [],
+    next_id: { collections: 4, smart_collections: 5, materials: 3, ask_logs: 2, drafts: 2, citations: 2, check_runs: 13, block_edits: 1, block_exposures: 1, memories: 1 },
   }
 }
 
@@ -933,6 +941,96 @@ const HANDLERS = {
     state.next_id.block_exposures += 1
     state.block_exposures.push(created)
     return ok({ id: created.id, created: true }, 201)
+  },
+
+  // ---- §2.10 记忆（M7：N35–N39）用法偏好
+  'GET /api/memories': ({ query }) => {
+    const kind = query.get('kind') || ''
+    if (kind && kind !== 'term' && kind !== 'cite') return fail(400, 'kind 只能是 term 或 cite')
+    const enabledQ = query.get('enabled')
+    let rows = [...state.memories]
+    if (kind) rows = rows.filter((item) => item.kind === kind)
+    if (enabledQ === 'true') rows = rows.filter((item) => item.enabled)
+    else if (enabledQ === 'false') rows = rows.filter((item) => !item.enabled)
+    rows.sort((a, b) => b.id - a.id)
+    // ⭐ counts 用**全量**（不受筛选影响），否则界面上的数字会互相矛盾
+    const counts = { term: 0, cite: 0 }
+    const enabledCounts = { term: 0, cite: 0 }
+    for (const item of state.memories) {
+      counts[item.kind] += 1
+      if (item.enabled) enabledCounts[item.kind] += 1
+    }
+    return ok({ items: rows, counts, enabled_counts: enabledCounts })
+  },
+
+  'POST /api/memories': ({ body }) => {
+    const kind = String(body.kind ?? 'term').trim().toLowerCase()
+    if (kind !== 'term' && kind !== 'cite') return fail(400, 'kind 只能是 term 或 cite')
+    // ⭐ 引用习惯的 source 固定归一成 default（真后端同一口径）：它天然只有一条
+    const source = kind === 'cite' ? 'default' : String(body.source ?? '').trim()
+    if (!source) return fail(400, 'source 不能为空')
+    const target = String(body.target ?? '').trim()
+    if (!target) return fail(400, 'target 不能为空')
+    const enabled = body.enabled === undefined ? true : Boolean(body.enabled)
+    // ⭐ 按 (kind, source) 幂等：同一个词再存一次是**改**，不堆第二行
+    const hit = state.memories.find((item) => item.kind === kind && item.source === source)
+    if (hit) {
+      hit.target = target
+      hit.enabled = enabled
+      // ⚠️ 改说法**不许把 hits 清零**（那是"真被用上几次"的账）
+      hit.updated_at = new Date().toISOString()
+      return ok({ item: hit, created: false }, 201)
+    }
+    const created = {
+      id: state.next_id.memories,
+      kind,
+      source,
+      target,
+      hits: 0,
+      enabled,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }
+    state.next_id.memories += 1
+    state.memories.push(created)
+    return ok({ item: created, created: true }, 201)
+  },
+
+  'PATCH /api/memories/{id}': ({ params, body }) => {
+    const hit = state.memories.find((item) => item.id === intOf(params.id))
+    if (!hit) return fail(404, '记忆不存在')
+    if (body.target === undefined && body.enabled === undefined) {
+      return fail(400, '没有要改的字段')
+    }
+    if (body.target !== undefined) {
+      const target = String(body.target).trim()
+      if (!target) return fail(400, 'target 不能为空')
+      hit.target = target
+    }
+    if (body.enabled !== undefined) hit.enabled = Boolean(body.enabled)
+    hit.updated_at = new Date().toISOString()
+    return ok({ item: hit })
+  },
+
+  'DELETE /api/memories/{id}': ({ params }) => {
+    const id = intOf(params.id)
+    const at = state.memories.findIndex((item) => item.id === id)
+    if (at < 0) return fail(404, '记忆不存在')
+    // ⭐ 真删（记忆不是留痕）
+    state.memories.splice(at, 1)
+    return ok({ deleted: true, id })
+  },
+
+  'GET /api/memories/resolve': () => {
+    const terms = {}
+    let cite = null
+    for (const item of state.memories) {
+      if (!item.enabled) continue
+      if (item.kind === 'term') terms[item.source] = item.target
+      else if (item.kind === 'cite') cite = item.target
+      item.hits += 1
+    }
+    return ok({ terms, cite, counts: { term: Object.keys(terms).length, cite: cite ? 1 : 0 } })
   },
 
   // ---- §2.6 起草
