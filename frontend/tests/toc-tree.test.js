@@ -204,4 +204,36 @@ describe('C3 模板源码：不可点的条目不许做成活链样式', () => {
     expect(css).toMatch(/\.dw \.toc-item-static:hover\s*\{[^}]*background:\s*none/)
     expect(css).toMatch(/\.dw \.toc-list > li\s*\{[^}]*var\(--toc-depth/)
   })
+
+  it('⭐ 缩进必须与变量绑在**同一个元素**上（否则数据是树、看着还是平铺）', () => {
+    // 变量绑在 <li> 上（模板），缩进就必须写在 `li` 上。
+    // 实测教训：有人会去量**子元素** `.toc-item` 的 padding-left —— 那是它自己的行内留白
+    // （`.dw .toc-item { padding: 5px 12px }`），**不是**层级缩进；缩进在父 `li` 的 padding 上，
+    // 表现为子元素的**水平偏移**。搞混这两者就会得出"缩进没生效"的错误结论。
+    const at = view.indexOf('v-for="(item, index) in tocItems"')
+    expect(at).toBeGreaterThan(-1)
+    const liStart = view.lastIndexOf('<li', at)
+    const liTag = view.slice(liStart, view.indexOf('>', at) + 1)
+    expect(liTag).toContain('--toc-depth')
+
+    // 缩进规则落在 `li` 上……
+    expect(css).toMatch(/\.dw \.toc-list > li\s*\{[^}]*padding-left:\s*calc\(var\(--toc-depth/)
+    // ……而且**不许**落到子元素 `.toc-item` 上（那就是把行内留白当层级用）
+    expect(css).not.toMatch(/\.dw \.toc-item\s*\{[^}]*var\(--toc-depth/)
+  })
+
+  it('⭐ 桌面档缩进规则必须在**顶层**（上一轮真踩过：少一个 } 把整段吞进手机档媒体查询）', () => {
+    // happy-dom 不会真的应用外部样式表，所以"断言计算后的 padding"是假的；
+    // 能做的最强源码级守卫是：**在桌面档那条规则的位置上，花括号深度必须是 0**
+    // —— 深度为 1 就说明它落在某个没闭合的 `@media` 里（桌面档下一条都不生效，且 vitest/build 都不报）。
+    const at = css.indexOf('.dw .toc-list > li { padding-left: calc(var(--toc-depth, 0) * 14px)')
+    expect(at).toBeGreaterThan(-1)
+    const before = css.slice(0, at).replace(/\/\*[\s\S]*?\*\//g, '')
+    let depth = 0
+    for (const ch of before) {
+      if (ch === '{') depth += 1
+      else if (ch === '}') depth -= 1
+    }
+    expect(depth).toBe(0)
+  })
 })
