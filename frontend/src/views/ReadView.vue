@@ -150,6 +150,16 @@
             >
               <span v-if="hasBlockTranslations" class="en">{{ row.source }}</span>
               {{ row.main }}
+              <!-- ⭐ 人改留痕：这一句不是模型译的（AI 披露口径的一部分）。
+                   ⚠️ **段落精读有两条渲染路径**（桌面 `.page .cols p` / 手机 `.pdoc .zh`），
+                   **两边都要标**——只接一条的话，桌面读文献的人**看不到改动痕迹**，
+                   而"人改过"正是我们对 AI 披露的核心口径（真踩过：手机那条有、桌面这条漏了）。
+                   判据与手机那条**一字不差**：同一个 `editedBlockIds`，不各判一套。 -->
+              <span
+                v-if="editedBlockIds.has(row.block.block_id)"
+                class="pg-edited"
+                title="这一句由人改过，不是模型的译文"
+              >已人工修改</span>
               <!-- ⭐ 合规 #147：这一段现在还是模型的译文 → 标出来。
                    ⚠️ **段落精读有两条渲染路径**（桌面 `.page .cols p` / 手机 `.pdoc .zh`），
                    两边都要标（只接一条的话，桌面读文献的人看不到这个标注——真踩过）；
