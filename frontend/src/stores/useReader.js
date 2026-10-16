@@ -861,6 +861,14 @@ export async function openTask(task, options = {}) {
     navigateToHash({ name: 'read', params: { taskId: task.id } }, { replace: options.replaceHash })
   }
   await refreshWorkbench(task.id)
+  // ⭐ **改动记录要在打开阅读页时就读**（N33）——「已人工修改」标记与"哪句是模型译的"都要它。
+  // ⚠️ 它原来只跟着 `loadBlocks` 走，而 `loadBlocks` 是**懒的**（只在"术语定位 / PDF 定位"时触发），
+  //    于是**打开阅读页根本不请求这条接口** → `editedBlockIds` 一直是空集 →
+  //    **两条渲染路径上的「已人工修改」标记都不会出现**（不是只有桌面缺，是全都缺）。
+  //    判据不变（`editedBlockIds.has(block_id)`），只是把这次读取提前到该读的时候。
+  // 不 await：它是标记用的旁支数据，拿不到就退回空集（宁少标一个，也不拖慢进页），
+  // 与既有口径一致（`loadBlockEdits` 内部失败即空集）。
+  loadBlockEdits(task.id)
   if (ACTIVE_STATES.includes(task.status)) startProgress(task.id)
   if (await applyResumePosition()) showToast(`已回到第 ${task.last_read_page} 页`)
 }

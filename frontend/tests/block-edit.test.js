@@ -120,12 +120,45 @@ describe('E6 译文改动（N33）', () => {
     expect(reader.editedBlockIds.value.size).toBe(0)
   })
 
-  it('标记挂在模板上（人改留痕是 AI 披露口径的一部分）', () => {
+  it('⭐ 标记要挂在**两条渲染路径**上（桌面 `.page .cols p` / 手机 `.pdoc .zh`）', () => {
+    // 段落精读有两条渲染路径，而这段模板**没有共同的子组件**，所以两边得各写一遍。
+    // ⚠️ 这条守卫原来只判"文件里有没有『已人工修改』"——**只接一条也能过**，
+    //    于是真漏了桌面那条（手机看得到、桌面看不到），是抓提交材料截图时才发现的。
+    //    现在改成**两条路径各一次**：少任何一条就红。
     const src = readSrc('src/views/ReadView.vue')
-    expect(src).toContain('editedBlockIds.has(row.block.block_id)')
-    expect(src).toContain('已人工修改')
+    const at1 = src.indexOf('class="cols"')
+    const atZh = src.indexOf('class="zh"')
+    expect(at1, '找不到桌面那条渲染路径（class="cols"）').toBeGreaterThan(-1)
+    expect(atZh, '找不到手机那条渲染路径（class="zh"）').toBeGreaterThan(-1)
+    expect(at1, '两条路径的先后顺序变了，这条守卫要跟着改').toBeLessThan(atZh)
+    const desktop = src.slice(at1, atZh)
+    const mobile = src.slice(atZh)
+    for (const [name, block] of [
+      ['桌面 .page .cols p', desktop],
+      ['手机 .pdoc .zh', mobile],
+    ]) {
+      expect(block, `${name} 缺「已人工修改」标记`).toContain('class="pg-edited"')
+      expect(block, `${name} 的判据与另一条不一致`).toContain('editedBlockIds.has(row.block.block_id)')
+      expect(block, `${name} 缺标记文案`).toContain('已人工修改')
+    }
     // 编辑框只在"正在改的那一块"下面出现
     expect(src).toMatch(/v-if="editFor === row\.block\.block_id"/)
+  })
+
+  it('⭐ 打开阅读页时就要读改动记录（不能只跟着懒加载的 blocks 走）', () => {
+    // ⚠️ 真踩过：`loadBlockEdits` 原来只挂在 `loadBlocks` 里，而 `loadBlocks` 是**懒的**
+    //    （只在"术语定位 / PDF 定位"时触发）→ **打开阅读页根本不请求这条接口** →
+    //    `editedBlockIds` 一直是空集 → **两条渲染路径上的「已人工修改」标记都不出现**。
+    //    既有用例抓不到它，是因为它们只测"函数算得对"和"模板里有那个字符串"，
+    //    **没有一条管"该读的时候读没读"**——这条补的就是它。
+    const src = readSrc('src/stores/useReader.js')
+    const at = src.indexOf('export async function openTask(')
+    expect(at, '找不到 openTask').toBeGreaterThan(-1)
+    const nextExport = src.indexOf('\nexport ', at + 10)
+    const body = src.slice(at, nextExport > 0 ? nextExport : at + 4000)
+    expect(body, 'openTask 里没有读改动记录').toMatch(/loadBlockEdits\(task\.id\)/)
+    // 而且是在"进阅读工作台"那条路径上，不是被包在条件里（条件为假就又漏了）
+    expect(body).toContain('await refreshWorkbench(task.id)')
   })
 })
 
