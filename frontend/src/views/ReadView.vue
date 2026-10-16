@@ -643,8 +643,10 @@ import {
 } from '../stores/useAsk'
 import { canRetryCurrent, openDeletePanel, openPanel, retryCurrent } from '../stores/useLibrary'
 // 埋点 1（译文改动）：入口只在"有译文"的块上给，存下之后打「已人工修改」标记
-import { ref } from 'vue'
+import { nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 
+// 埋点 2（块曝光 N34）：形态 §5 假设 1 的**分母**（修改率 = 被改块数 / 被曝光块数）
+import { createExposureReporter } from '../exposure'
 import {
   blockHasTranslated,
   editedBlockIds,
@@ -783,4 +785,90 @@ async function saveEdit(row) {
   }
   cancelEdit()
 }
+
+// ============================================================ 埋点 2：块曝光（N34）
+/**
+ * ⭐ 形态 §5 假设 1（"用户真的会去改译文"）判据的**分母**就靠这一路：
+ * **修改率 ＝ 被改块数 / 被曝光块数**，且 `≥14 天 且 曝光块数 ≥500` 之前一律"继续观测"。
+ *
+ * ⚠️ 在这之前**前端一处都没上报过**（`block_exposures` 一直是空表）——
+ * 也就是说那个分母**永远是 0**，判据永远算不出来。这一小段就是把它接上。
+ *
+ * 三条纪律（都是"别把后端打爆 / 别拖慢阅读"）：
+ * - **一次会话一个 `session_id`**；同一块**只报一次进入**（用户滚来滚去不刷请求）；
+ * - 块**离开视口**时再报一次，只推 `left_at`（这是"看了多久"的来源）；
+ * - 上报失败一律吞掉——它是旁支数据，挂了不该让用户读不成文献。
+ *
+ * ⚠️ 观察 `[data-block-id]` 而**不是**挑某一条渲染路径：窄屏时桌面那条仍在 DOM 里、
+ * 反之亦然，按选择器猜当前是哪条路径迟早猜错（两条都挂了这个属性）。
+ */
+const exposure = ref(null)
+let exposureObserver = null
+
+function attachExposure() {
+  if (typeof window === 'undefined' || typeof IntersectionObserver === 'undefined') return
+  const pane = docPaneEl.value
+  if (!pane || !currentTask.value) return
+  const taskId = currentTask.value.id
+  if (!exposure.value || exposure.value.taskId !== taskId) {
+    exposure.value?.dispose()
+    exposure.value = createExposureReporter({ taskId })
+  }
+  const reporter = exposure.value
+  // 进来先扫一遍：首屏可见的块不一定会触发 observer 的初始回调
+  reporter.scan(pane)
+  exposureObserver?.disconnect()
+  exposureObserver = new IntersectionObserver(
+    (entries) => {
+      const entered = []
+      const left = []
+      for (const entry of entries) {
+        const id = entry.target.getAttribute('data-block-id')
+        if (!id) continue
+        if (entry.isIntersecting) entered.push(id)
+        else left.push(id)
+      }
+      if (entered.length) reporter.enter(entered)
+      if (left.length) reporter.leave(left)
+    },
+    // 阈值给 0：进/出视口各一次即可，不需要"露出多少比例"这种细粒度
+    { threshold: 0 },
+  )
+  for (const el of pane.querySelectorAll('[data-block-id]')) exposureObserver.observe(el)
+}
+
+/** 页面隐藏 / 关页：普通 fetch 会被取消，用 Beacon 把最后一批送出去。 */
+function flushExposureByBeacon() {
+  if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+    exposure.value?.beacon()
+  }
+}
+
+onMounted(async () => {
+  await nextTick()
+  attachExposure()
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', flushExposureByBeacon)
+    window.addEventListener('pagehide', flushExposureByBeacon)
+  }
+})
+
+// 换页 / 换文献后 DOM 会重建，重新挂一次（`docPages` 变一次就重挂一次）
+watch(docPages, async () => {
+  await nextTick()
+  attachExposure()
+})
+
+onUnmounted(() => {
+  exposureObserver?.disconnect()
+  exposureObserver = null
+  if (typeof document !== 'undefined') {
+    document.removeEventListener('visibilitychange', flushExposureByBeacon)
+    window.removeEventListener('pagehide', flushExposureByBeacon)
+  }
+  // 卸载前最后报一次（把 left_at 推到"我看到这里为止"）
+  exposure.value?.beacon()
+  exposure.value?.dispose()
+  exposure.value = null
+})
 </script>
