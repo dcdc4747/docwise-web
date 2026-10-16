@@ -336,6 +336,13 @@
                     class="pg-edited"
                     title="这一句由人改过，不是模型的译文"
                   >已人工修改</span>
+                  <!-- ⭐ 合规 #147：这一段现在还是模型的译文 → 标出来。
+                       ⚠️ 人改过的**不再标「AI 翻译」**（改过的句子不该被说成模型译的）——
+                       两者共用 `editedBlockIds` 这一个判据，互斥，不各判一套。 -->
+                  <AiBadge
+                    v-if="blockHasTranslated(row.block) && !editedBlockIds.has(row.block.block_id)"
+                    kind="translate"
+                  />
                 </div>
               </div>
             </div>
@@ -445,6 +452,9 @@
             </div>
             <template v-else>
               <div class="bubble-a">
+                <!-- ⭐ 合规 #147：这条回答是模型生成的。出处由后端校验过，但**结论仍是模型写的**，
+                     所以标注不能省（"有出处"不等于"不是 AI 写的"）。 -->
+                <AiBadge kind="answer" />
                 {{ turn.answer }}
                 <div class="srcs">
                   <span class="lbl">出处：</span>
@@ -498,6 +508,9 @@
           </div>
           <div v-else-if="!guidePoints.length" class="chips-hint">{{ guideEmptyText }}</div>
           <template v-else>
+            <!-- ⭐ 合规 #147：整块导读都是模型生成的。要点卡片一行一条，标在面板头一次就够——
+                 标注要看得见，也不该把界面糊满芯片（`.k` 那行是用户读的要点名，不动它）。 -->
+            <div class="ai-badge-row"><AiBadge kind="guide" /></div>
             <div v-for="point in guidePoints" :key="point.key" class="guide-card">
               <div class="k">{{ point.label }}</div>
               <div class="v">{{ point.text }}</div>
@@ -544,6 +557,9 @@
           </div>
           <div v-else-if="!termItems.length" class="chips-hint">{{ termsEmptyText }}</div>
           <template v-else>
+            <!-- ⭐ 合规 #147：整张术语表都是模型生成的。一行一条、每行都挂一颗太吵，
+                 所以在表头标一次——标注要看得见，也不该把界面糊满芯片。 -->
+            <div class="ai-badge-row"><AiBadge kind="terms" /></div>
             <div class="termlist">
               <div v-for="item in termItems" :key="item.key" class="term">
                 <b>{{ item.term }}</b><span class="cn">{{ item.cn }}</span>
@@ -589,6 +605,7 @@
  * `lastQuestion`，而"摘要留在外壳"是上一轮定下的（放进 `useUi` 会绕成环），
  * 所以由 `App.vue` 算好、当 prop 传进来。
  */
+import AiBadge from '../components/AiBadge.vue'
 import Icon from '../components/Icon.vue'
 import MaterialSaveButton from '../components/MaterialSaveButton.vue'
 import PdfPane from '../components/PdfPane.vue'
