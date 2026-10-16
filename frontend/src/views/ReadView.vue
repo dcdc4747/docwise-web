@@ -160,6 +160,14 @@
                 class="pg-edited"
                 title="这一句由人改过，不是模型的译文"
               >已人工修改</span>
+              <!-- ⭐ 合规 #147：这一段现在还是模型的译文 → 标出来。
+                   ⚠️ **段落精读有两条渲染路径**（桌面 `.page .cols p` / 手机 `.pdoc .zh`），
+                   两边都要标（只接一条的话，桌面读文献的人看不到这个标注——真踩过）；
+                   ⚠️ 人改过的**不再标「AI 翻译」**（改过的句子不该被说成模型译的）。 -->
+              <AiBadge
+                v-if="blockHasTranslated(row.block) && !editedBlockIds.has(row.block.block_id)"
+                kind="translate"
+              />
             </p>
           </div>
           <button
