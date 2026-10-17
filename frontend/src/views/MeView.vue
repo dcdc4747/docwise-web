@@ -186,7 +186,8 @@
         <input v-model="prefs.reducedMotion" type="checkbox" />
         动效跟随系统（系统开了"减少动态效果"就不要再动）
       </label>
-      <HonestNote text="偏好暂存在本机（后端还没有偏好接口，契约的 N 清单里没有这一项）—— 换设备不会跟着走。" />
+      <HonestNote text="偏好存在服务端（跟着账号走，换设备也在）；本机留一份缓存，断网时照旧生效。" />
+      <HonestNote v-if="prefsError" class="me-prefs-sync" :text="prefsError" />
     </section>
 
     <!-- ==================== ⑥ 管理 · 危险区 ==================== -->
@@ -245,13 +246,12 @@
  * ④ **口径照全站红线**：`actor` 那一列是"数据流向"的机器证据 —— 说"服务自持 + 文献存本地"，
  *    **不说"数据不出本机"**（外文翻译 / 扫描件逐段翻译 / 导读 / 问答四处仍调云端模型 API）。
  */
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 
 import { apiJson, authFetch, clearToken } from '../auth'
 import { actorText, stageText } from '../ledgerText'
 import HonestNote from '../components/HonestNote.vue'
-
-const PREFS_KEY = 'docwise_prefs'
+import { loadPrefs, prefsError, readLocalPrefs, savePrefs } from '../stores/usePrefs'
 
 // ---------------------------------------------------------------- 取数
 const me = ref(null)
@@ -293,6 +293,9 @@ async function load() {
     loadBlock('ledger', '/api/me/ledger', (data) => {
       ledger.value = Array.isArray(data?.items) ? data.items : []
     }),
+    // ⭐ 偏好单独走一条：它不是"取回来显示"就完了，还要**反写本机缓存**
+    //    （阅读页同步读缓存），失败也只影响这一块（`prefsError` 自己会说）
+    syncPrefs(),
   ])
 }
 
@@ -445,33 +448,35 @@ const SIZE_OPTIONS = [
   { value: 'large', label: '大' },
 ]
 
-function readPrefs() {
-  try {
-    const raw = JSON.parse(localStorage.getItem(PREFS_KEY) || '{}')
-    return {
-      defaultView: raw.defaultView || 'blocks',
-      tier: raw.tier === 'fast' ? 'fast' : 'medium',
-      readingSize: raw.readingSize || 'normal',
-      reducedMotion: Boolean(raw.reducedMotion),
-    }
-  } catch {
-    return { defaultView: 'blocks', tier: 'medium', readingSize: 'normal', reducedMotion: false }
-  }
-}
-
-const prefs = reactive(readPrefs())
+/**
+ * 偏好（N40/N41）：**服务端权威、本机 `localStorage` 只是缓存**。
+ *
+ * 两个方向都要走通：
+ * - 进来时先按缓存铺（阅读页要**同步**读，等不了网络），再跟服务端对一次（`loadPrefs`）；
+ * - 改了以后**先落缓存再推服务端**（`savePrefs`），推失败如实报一句（换设备带不上）。
+ *
+ * ⚠️ `prefsSyncing` 是必须的：`Object.assign` 回填服务端那份时 watcher 会响一次，
+ * 不挡住就会立刻把刚取回来的东西又 PUT 一遍（多余请求，而且容易与迁移那条路打架）。
+ */
+const prefs = reactive(readLocalPrefs())
+let prefsSyncing = false
 
 watch(
   prefs,
   (value) => {
-    try {
-      localStorage.setItem(PREFS_KEY, JSON.stringify(value))
-    } catch {
-      /* 存不下就算了：偏好是本机便利设施，不许因为它把页面搞挂 */
-    }
+    if (prefsSyncing) return
+    savePrefs({ ...value })
   },
   { deep: true },
 )
+
+async function syncPrefs() {
+  prefsSyncing = true
+  await loadPrefs()
+  Object.assign(prefs, readLocalPrefs())
+  await nextTick()
+  prefsSyncing = false
+}
 
 // ---------------------------------------------------------------- ⑥ 危险区
 const confirm = reactive({ ack: false, name: '' })
