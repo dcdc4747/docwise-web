@@ -116,6 +116,131 @@ body {
   gap: 8px;
 }
 
+/* ---- 账号：登录页的手写控件（E17，2026-10-17）----
+   ⚠️ 这几条**故意在 `.dw` 之外**：登录页是第一屏，与产品形态的命名空间互不污染。
+   原来这里是 Naive UI（NTabs/NInput/NButton/NAlert），重写后语义不变、样式自己写。
+   颜色值与 `.dw` 的 --accent 保持一致（#3d5296），改一个要改两个（`.auth-logo` 那句注释同理）。 */
+
+.auth-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid #e6eaf0;
+  margin-bottom: 2px;
+}
+
+.auth-tab {
+  appearance: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  padding: 8px 2px 9px;
+  margin-right: 18px;
+  font: inherit;
+  font-size: 14px;
+  color: #667085;
+  cursor: pointer;
+}
+
+.auth-tab:hover { color: #3d5296; }
+
+.auth-tab.on {
+  color: #3d5296;
+  font-weight: 600;
+  border-bottom-color: #3d5296;
+}
+
+.auth-input {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 9px 12px;
+  font: inherit;
+  font-size: 14px;
+  color: #1f2733;
+  background: #fff;
+  border: 1px solid #e6eaf0;
+  border-radius: 8px;
+}
+
+.auth-input:focus {
+  outline: none;
+  border-color: #3d5296;
+  box-shadow: 0 0 0 3px rgba(61, 82, 150, 0.12);
+}
+
+.auth-input:disabled {
+  background: #f5f7fa;
+  color: #98a2b3;
+  cursor: not-allowed;
+}
+
+/* 密码框的「显示 / 隐藏」：原 Naive 的 show-password-on="click"，现在是真手写 */
+.auth-pw-row { position: relative; display: flex; }
+.auth-pw-row .auth-input { padding-right: 58px; }
+
+.auth-pw-toggle {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  padding: 4px 6px;
+  font: inherit;
+  font-size: 12px;
+  color: #667085;
+  cursor: pointer;
+}
+
+.auth-pw-toggle:hover { color: #3d5296; background: #f5f7fa; }
+
+.auth-submit {
+  appearance: none;
+  width: 100%;
+  padding: 9px 12px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+  background: #3d5296;
+  border: 1px solid #3d5296;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.auth-submit:hover { background: #34467f; border-color: #34467f; }
+.auth-submit:disabled { opacity: 0.65; cursor: not-allowed; }
+
+.auth-ghost {
+  appearance: none;
+  width: 100%;
+  padding: 9px 12px;
+  font: inherit;
+  font-size: 14px;
+  color: #1f2733;
+  background: #fff;
+  border: 1px solid #e6eaf0;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.auth-ghost:hover { border-color: #c9d2e3; background: #f8fafc; }
+.auth-ghost:disabled { opacity: 0.65; cursor: not-allowed; }
+
+/* 出错提示：照旧是"一条红字"，带 `role="alert"` 让读屏念出来（Naive 的 NAlert 原来替我们做了） */
+.auth-alert {
+  margin: 12px 0 0;
+  padding: 9px 12px;
+  border: 1px solid #f0c2c2;
+  border-radius: 8px;
+  background: #fdf3f3;
+  color: #b42318;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.auth-tip-muted { margin: 0; color: #667085; }
+
 /* ---- 账号：管理后台（AdminView.vue）---- */
 .admin-page {
   padding-top: 8px;
