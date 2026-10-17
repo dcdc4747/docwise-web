@@ -135,3 +135,19 @@ def test_admin_can_promote_user() -> None:
             client.get("/api/admin/users", headers=auth_headers(alice)).status_code
             == 200
         )
+
+
+def test_admin_timestamps_carry_a_timezone() -> None:
+    """⭐ 管理员接口的时间必须**带时区偏移**（否则前端按本地解析，差一个时区）。
+
+    这是 #73 那批"时间口径"漏掉的一处：`admin.py` 曾用 ``isoformat()`` 输出裸 UTC
+    （实测本地 23:20 在后台显示成 15:20）。
+    """
+    with TestClient(app) as client:
+        admin = register(client, "admin_tz", "password123")["token"]
+        create_user_row("tz_user", "password123")
+        rows = client.get("/api/admin/users", headers=auth_headers(admin)).json()
+        stamps = [row["created_at"] for row in rows if row.get("created_at")]
+        assert stamps, "没有任何带时间的行，用例失效"
+        for stamp in stamps:
+            assert stamp.endswith("+00:00") or stamp.endswith("Z"), f"没带时区：{stamp}"
