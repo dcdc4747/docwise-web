@@ -19,6 +19,18 @@
       </div>
     </div>
     <span class="spacer" />
+    <!-- 1024–1099 档：右栏改抽屉，这里是它唯一的开关（其余宽度下 CSS 把它藏起来）。
+         图标随开合变（收起时「拉出来」、展开时「推回去」），文案也跟着变，别让人猜。 -->
+    <button
+      class="btn ghost sm btn-ic assist-toggle"
+      :class="{ on: assistDrawerOpen }"
+      :aria-expanded="assistDrawerOpen ? 'true' : 'false'"
+      title="助手：问答 / 导读 / 术语"
+      @click="toggleAssistDrawer"
+    >
+      <Icon :name="assistDrawerOpen ? 'chev-double-right' : 'chev-double-left'" class="sm" />
+      {{ assistDrawerOpen ? '收起助手' : '助手' }}
+    </button>
     <button class="btn ghost sm btn-ic" @click="toggleSearch"><Icon name="search" class="sm" /> 搜索</button>
     <span v-if="pageChipText" class="chip">{{ pageChipText }}</span>
     <!-- 下载入口只有一个，命名统一为「下载译稿」，两项在里面选 -->
@@ -431,6 +443,20 @@
         </div>
       </template>
 
+      <!-- 1024–1099：抽屉是全高 fixed，展开后会**盖住顶栏那个开关**，
+           所以抽屉自己必须有一个关闭键（否则只剩 Esc 一条路）。其余宽度 CSS 藏起来。
+           ⚠️ 放在 `.tabs` **外面**：`.tabs` 的契约是"只有三个页签"
+           （`app.smoke.test.js` 直接断言 `tabs.map(text)` 恰好是 问答/导读/术语）。 -->
+      <button
+        class="assist-close"
+        type="button"
+        title="收起助手（Esc）"
+        aria-label="收起助手"
+        @click="closeAssistDrawer"
+      >
+        <Icon name="x" class="sm" />
+      </button>
+
       <div class="tabs">
         <button
           v-for="tab in assistTabs"
@@ -726,7 +752,9 @@ import { statusTextMap, tierTextMap } from '../stores/useTasks'
 import {
   assistBodyClass,
   assistClass,
+  assistDrawerOpen,
   assistTab,
+  closeAssistDrawer,
   cycleSheet,
   isNarrow,
   locatedHint,
@@ -737,6 +765,7 @@ import {
   sheetGripText,
   sheetState,
   stepFont,
+  toggleAssistDrawer,
   toggleMenu,
   togglePgChip,
 } from '../stores/useUi'
@@ -844,12 +873,28 @@ function flushExposureByBeacon() {
   }
 }
 
+/**
+ * `Esc` 关助手抽屉（1024–1099 档）。
+ *
+ * 为什么要有：抽屉是 `position: fixed` 盖在正文上，没有遮罩，**键盘用户如果没有 Esc
+ * 就只能靠鼠标回去点那个按钮**（与收口检查抽屉的 `Esc 可关` 同一口径）。
+ * 其余宽度下抽屉根本不存在，这个监听相当于空转（`closeAssistDrawer()` 幂等）。
+ */
+function onKeydown(event) {
+  if (event.key === 'Escape' && assistDrawerOpen.value) {
+    closeAssistDrawer()
+  }
+}
+
 onMounted(async () => {
   await nextTick()
   attachExposure()
   if (typeof document !== 'undefined') {
     document.addEventListener('visibilitychange', flushExposureByBeacon)
     window.addEventListener('pagehide', flushExposureByBeacon)
+  }
+  if (typeof window !== 'undefined') {
+    window.addEventListener('keydown', onKeydown)
   }
 })
 
@@ -865,6 +910,9 @@ onUnmounted(() => {
   if (typeof document !== 'undefined') {
     document.removeEventListener('visibilitychange', flushExposureByBeacon)
     window.removeEventListener('pagehide', flushExposureByBeacon)
+  }
+  if (typeof window !== 'undefined') {
+    window.removeEventListener('keydown', onKeydown)
   }
   // 卸载前最后报一次（把 left_at 推到"我看到这里为止"）
   exposure.value?.beacon()

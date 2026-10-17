@@ -2629,6 +2629,73 @@ svg.ic-inl {
 .dw .wr-checkexport .wr-muted { font-size: var(--fs-micro); }
 
 /* ============================================================================
+   [断点] 1024–1099px —— 阅读页右栏改抽屉（形态 §3.4 第 2 档）
+   ============================================================================
+   为什么：这一档左栏 260 + 右助手 340 会吃掉 600px，正文只剩 764px
+   （`docs/断点逐档量测记录_20261016.md` 实测量的）。形态写的是"右栏改抽屉、左栏仍在"，
+   但此前**那一档根本没有 `.assist` 规则**，只能继承 `≤1280` 的常驻形态 → 记成缺口。
+   做法照写作页 `.wr-helper` 的先例（同一套 fixed + translateX + 过渡），不另发明：
+
+   - 抽屉**默认收起**（正文拿回整宽），顶栏「助手」按钮是唯一开关；
+   - 收起时 `translateX(100%)` 推到屏幕外，不用 `display:none`（否则没有过渡、也拿不回焦点顺序）；
+   - 只在这一档生效：≥1100 时下面的规则**一条都不匹配**，右栏仍是常驻（老样子）。
+
+   ⚠️ 必须放在 `[R9]` 之前：#162 的用例断言 R9 是 style.css 里最后一张卡的段。
+   ============================================================================ */
+
+/* 开关只在那一档出现（其余宽度右栏一直可见，不需要开关） */
+.dw .assist-toggle { display: none; }
+/* 抽屉自带的关闭键同样只在这一档出现 */
+.dw .assist-close { display: none; }
+
+@media (min-width: 1024px) and (max-width: 1099px) {
+  .dw .assist-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sp-1);
+  }
+  .dw .assist-toggle.on {
+    color: var(--accent);
+    border-color: var(--accent-line);
+    background: var(--accent-soft);
+  }
+  /* 抽屉里的关闭键：贴在抽屉右上角（抽屉盖住顶栏，这里是鼠标用户唯一的出口） */
+  .dw .assist-close {
+    display: inline-flex;
+    align-items: center;
+    position: absolute;
+    top: var(--sp-2);
+    right: var(--sp-2);
+    z-index: 1;
+    padding: 0 var(--sp-1);
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .dw .assist-close:hover { color: var(--ink); }
+
+  .dw .assist {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 60;
+    width: 340px;
+    /* ⚠️ 不写 `100vw`（含滚动条宽度会撑出横向滚动；仓库有守卫）。
+       `position: fixed` 下 `100%` 就是视口宽，效果一样。 */
+    max-width: 100%;
+    border-left: 1px solid var(--line);
+    background: var(--surface);
+    box-shadow: -8px 0 24px rgba(0, 0, 0, 0.12);
+    transform: translateX(100%);
+    transition: transform var(--dur-base) var(--ease);
+  }
+  /* 展开：回到原位。类名挂在 `.assist` 自己身上（`useUi.assistClass` 给的） */
+  .dw .assist.assist-open { transform: none; }
+}
+
+/* ============================================================================
    [E2] 素材库页（2026-10-17）—— 素材卡按集合/标签筛
    ============================================================================
    自己一段：只加 `.mats-*`，不动别人任何段。
