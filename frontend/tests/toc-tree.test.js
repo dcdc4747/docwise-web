@@ -11,13 +11,16 @@
  */
 
 import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { buildTocTree, normalizeLevel } from '../src/tocTree.js'
 import * as reader from '../src/stores/useReader.js'
 
-const readSrc = (rel) => readFileSync(new URL(rel, import.meta.url), 'utf8')
+// ⚠️ 用 `resolve(process.cwd(), …)` 而不是 `new URL(rel, import.meta.url)`：
+// happy-dom 里 `import.meta.url` 不是 `file:` URL，会抛（坑见 `app.smoke.test.js` / `block-edit.test.js`）。
+const readSrc = (rel) => readFileSync(resolve(process.cwd(), rel), 'utf8')
 
 /** 一条块（`buildParagraphRows` 按 `p<页>_b<序>` 推页号，所以 id 必须是这个形状）。 */
 const blockOf = (blockId, type, text, translated) => ({
@@ -174,8 +177,8 @@ describe('C3 store：有结构用结构，没有就退回平铺（不是空屏�
 })
 
 describe('C3 模板源码：不可点的条目不许做成活链样式', () => {
-  const view = readSrc('../src/views/ReadView.vue')
-  const css = readSrc('../src/style.css')
+  const view = readSrc('src/views/ReadView.vue')
+  const css = readSrc('src/style.css')
 
   it('两个目录渲染点都绑了 --toc-depth（层级靠缩进表达）', () => {
     const binds = view.match(/--toc-depth/g) || []
