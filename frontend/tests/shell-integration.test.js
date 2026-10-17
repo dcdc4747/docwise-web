@@ -109,6 +109,36 @@ describe('形态 v2 集成：地址与偏好的接线', () => {
     wrapper.unmount()
   })
 
+  it('⭐ 离开管理后台时面板要跟着关（改地址 / 点左栏都算）——以前会一直盖着', async () => {
+    // 用户实测报的问题：打开后台后点左栏，地址变了、**画面还是后台**。
+    // 根因：清 `showAdmin` 的那行写在 `syncFromRoute` 末尾，而切页分支全都提前 `return` 了。
+    vi.stubGlobal('fetch', stubApi())
+    setHash('#/admin')
+    const wrapper = await mountApp()
+    expect(wrapper.find('.admin-page').exists()).toBe(true)
+
+    // ① 改地址离开
+    // ⚠️ happy-dom 的 hashchange 是**异步派发**的：只 flush 微任务不够，要让出一轮宏任务
+    setHash('#/memory')
+    await new Promise((r) => setTimeout(r, 0))
+    await flushPromises()
+    expect(wrapper.find('.admin-page').exists()).toBe(false)
+
+    // ② 再回后台，然后走"点左栏"那条路（`onRailSelect`）
+    setHash('#/admin')
+    await new Promise((r) => setTimeout(r, 0))
+    await flushPromises()
+    expect(wrapper.find('.admin-page').exists()).toBe(true)
+    const railItem = wrapper.findAll('button.rail-item').find((b) => b.text() === '起草')
+    // 后台盖住时左栏不在 DOM 里，所以这里直接改地址模拟"点左栏"的最终效果
+    setHash('#/write')
+    await new Promise((r) => setTimeout(r, 0))
+    await flushPromises()
+    expect(wrapper.find('.admin-page').exists()).toBe(false)
+    expect(railItem).toBeUndefined()
+    wrapper.unmount()
+  })
+
   it('⭐ 偏好真的被消费：阅读字号 → `--fs-scale`、档位 → 上传卡默认档、动效 → `data-motion`', async () => {
     localStorage.setItem(
       PREFS_KEY,
