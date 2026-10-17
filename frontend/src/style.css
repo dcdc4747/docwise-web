@@ -2696,6 +2696,103 @@ svg.ic-inl {
 }
 
 /* ============================================================================
+   [E2] 素材库页（2026-10-17）—— 素材卡按集合/标签筛
+   ============================================================================
+   自己一段：只加 `.mats-*`，不动别人任何段。
+   ⚠️ 必须放在 `[R9]` 之前：#162 的用例断言"R9 是 style.css 里最后一张卡的段"。
+   ⚠️ 窄屏要能用：一律 `flex-wrap` + `min-width: 0`，长文件名不许把行顶出屏幕。
+   ============================================================================ */
+
+.dw .mats { max-width: 1080px; padding: var(--sp-5) var(--sp-5) var(--sp-7); }
+.dw .mats-top {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+  align-items: flex-start;
+  justify-content: space-between;
+}
+.dw .mats-t { margin: 0; font-size: 20px; font-weight: 700; }
+.dw .mats-sub {
+  margin: var(--sp-1) 0 0;
+  font-size: var(--fs-meta);
+  color: var(--muted);
+  line-height: 1.7;
+}
+.dw .mats-ops {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  align-items: center;
+}
+.dw .mats-count { font-size: var(--fs-meta); color: var(--muted); }
+
+.dw .mats-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-3);
+  margin: var(--sp-4) 0;
+  padding-bottom: var(--sp-3);
+  border-bottom: 1px solid var(--line);
+}
+.dw .mats-field {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-meta);
+  color: var(--muted);
+  min-width: 0;
+}
+.dw .mats-field > span { white-space: nowrap; }
+.dw .mats-select {
+  max-width: 100%;
+  min-width: 0;
+  padding: 3px var(--sp-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  font: inherit;
+  font-size: var(--fs-meta);
+  color: var(--ink);
+  flex: 0 1 200px;
+}
+.dw .mats-current { font-size: var(--fs-micro); color: var(--muted); }
+
+.dw .mats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: var(--sp-3);
+  margin: var(--sp-3) 0 0;
+  padding: 0;
+  list-style: none;
+}
+.dw .mats-cell { min-width: 0; }
+.dw .mats-cell .paper-card { margin: 0; }
+
+.dw .mats-empty {
+  margin: 0;
+  padding: var(--sp-4);
+  border: 1px dashed var(--line);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  font-size: var(--fs-meta);
+  color: var(--muted);
+  line-height: 1.8;
+}
+.dw .mats-loading { font-size: var(--fs-meta); color: var(--muted); }
+.dw .mats-filters-note,
+.dw .mats-error { margin: var(--sp-2) 0; }
+
+/* 窄屏：筛选条各项各占一行，卡片单列 */
+@media (max-width: 719px) {
+  .dw .mats { padding: var(--sp-4) var(--sp-3) var(--sp-6); }
+  .dw .mats-field { flex: 1 1 100%; }
+  .dw .mats-select { flex: 1 1 100%; max-width: 100%; }
+  .dw .mats-grid { grid-template-columns: 1fr; }
+}
+
+/* ============================================================================
    [M7] 记忆页（2026-10-16）—— 用法偏好的"可看可改可删"
    ============================================================================
    自己那一段：只加 `.mem-*`。颜色 / 字号 / 间距一律 token 名，不动上面任何人的段。
