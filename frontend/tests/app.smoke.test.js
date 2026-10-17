@@ -1817,4 +1817,36 @@ describe('App.vue 页面渲染', () => {
     expect(section).toMatch(/\.dw \.rail-min \.rail-account \.rail-arrow \{ display: none; \}/)
     expect(section).toMatch(/\.dw \.rail-av \{[^}]*width: 22px/)
   })
+
+  it('R9：字体栈与两个渲染开关只挂 `.dw`，且是 style.css 的最后一段', () => {
+    const css = srcText('style.css')
+    const at = css.indexOf('[R9] 字体栈与渲染开关')
+    expect(at, 'style.css 里没有 [R9] 那一段').toBeGreaterThan(-1)
+
+    const section = css.slice(at)
+    // ① 位置：契约 §4.3 第 5 条要求字体栈"最后一步"做（字体一改，字宽/换行/截断全变，
+    //    提前放会污染前面每一步的逐屏比对）——这一段之后不许再有别的卡片的段。
+    expect(section.match(/\[[A-Z]\d+\] /g)).toEqual(['[R9] '])
+    // ②～⑤ 都对着**去掉注释**的代码断言：注释里会举例写 `.dw { font: … }`，
+    //    不剥掉的话"不许写 font 简写"那条会被自己的注释绊倒（踩过一次）。
+    //    ⚠️ R9 的标记本身就在注释里（`/* === [R9] … === */`），切片之后没有配对的 `/*`，
+    //       所以先切掉"从标记到第一个 `*/`"这一截，再剥掉后面可能出现的整段注释。
+    const code = section.replace(/^[\s\S]*?\*\//, '').replace(/\/\*[\s\S]*?\*\//g, '')
+    // ② 字体栈：四档顺序照设计规范，一个都不能少
+    expect(code).toMatch(
+      /--font-sans:\s*[\s\S]*?system-ui,[\s\S]*?-apple-system,[\s\S]*?"PingFang SC",[\s\S]*?"Microsoft YaHei",[\s\S]*?"Noto Sans CJK SC",[\s\S]*?sans-serif;/,
+    )
+    expect(code).toMatch(/\.dw\s*\{[^}]*font-family:\s*var\(--font-sans\)/)
+    // ③ 只换字体：不许顺手写 `font` 简写（字号 / 行高留在上面的段里，改了会有跳变）
+    expect(code).not.toMatch(/\bfont:\s/)
+
+    // ④ 两个渲染开关都在
+    expect(code).toMatch(/-webkit-font-smoothing:\s*antialiased/)
+    expect(code).toMatch(/text-rendering:\s*optimizeLegibility/)
+
+    // ⑤ ⚠️ 不许污染登录页 / 管理后台：这一段里每个选择器都必须以 `.dw` 开头。
+    const selectors = [...code.matchAll(/([^{}]+)\{/g)].map((m) => m[1].trim())
+    expect(selectors.length).toBeGreaterThan(0)
+    expect(selectors.filter((sel) => !sel.startsWith('.dw'))).toEqual([])
+  })
 })
