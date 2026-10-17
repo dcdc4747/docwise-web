@@ -26,7 +26,7 @@ const PREFS_KEY = 'docwise_prefs'
 /** 记录每次请求的 URL，并按路径给一份最小可用的应答。 */
 let calls = []
 
-function stubApi({ tasks: taskRows = [], adminForbidden = false } = {}) {
+function stubApi({ tasks: taskRows = [], adminForbidden = false, overview = null } = {}) {
   calls = []
   return vi.fn(async (input, options = {}) => {
     const url = String(input)
@@ -44,6 +44,11 @@ function stubApi({ tasks: taskRows = [], adminForbidden = false } = {}) {
       return ok({ id: 1, username: 'tester', role: 'user', display_name: null, is_active: true, created_at: null })
     }
     if (path === '/api/tasks') return ok(taskRows)
+    if (path === '/api/me/overview') {
+      // `overview: null` = 端点挂了（用诚实档那条用例）
+      if (overview === null) return ok({ detail: '炸了' }, 500)
+      return ok(overview)
+    }
     // ⚠️ 这两个端点返回的是**裸数组**（不是 `{items}`）—— 返回错形状会让
     // AdminView 里的 n-data-table 拿到 Object，直接炸（本文件第一版就这么翻的车）。
     if (path === '/api/admin/users') return adminForbidden ? ok({ detail: 'forbidden' }, 403) : ok([])
@@ -106,6 +111,36 @@ describe('形态 v2 集成：地址与偏好的接线', () => {
     await flushPromises()
     expect(wrapper.find('.admin-page').exists()).toBe(false)
     expect(window.location.hash).toBe('#/')
+    wrapper.unmount()
+  })
+
+  it('⭐ 离开管理后台时面板要跟着关（改地址 / 点左栏都算）——以前会一直盖着', async () => {
+    // 用户实测报的问题：打开后台后点左栏，地址变了、**画面还是后台**。
+    // 根因：清 `showAdmin` 的那行写在 `syncFromRoute` 末尾，而切页分支全都提前 `return` 了。
+    vi.stubGlobal('fetch', stubApi())
+    setHash('#/admin')
+    const wrapper = await mountApp()
+    expect(wrapper.find('.admin-page').exists()).toBe(true)
+
+    // ① 改地址离开
+    // ⚠️ happy-dom 的 hashchange 是**异步派发**的：只 flush 微任务不够，要让出一轮宏任务
+    setHash('#/memory')
+    await new Promise((r) => setTimeout(r, 0))
+    await flushPromises()
+    expect(wrapper.find('.admin-page').exists()).toBe(false)
+
+    // ② 再回后台，然后走"点左栏"那条路（`onRailSelect`）
+    setHash('#/admin')
+    await new Promise((r) => setTimeout(r, 0))
+    await flushPromises()
+    expect(wrapper.find('.admin-page').exists()).toBe(true)
+    const railItem = wrapper.findAll('button.rail-item').find((b) => b.text() === '起草')
+    // 后台盖住时左栏不在 DOM 里，所以这里直接改地址模拟"点左栏"的最终效果
+    setHash('#/write')
+    await new Promise((r) => setTimeout(r, 0))
+    await flushPromises()
+    expect(wrapper.find('.admin-page').exists()).toBe(false)
+    expect(railItem).toBeUndefined()
     wrapper.unmount()
   })
 
@@ -245,13 +280,41 @@ describe('库页把筛选条接上了', () => {
     wrapper.unmount()
   })
 
-  it('概况底行在（没数就走诚实档，**不摆一排 0**）', async () => {
+  it('⭐ 概况底行：有数就报四段真数（N42）', async () => {
+    vi.stubGlobal(
+      'fetch',
+      stubApi({
+        tasks: [{ id: 1, filename: 'a.pdf', status: 'completed' }],
+        overview: {
+          tasks: 6,
+          archived_tasks: 0,
+          blocks: 412,
+          materials: 9,
+          drafts: 2,
+          citations: 3,
+          check_runs: 0,
+        },
+      }),
+    )
+    const wrapper = mount(LibraryView)
+    await flushPromises()
+
+    expect(wrapper.find('.lib-ov').exists()).toBe(true)
+    expect(wrapper.text()).toContain('6 篇文献')
+    expect(wrapper.text()).toContain('412 块')
+    expect(wrapper.text()).toContain('9 条素材')
+    expect(wrapper.text()).toContain('3 条引用')
+    wrapper.unmount()
+  })
+
+  it('概况端点挂了 → 走诚实档（**不摆一排 0**）', async () => {
     vi.stubGlobal('fetch', stubApi({ tasks: [{ id: 1, filename: 'a.pdf', status: 'completed' }] }))
     const wrapper = mount(LibraryView)
     await flushPromises()
 
     expect(wrapper.find('.lib-ov').exists()).toBe(true)
     expect(wrapper.text()).not.toContain('0 篇文献 · 0 块')
+    expect(wrapper.text()).toContain('概况暂未接入')
     wrapper.unmount()
   })
 })

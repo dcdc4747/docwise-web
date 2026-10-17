@@ -207,7 +207,10 @@ describe('收口检查抽屉（M4 / 形态 §3.3）', () => {
     await flushPromises()
     await openAndRun(wrapper)
 
-    const call = fetchState.calls.find((item) => item.url.includes('/api/check'))
+    // ⚠️ 2026-10-18：开抽屉会先 GET 一次历史（N43），所以这里要挑 **POST 那条**
+    const call = fetchState.calls.find(
+      (item) => item.url.includes('/api/check') && item.method === 'POST',
+    )
     expect(call.method).toBe('POST')
     expect(call.body.draft_id).toBe(1)
     expect(call.body.doc_text).toContain('研究表明')

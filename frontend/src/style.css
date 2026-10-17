@@ -2982,6 +2982,9 @@ svg.ic-inl {
 /* ---- 历史记录页新增的小东西 ---- */
 .dw .lib-extra-filter { display: flex; align-items: center; gap: var(--sp-2); margin: var(--sp-2) 0 0; font-size: var(--fs-meta); color: var(--muted); }
 .dw .lib-go-read { margin-left: var(--sp-2); }
+.dw .kn-h2 { margin: 0; font-size: var(--fs-h2); }
+.dw .kn-smart { margin-top: var(--sp-6); border-top: 1px dashed var(--line); padding-top: var(--sp-4); }
+.dw .kn-select { max-width: 200px; flex: none; }
 .dw .lib-assign { display: flex; align-items: center; gap: var(--sp-1); margin-top: var(--sp-2); font-size: var(--fs-meta); color: var(--muted); }
 .dw .lib-assign-select { padding: 3px 6px; border: 1px solid var(--line); border-radius: var(--r-sm); font: inherit; font-size: var(--fs-meta); background: var(--surface); }
 .dw .lib-assign-select:disabled { opacity: 0.6; cursor: not-allowed; }
@@ -2997,6 +3000,22 @@ svg.ic-inl {
   .dw .kn-ops { margin-left: 0; }
   .dw .kn-editor { flex-wrap: wrap; }
 }
+
+/* ---- 参考文献（N31）与检查历史（N43）----
+   ⚠️ 从 00:20 起补的：这两块以前只有接口、没有界面。
+   样式跟 `[M3]` 起草页同一套 token，不另起炉灶。 */
+.dw .wr-biblio { margin-top: var(--sp-5); border-top: 1px dashed var(--line); padding-top: var(--sp-3); }
+/* 助手栏只有 ~330px：这一行的标题/下拉/复制必须能换行，否则编辑框被压成一条缝 */
+.dw .wr-biblio .wr-colhead { flex-wrap: wrap; row-gap: var(--sp-2); }
+.dw .wr-biblio .wr-colhead > span:first-child { white-space: nowrap; }
+.dw .wr-biblio-style { min-width: 0; flex: 1 1 150px; max-width: none; padding: 3px 6px; font: inherit; font-size: var(--fs-meta); border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface); }
+.dw .wr-biblio-list { margin: var(--sp-2) 0 0; padding-left: 1.4em; color: var(--ink); line-height: 1.9; font-size: var(--fs-meta); }
+.dw .wr-biblio-list li { margin-bottom: var(--sp-1); word-break: break-word; }
+
+.dw .wr-checkhist { margin-top: var(--sp-4); border-top: 1px dashed var(--line); padding-top: var(--sp-3); }
+.dw .wr-checkhist-list { list-style: none; margin: var(--sp-2) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-1); }
+.dw .wr-checkhist-list button { width: 100%; text-align: left; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface); padding: 6px 10px; font: inherit; font-size: var(--fs-meta); color: var(--ink); cursor: pointer; }
+.dw .wr-checkhist-list button:hover { border-color: var(--accent-line); background: var(--hover); }
 
 /* ---- 登录设备与会话（2026-10-18 修：132 行 / 表格撑破卡片 / 时间折两行）----
    口径：设备名一行放不下就截断（悬停看全文），时间**一行**，本机单独标出来。 */

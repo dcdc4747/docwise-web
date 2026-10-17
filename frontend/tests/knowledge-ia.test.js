@@ -121,7 +121,8 @@ describe('loadKnowledge：三样各自容错', () => {
     expect(collections.value).toHaveLength(1)
     expect(tags.value).toHaveLength(1)
     expect(smartCollections.value).toHaveLength(1)
-    expect(errors.value).toEqual({ collections: '', tags: '', smart: '' })
+    // ⚠️ 2026-10-18：`loadKnowledge` 现在多拉一条概览（N42），所以 `errors` 多了 `overview`
+    expect(errors.value).toMatchObject({ collections: '', tags: '', smart: '' })
   })
 
   it('⭐ 一个挂了不影响另外两个（用户最少还看得见另外两行）', async () => {

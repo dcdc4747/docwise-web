@@ -1,4 +1,4 @@
-"""收口检查（M4 / 契约 §2.7 的 N22–N23，共 2 个端点）。
+"""收口检查（M4 / 契约 §2.7 的 N22–N23 + N43，共 3 个端点）。
 
 口径（照契约，别自己发明）：
 
@@ -15,8 +15,9 @@ from __future__ import annotations
 
 import json
 import logging
+from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -24,6 +25,7 @@ from sqlalchemy.orm import Session
 from ..check.engine import run_check
 from ..deps import get_current_user, get_db
 from ..models import CheckRun, Citation, Draft, Material, TaskUnderstanding, User
+from ..timeutil import iso_utc
 
 logger = logging.getLogger(__name__)
 
@@ -178,3 +180,49 @@ def get_check(
     if row is None:
         raise HTTPException(status_code=404, detail="检查报告不存在")
     return row.report
+
+
+@router.get("")
+def list_checks(
+    draft_id: Annotated[int | None, Query()] = None,
+    limit: Annotated[int, Query()] = 20,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    """`GET /api/check?draft_id?&limit?` → `{items: [...]}`｜N43 检查历史。
+
+    ⚠️ **只列自己的**（按 `user_id` 过滤），与全站"别人的一律当不存在"同一条口径。
+    ⚠️ 每条只带**摘要**（`summary.reported/unknown` + 语言 / 制式 / 规则版本 / 时间），
+    要看逐条明细就点进去走 N23（`GET /api/check/{run_id}`）——
+    **列表里塞整份报告**会让历史一多就拖死，而且报告形状本来就该只有一处定义。
+    """
+    size = max(1, min(int(limit), 50))
+    stmt = select(CheckRun).where(CheckRun.user_id == user.id)
+    if draft_id is not None:
+        stmt = stmt.where(CheckRun.draft_id == draft_id)
+    rows = db.scalars(stmt.order_by(CheckRun.id.desc()).limit(size)).all()
+
+    items = []
+    for row in rows:
+        report = row.report or {}
+        summary = report.get("summary") or {}
+        step = report.get("step") or {}
+        items.append(
+            {
+                "id": row.id,
+                "draft_id": row.draft_id,
+                "lang": row.lang,
+                "citation_style": row.citation_style,
+                "ruleset_version": row.ruleset_version,
+                "created_at": iso_utc(row.created_at),
+                "summary": {
+                    "reported": summary.get("reported"),
+                    "unknown": summary.get("unknown"),
+                },
+                "step": {
+                    "lang": step.get("lang"),
+                    "citation_style": step.get("citation_style"),
+                },
+            }
+        )
+    return {"items": items}
