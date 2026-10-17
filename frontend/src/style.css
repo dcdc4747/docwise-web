@@ -2325,7 +2325,10 @@ svg.ic-inl {
    流向芯片沿用 `.me-flow` 那套形状（本地 = 灰底、发往 API = 强调色底），
    **同一件事在两页必须是同一个观感**。
    ============================================================ */
-.dw .proc { max-width: 1080px; padding: var(--sp-5) var(--sp-5) var(--sp-8); }
+/* ⚠️ 这里原来写的是 `var(--sp-8)` —— **那个 token 根本不存在**（设计规范 §4.1 把间距定死
+   `7` 级：`--sp-1..7`）。CSS 变量没定义时**整条声明在计算时变无效**，浏览器不报错、
+   控制台没警告，`padding` 直接退回 0 → 内容贴边、看起来像"左边被切了"。已改成 `--sp-7`。 */
+.dw .proc { max-width: 1080px; padding: var(--sp-5) var(--sp-5) var(--sp-7); }
 .dw .proc-top {
   display: flex;
   flex-wrap: wrap;
@@ -2414,7 +2417,7 @@ svg.ic-inl {
 
 /* 窄档：间距收一点，别让两侧 padding 吃掉可读宽度 */
 @media (max-width: 859px) {
-  .dw .proc { padding: var(--sp-4) var(--sp-3) var(--sp-8); }
+  .dw .proc { padding: var(--sp-4) var(--sp-3) var(--sp-7); }
 }
 
 /* 手机档（<720）：底部给 R6 的标签栏让位，否则最后一条会被标签栏盖住 */
@@ -2624,6 +2627,181 @@ svg.ic-inl {
 
 /* 那一行说明文字（"Markdown 带筛子账；CSV 一行一条"）比正文小一档，别抢按钮的位 */
 .dw .wr-checkexport .wr-muted { font-size: var(--fs-micro); }
+
+/* ============================================================================
+   [M7] 记忆页（2026-10-16）—— 用法偏好的"可看可改可删"
+   ============================================================================
+   自己那一段：只加 `.mem-*`。颜色 / 字号 / 间距一律 token 名，不动上面任何人的段。
+   ⚠️ 窄屏（390）也要能用：一律 `flex-wrap` + `min-width: 0`，
+      别让长术语把行顶出屏幕（390 那轮踩过"内容被裁而文档宽度不变"的坑）。
+   ============================================================================ */
+
+/* ⚠️ 底边用 `--sp-7`：**`--sp-8` 不存在**（间距只有 7 级）。用了不存在的 token
+   会让整条 `padding` 在计算时失效 → 内容贴边（这个坑 `.proc` 那边也踩过）。 */
+.dw .mem { max-width: 1080px; padding: var(--sp-5) var(--sp-5) var(--sp-7); }
+.dw .mem-top {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+  align-items: flex-start;
+  justify-content: space-between;
+}
+.dw .mem-t { margin: 0; font-size: 20px; font-weight: 700; }
+.dw .mem-sub {
+  margin: var(--sp-1) 0 0;
+  font-size: var(--fs-meta);
+  color: var(--muted);
+  line-height: 1.7;
+}
+.dw .mem-ops {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  align-items: center;
+}
+.dw .mem-count { font-size: var(--fs-meta); color: var(--muted); }
+
+.dw .mem-block {
+  margin-top: var(--sp-5);
+  padding-top: var(--sp-4);
+  border-top: 1px solid var(--line);
+}
+.dw .mem-h {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  align-items: baseline;
+  margin: 0 0 var(--sp-3);
+  font-size: var(--fs-body);
+  font-weight: 700;
+}
+.dw .mem-count-inline { font-size: var(--fs-micro); font-weight: 400; color: var(--muted); }
+
+.dw .mem-empty {
+  margin: 0;
+  padding: var(--sp-3);
+  border: 1px dashed var(--line);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  font-size: var(--fs-meta);
+  color: var(--muted);
+  line-height: 1.8;
+}
+
+.dw .mem-list { margin: 0; padding: 0; list-style: none; }
+.dw .mem-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2) var(--sp-3);
+  align-items: center;
+  padding: var(--sp-2) 0;
+  border-bottom: 1px dashed var(--line);
+  min-width: 0;
+}
+.dw .mem-row:last-child { border-bottom: 0; }
+/* 停用：**仍看得见**（"先别用，但别丢"），只是灰一点 */
+.dw .mem-row.paused { opacity: 0.62; }
+/* 待删除：给撤销窗口的那 5 秒 */
+.dw .mem-row.doomed { opacity: 0.5; text-decoration: line-through; }
+
+.dw .mem-pair {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+  align-items: baseline;
+  min-width: 0;
+  flex: 1 1 260px;
+}
+.dw .mem-src {
+  font-size: var(--fs-meta);
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.dw .mem-arrow { color: var(--muted); font-size: var(--fs-micro); }
+.dw .mem-dst {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.dw .mem-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  align-items: center;
+}
+.dw .mem-hits { font-size: var(--fs-micro); color: var(--muted); }
+.dw .mem-paused {
+  font-size: var(--fs-micro);
+  color: var(--accent-hi);
+  border: 1px solid var(--accent-line);
+  border-radius: 999px;
+  padding: 0 var(--sp-1);
+  white-space: nowrap;
+}
+.dw .mem-row-ops { display: flex; flex-wrap: wrap; gap: var(--sp-1); }
+
+.dw .mem-field {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-meta);
+  color: var(--muted);
+  min-width: 0;
+}
+.dw .mem-input,
+.dw .mem-select {
+  max-width: 100%;
+  min-width: 0;
+  padding: 3px var(--sp-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  font: inherit;
+  font-size: var(--fs-meta);
+  color: var(--ink);
+}
+.dw .mem-input { flex: 0 1 160px; }
+.dw .mem-select { flex: 0 1 220px; }
+
+.dw .mem-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2) var(--sp-3);
+  align-items: center;
+  margin-top: var(--sp-3);
+  padding: var(--sp-3);
+  border: 1px dashed var(--line);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+}
+.dw .mem-cite {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+  align-items: center;
+}
+.dw .mem-hint {
+  margin: var(--sp-2) 0 0;
+  font-size: var(--fs-micro);
+  color: var(--muted);
+  line-height: 1.7;
+}
+.dw .mem-row-error {
+  flex: 1 0 100%;
+  margin: 0;
+  font-size: var(--fs-micro);
+  color: var(--danger, #b42318);
+}
+.dw .mem-loading { font-size: var(--fs-meta); color: var(--muted); }
+.dw .mem-edited-empty { margin-top: var(--sp-2); }
+
+/* 窄屏：把行内的操作按钮换到下一行，别和术语挤成一坨 */
+@media (max-width: 719px) {
+  .dw .mem { padding: var(--sp-4) var(--sp-3) var(--sp-6); }
+  .dw .mem-pair { flex: 1 1 100%; }
+  .dw .mem-row-ops { flex: 1 1 100%; }
+  .dw .mem-input,
+  .dw .mem-select { flex: 1 1 100%; max-width: 100%; }
+}
 
 
 

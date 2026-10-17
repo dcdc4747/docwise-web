@@ -1614,7 +1614,7 @@ describe('App.vue 页面渲染', () => {
     expect(writeItem().classes()).toContain('on')
   })
 
-  it('左栏：点还没做的页（记忆）如实说一句、把地址回库页，不假装打开了', async () => {
+  it('⭐ 左栏：点「记忆」真能打开记忆页（M7 做出来了，不再是"还没做"那条路）', async () => {
     const { task, detail } = completedFixture()
     globalThis.fetch = stubFetch({ tasks: [task], detail })
     window.history.replaceState(null, '', `#/read/${task.id}`)
@@ -1624,9 +1624,24 @@ describe('App.vue 页面渲染', () => {
     await wrapper.findAll('button.rail-item').find((b) => b.text() === '记忆').trigger('click')
     await flushPromises()
 
-    expect(window.location.hash).toBe('#/')
-    expect(wrapper.find('.lib-wrap').exists()).toBe(true)
-    expect(wrapper.find('.toast.show').text()).toContain('记忆')
+    // 地址进到 `#/memory`，屏也真的换成记忆页（**不是**弹一句"还没做"再回库页）
+    expect(window.location.hash).toBe('#/memory')
+    expect(wrapper.find('.mem').exists()).toBe(true)
+    expect(wrapper.find('.lib-wrap').exists()).toBe(false)
+  })
+
+  it('⭐ 直接输地址进 #/memory 也要真渲染记忆页（"地址变了、屏没变"是踩过的坑）', async () => {
+    // ⚠️ 这条是实拍抓出来的：左栏点进去正常，但在地址栏直接输 `#/memory` 时
+    // 只有 `hashchange` → `syncFromRoute()`；那里**少一条 memory 分支**就会
+    // "地址对了、屏还是库页"。单测当时没覆盖这条路，所以红是后来补的。
+    const { task, detail } = completedFixture()
+    globalThis.fetch = stubFetch({ tasks: [task], detail })
+    window.history.replaceState(null, '', '#/memory')
+    wrapper = mountApp()
+    await flushPromises()
+
+    expect(wrapper.find('.mem').exists()).toBe(true)
+    expect(wrapper.find('.lib-wrap').exists()).toBe(false)
   })
 
   it('左栏：每一项都点得动（R4 判据①），且不许把地址写到不知道的地方去', async () => {
