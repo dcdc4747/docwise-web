@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import subprocess
 from pathlib import Path
 from typing import Annotated
@@ -81,6 +82,25 @@ def _empty(style: str) -> dict:
     }
 
 
+# 上传落盘名是 `{32位hex}_{原名}`（storage 那边定的），但**引用条目里不该出现哈希**。
+# 素材是"创建时快照"，不会跟着文献改名，所以只能在出参这一层洗。
+_STORAGE_PREFIX_RE = re.compile(r"^[0-9a-f]{32}_")
+
+
+def _strip_storage_prefix(value):
+    """把一个字段里的哈希前缀去掉；非字符串原样返回。"""
+    if not isinstance(value, str):
+        return value
+    return _STORAGE_PREFIX_RE.sub("", value)
+
+
+def _clean_csl(item):
+    """CSL 条目的字符串字段都洗一遍（title / container-title / URL 都可能带前缀）。"""
+    if not isinstance(item, dict):
+        return item
+    return {key: _strip_storage_prefix(value) for key, value in item.items()}
+
+
 @router.get("/{draft_id}/bibliography")
 def draft_bibliography(
     draft_id: int,
@@ -106,7 +126,7 @@ def draft_bibliography(
         )
 
     draft = _load_owned_draft(db, user, draft_id)
-    items = [row.csl_json for row in _citations_of(db, draft.id)]
+    items = [_clean_csl(row.csl_json) for row in _citations_of(db, draft.id)]
     if not items:
         return _empty(style_key)
 

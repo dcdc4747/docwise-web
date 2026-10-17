@@ -26,8 +26,10 @@ export const collections = ref([])
 export const tags = ref([])
 /** 智能集合：`[{id, name, query, count, builtin}]` */
 export const smartCollections = ref([])
-/** 三块各自的错（空串 = 正常） */
-export const errors = ref({ collections: '', tags: '', smart: '' })
+/** 概览条数（N42）：`{tasks, archived_tasks, blocks, materials, drafts, citations, check_runs}` */
+export const overview = ref(null)
+/** 各块自己的错（空串 = 正常） */
+export const errors = ref({ collections: '', tags: '', smart: '', overview: '' })
 export const loading = ref(false)
 export const loaded = ref(false)
 
@@ -77,10 +79,11 @@ function messageOf(error, fallback) {
  */
 export async function loadKnowledge() {
   loading.value = true
-  const [c, t, s] = await Promise.allSettled([
+  const [c, t, s, o] = await Promise.allSettled([
     apiJson('/api/collections'),
     apiJson('/api/tags'),
     apiJson('/api/smart-collections'),
+    apiJson('/api/me/overview'),
   ])
 
   const pick = (result, map, key, label) => {
@@ -96,6 +99,27 @@ export async function loadKnowledge() {
   collections.value = pick(c, mapCollection, 'collections', '集合')
   tags.value = pick(t, mapTag, 'tags', '标签')
   smartCollections.value = pick(s, mapSmart, 'smart', '智能集合')
+
+  // 概览（N42）：整块拿到才用；拿不到就保持 null → 底行走诚实档（不摆一排 0）
+  if (o.status === 'fulfilled' && o.value && typeof o.value === 'object') {
+    overview.value = {
+      tasks: toCount(o.value.tasks) ?? 0,
+      archivedTasks: toCount(o.value.archived_tasks) ?? 0,
+      blocks: toCount(o.value.blocks) ?? 0,
+      materials: toCount(o.value.materials) ?? 0,
+      drafts: toCount(o.value.drafts) ?? 0,
+      citations: toCount(o.value.citations) ?? 0,
+      checkRuns: toCount(o.value.check_runs) ?? 0,
+    }
+    errors.value.overview = ''
+  } else {
+    overview.value = null
+    errors.value.overview = `概况暂时取不到（${messageOf(
+      o.status === 'rejected' ? o.reason : null,
+      '网络或服务异常',
+    )}）`
+  }
+
   loading.value = false
   loaded.value = true
 }
@@ -105,7 +129,8 @@ export function resetKnowledge() {
   collections.value = []
   tags.value = []
   smartCollections.value = []
-  errors.value = { collections: '', tags: '', smart: '' }
+  overview.value = null
+  errors.value = { collections: '', tags: '', smart: '', overview: '' }
   loaded.value = false
 }
 

@@ -47,7 +47,7 @@
       >
         保存
       </button>
-      <button class="btn ghost sm wr-check-toggle" @click="toggleCheck">收口检查</button>
+      <button class="btn ghost sm wr-check-toggle" @click="openCheckDrawer">收口检查</button>
       <button class="btn ghost sm wr-helper-toggle" @click="helperOpen = !helperOpen">助手</button>
     </div>
 
@@ -238,7 +238,7 @@
             v-for="tab in HELPER_TABS"
             :key="tab.key"
             :class="{ on: helperTab === tab.key }"
-            @click="helperTab = tab.key"
+            @click="pickHelper(tab.key)"
           >
             {{ tab.label }}
           </button>
@@ -305,6 +305,46 @@
               出处只有一种写法：「第 X 页 ·「这一句的开头…」」——不写第几段
               （段号在没见过的期刊上只有五六成准，不准的段号比没有更糟）。
             </p>
+
+            <!-- ==================== 参考文献（契约 N31） ====================
+                 ⭐ 以前这里只有 [n] 的引文列表，**出不了参考文献表**：后端早就支持
+                 4 种样式（GB/T 7714 顺序编码 / 著者-出版年、APA、IEEE），只是没人接。
+                 ⚠️ 缺元数据的条目会进 `skipped`，**照实列出来**（不许悄悄少几条）。 -->
+            <div class="wr-biblio">
+              <div class="wr-colhead">
+                <span>参考文献 · {{ bibEntries.length }}</span>
+                <span class="spacer" />
+                <select v-model="bibStyle" class="wr-biblio-style" @change="loadBibliography">
+                  <option v-for="s in bibStyleOptions" :key="s.key" :value="s.key">
+                    {{ s.label }}
+                  </option>
+                </select>
+                <button
+                  class="btn ghost sm"
+                  :disabled="!bibEntries.length"
+                  @click="copyBibliography"
+                >
+                  复制
+                </button>
+              </div>
+
+              <p v-if="!citations.length" class="wr-muted">
+                还没有引文——上面插一条，这里就会按选中文档样式生成参考文献表。
+              </p>
+              <p v-else-if="bibLoading" class="wr-muted">正在按 {{ bibStyle }} 排版…</p>
+              <HonestNote v-else-if="bibError" :text="`参考文献没生成：${bibError}`" />
+              <ol v-else class="wr-biblio-list">
+                <li v-for="(entry, index) in bibEntries" :key="index">{{ entry }}</li>
+              </ol>
+
+              <HonestNote
+                v-if="bibSkipped.length"
+                :text="`有 ${bibSkipped.length} 条没排进去：${bibSkipped.join('；')}`"
+              />
+              <p class="wr-muted">
+                排版由引擎按 CSL 规则做（不是我们手拼字符串）；缺作者/年份这类元数据的条目会照实标出来。
+              </p>
+            </div>
           </div>
 
           <!-- 过程：只记本次会话真做过的事 -->
@@ -348,7 +388,7 @@
           <button
             class="btn primary sm"
             :disabled="checkRunning || !currentDraft"
-            @click="runCheck"
+            @click="runCheckNow"
           >
             {{ checkRunning ? '正在检查…' : checkReport ? '重新检查' : '跑一次检查' }}
           </button>
@@ -356,6 +396,31 @@
         </div>
 
         <HonestNote v-if="checkError" :text="`检查没跑成：${checkError}`" />
+
+        <!-- ==================== 历史报告（契约 N43 → N23） ====================
+             ⭐ 以前关掉抽屉就没了，两次检查没法对比。现在列表只带摘要，
+             点一条用 N23 取回完整报告（契约保证与当场返回逐字节一致）。 -->
+        <div class="wr-checkhist">
+          <div class="wr-colhead">
+            <span>历史报告 · {{ checkHistory.length }}</span>
+            <span class="spacer" />
+            <button class="btn ghost sm" :disabled="checkHistoryLoading" @click="loadCheckHistory">
+              {{ checkHistoryLoading ? '读取中…' : '刷新' }}
+            </button>
+          </div>
+          <HonestNote v-if="checkHistoryError" :text="`历史没取到：${checkHistoryError}`" />
+          <ul v-else-if="checkHistory.length" class="wr-checkhist-list">
+            <li v-for="run in checkHistory" :key="run.id">
+              <button type="button" @click="openCheckRun(run.id)">
+                #{{ run.id }} · {{ formatRunTime(run.created_at) }} · 报出
+                {{ run.summary?.reported ?? '—' }} 处<template v-if="run.summary?.unknown"
+                  >（{{ run.summary.unknown }} 处判不出）</template
+                >
+              </button>
+            </li>
+          </ul>
+          <p v-else class="wr-muted">还没跑过检查——点上面「跑一次检查」，历史会留在这里。</p>
+        </div>
 
         <div v-if="checkStep" class="wr-checkstep">
           <span>语言：{{ checkStep.lang }}</span>
@@ -464,12 +529,25 @@ import EmptyState from '../components/EmptyState.vue'
 import HonestNote from '../components/HonestNote.vue'
 import { navigate } from '../router'
 import {
+  bibEntries,
+  bibError,
+  bibLoading,
+  bibSkipped,
+  bibStyle,
+  bibStyleOptions,
+  bibText,
   body,
+  checkError,
+  checkGroups,
+  checkHistory,
+  checkHistoryError,
+  checkHistoryLoading,
+  loadBibliography,
+  loadCheckHistory,
+  openCheckRun,
   citationStateOf,
   citations,
   clearCitations,
-  checkError,
-  checkGroups,
   checkOpen,
   checkReport,
   checkRunning,
@@ -544,6 +622,54 @@ const HELPER_TABS = [
 
 const bodyEl = ref(null)
 const fileEl = ref(null)
+
+/**
+ * 切助手页签。⭐ 切到「引用」时顺手拉一次参考文献（N31）：
+ * 用户切过来就是为看它的，不该再点一下才出。
+ */
+async function pickHelper(key) {
+  helperTab.value = key
+  if (key === 'cites') await loadBibliography()
+}
+
+/**
+ * 开收口抽屉：**顺手拉一次历史**（N43）。
+ * ⚠️ 拉历史失败只影响那一块（`checkHistoryError` 自己会说），不挡当前报告。
+ */
+async function openCheckDrawer() {
+  toggleCheck()
+  if (checkOpen.value) await loadCheckHistory()
+}
+
+/** 跑一次检查；成功后刷新历史（否则新报告要等下次开抽屉才出现）。 */
+async function runCheckNow() {
+  const ok = await runCheck()
+  if (ok) await loadCheckHistory()
+}
+
+/** 历史里的一条：把 ISO 时间按本地显示（与全站口径一致）。 */
+function formatRunTime(value) {
+  if (!value) return '—'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return String(value).slice(0, 16).replace('T', ' ')
+  return date.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+/** 复制参考文献表（与界面所见同一份文本）。 */
+async function copyBibliography() {
+  if (!bibText.value) return
+  try {
+    await navigator.clipboard.writeText(bibText.value)
+    showToast(`已复制 ${bibEntries.value.length} 条参考文献`)
+  } catch {
+    showToast('复制没成功（浏览器不给剪贴板权限）——可以自己选中文本复制')
+  }
+}
 
 /** 窄屏那三档（桌面不用它，CSS 会忽略）。 */
 const pane = ref('doc')
