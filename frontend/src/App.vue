@@ -82,6 +82,7 @@ import LibraryView from './views/LibraryView.vue'
 import MeView from './views/MeView.vue'
 import ProcessView from './views/ProcessView.vue'
 import MemoryView from './views/MemoryView.vue'
+import MaterialsView from './views/MaterialsView.vue'
 import ReadView from './views/ReadView.vue'
 import WriteView from './views/WriteView.vue'
 import { NConfigProvider, NSpin, zhCN, dateZhCN } from 'naive-ui'
@@ -262,6 +263,12 @@ async function syncFromRoute() {
     return
   }
 
+  // E2 素材库（`#/materials`）：整页，自己取数（N13 + 集合/标签列表）。**这里只切屏**。
+  if (route.name === 'materials') {
+    if (view.value !== 'materials') view.value = 'materials'
+    return
+  }
+
   // 离开个人中心时**把偏好重新读一遍**：那一页改完字号/档位/动效，
   // 外壳当场跟上（不刷新页面也能看到效果；下次进来也还在）。
   if (view.value === 'me' && route.name !== 'me') reloadShellPrefs()
@@ -333,7 +340,8 @@ const RAIL_TARGETS = {
   // 所以这里不再是"还没做"的提示，而是带着条件进库页（以后智能集合列表接口上来，
   // 这条要改成读 N9 返回的规则、按 `smart_id` 筛）。
   'lib-todo': { go: { name: 'library' }, filter: { reading_status: 'todo' } },
-  'lib-materials': { note: '素材列表接口（契约 N13）还没做——素材已经能在起草页左栏里用', },
+  // ⭐ 素材库（E2）已经做出来：真跳 `#/materials`（吃 N13 的 `?collection_id?` / `&tag?`）
+  'lib-materials': { go: { name: 'materials' } },
   'lib-drafts': { note: '草稿列表页还没做——你的草稿在「起草」页里（点左上「起草」）' },
   'lib-refs': { note: '引用列表页还没做——引文在「起草」页的「引用」页签里看' },
   // ⭐ 记忆页（M7）已经做出来：真跳 `#/memory`（N35–N39，自己的表、不是台账）
@@ -361,8 +369,14 @@ function onRailSelect(key) {
   const go = target.go || { name: 'library' }
   // ⭐「收口」= 进起草页**并当场拉开检查抽屉**（形态 §3.3：收口是起草页里的抽屉，不是新页面）
   if (target.opens === 'check') openCheck()
-  // ⭐ 整页只有这四张（起草 / 个人中心 / 处理过程 / 记忆）；其余一律回库页
-  const PAGES = { write: 'write', me: 'me', process: 'process', memory: 'memory' }
+  // ⭐ 整页只有这几张（起草 / 素材库 / 个人中心 / 处理过程 / 记忆）；其余一律回库页
+  const PAGES = {
+    write: 'write',
+    materials: 'materials',
+    me: 'me',
+    process: 'process',
+    memory: 'memory',
+  }
   view.value = PAGES[go.name] || 'library'
   activeNav.value = PAGES[go.name] ? go.name : 'read'
   // ⭐ 带筛选条件的入口（「待读」= 智能集合"状态 = 待读"；「全部文献」= 清掉筛选）：
@@ -665,6 +679,12 @@ function handleUnauthorized() {
                否则"正在读一篇 + 点左栏「记忆」"会被 `currentTask` 那条分支吃掉。 -->
           <section v-else-if="view === 'memory'" class="screen-memory">
             <MemoryView />
+          </section>
+
+          <!-- ==================== E2 素材库（#/materials 整页） ====================
+               同理：**必须排在阅读区前面判断**，否则"正在读一篇 + 点左栏「素材」"会被吃掉。 -->
+          <section v-else-if="view === 'materials'" class="screen-materials">
+            <MaterialsView />
           </section>
 
           <!-- ==================== L2 阅读工作区 ==================== -->

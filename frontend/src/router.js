@@ -14,6 +14,7 @@ export const ROUTES = {
   library: '/',
   read: '/read/:taskId',
   write: '/write',
+  materials: '/materials',
   memory: '/memory',
   process: '/process',
   me: '/me',

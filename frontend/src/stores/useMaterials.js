@@ -46,12 +46,34 @@ function _messageOf(err, fallback) {
   return text || fallback
 }
 
-/** `GET /api/materials`（N13）。素材栏挂了不影响写稿——只记错误，不抛。 */
-export async function loadMaterials() {
+/**
+ * `GET /api/materials`（N13）。素材栏挂了不影响写稿——只记错误，不抛。
+ *
+ * 三个筛选参数（**契约 N13 已支持**）：`task_id` / `collection_id` / `tag`。
+ * ⚠️ 集合与标签都挂在**文献**上（`task_collections` / `task_tags`），所以筛出来的是
+ * "**源文献**在这些集合/标签里的素材卡"；`task_id` 为 null 的卡（源文献已删）不属于任何集合，
+ * 这两种筛选都筛不到它 —— 这是后端口径，前端不另编一套。
+ *
+ * ⚠️ **签名对两种调用方都安全**：`WriteView` 里有个 `@click="loadMaterials"`
+ * （会把 MouseEvent 当第一个参数传进来）。所以这里**只认字面量对象**，其余一律当"不筛"。
+ */
+export async function loadMaterials(options = {}) {
+  const opts = options && typeof options === 'object' && !options.nativeEvent ? options : {}
+  const params = new URLSearchParams()
+  const taskId = Number(opts.taskId)
+  const collectionId = Number(opts.collectionId)
+  const tag = String(opts.tag ?? '').trim()
+  if (Number.isFinite(taskId) && taskId > 0) params.set('task_id', String(taskId))
+  if (Number.isFinite(collectionId) && collectionId > 0) {
+    params.set('collection_id', String(collectionId))
+  }
+  if (tag) params.set('tag', tag)
+  const query = params.toString()
+
   materialsLoading.value = true
   materialsError.value = ''
   try {
-    const data = await apiJson('/api/materials')
+    const data = await apiJson(`/api/materials${query ? `?${query}` : ''}`)
     materials.value = Array.isArray(data?.items) ? data.items : []
     return materials.value
   } catch (err) {
