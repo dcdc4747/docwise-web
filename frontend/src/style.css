@@ -2998,6 +2998,24 @@ svg.ic-inl {
   .dw .kn-editor { flex-wrap: wrap; }
 }
 
+/* ---- 登录设备与会话（2026-10-18 修：132 行 / 表格撑破卡片 / 时间折两行）----
+   口径：设备名一行放不下就截断（悬停看全文），时间**一行**，本机单独标出来。 */
+.dw .me-sessions-sum { margin: var(--sp-2) 0 var(--sp-3); color: var(--muted); font-size: var(--fs-meta); line-height: 1.8; }
+.dw .me-table.me-sessions { width: 100%; table-layout: fixed; }
+/* 4 列：设备 40% / 登录 20% / 最近活动 20% / 操作 20%。
+   ⚠️ 时间列**必须留够**：早先 5 列 15%（≈81px）时，`10/17 22:26` 直接溢出撞到下一列，
+   截图里看是 `22:2626/10/17` 粘成一坨。 */
+.dw .me-table.me-sessions th:nth-child(1) { width: 40%; }
+.dw .me-table.me-sessions th:nth-child(2),
+.dw .me-table.me-sessions th:nth-child(3) { width: 20%; }
+.dw .me-table.me-sessions th:nth-child(4) { width: 20%; }
+.dw .me-table.me-sessions td { padding-right: var(--sp-3); }
+.dw .me-table.me-sessions td { vertical-align: middle; }
+.dw .me-dev { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dw .me-when { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.dw .me-chip-now { display: inline-block; margin-left: var(--sp-2); padding: 1px 6px; border-radius: 999px; border: 1px solid var(--accent-line); background: var(--accent-soft); color: var(--accent); font-size: var(--fs-micro); vertical-align: middle; }
+.dw .me-table.me-sessions tr.me-this { background: var(--surface-2); }
+
 /* ============================================================================
    [M7] 记忆页（2026-10-16）—— 用法偏好的"可看可改可删"
    ============================================================================

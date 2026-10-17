@@ -22,14 +22,15 @@ import zipfile
 from pathlib import Path
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from .. import storage
+from ..auth import MAX_SESSIONS_PER_USER
 from ..config import settings
-from ..deps import get_current_user, get_db
+from ..deps import current_session_hash, get_current_user, get_db
 from ..models import (
     AuthSession,
     AuthTicket,
@@ -481,16 +482,42 @@ def export_all(
 
 @router.get("/sessions")
 def my_sessions(
+    request: Request,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[User, Depends(get_current_user)],
 ):
-    """N29 登录设备与会话（**只列还能用的**：已过期的会话已经不能用，不摆出来凑数）。"""
+    """N29 登录设备与会话（**只列还能用的**，最近 20 台）。
+
+    ⚠️ **上限 20**：每条会话在登录时插入、30 天才过期，实测一个账号能攒到 132 条；
+    全量返回会让页面长到一屏放不下（用户截图报过）。
+    ⭐ `current`：**哪台是你现在用的**——没有这个标记，"吊销"按钮长得全一样，
+    很容易把自己踢下线（契约里原来没有这一列，本次显式追加）。
+    """
+    hash_now = current_session_hash(request)
     rows = db.scalars(
         select(AuthSession)
         .where(AuthSession.user_id == user.id, AuthSession.expires_at > utc_now())
         .order_by(AuthSession.created_at.desc(), AuthSession.id.desc())
+        .limit(MAX_SESSIONS_PER_USER)
     ).all()
-    return {"items": [_session_view(row) for row in rows]}
+    total = (
+        db.scalar(
+            select(func.count())
+            .select_from(AuthSession)
+            .where(AuthSession.user_id == user.id, AuthSession.expires_at > utc_now())
+        )
+        or 0
+    )
+    items = []
+    for row in rows:
+        view = _session_view(row)
+        view["current"] = bool(hash_now) and row.token_hash == hash_now
+        items.append(view)
+    # 按**登录时间**新→旧，与表格第一列一致。
+    # ⚠️ 别改成按最近活动排：那张表第一列是登录时间，按另一个字段排会让
+    # 「18:58 排在 22:26 上面」看着像排序坏了（真踩过）。
+    items.sort(key=lambda item: item["created_at"], reverse=True)
+    return {"items": items, "total": int(total)}
 
 
 @router.delete("/sessions/{session_id}")
