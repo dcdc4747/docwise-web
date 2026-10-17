@@ -187,9 +187,9 @@
       </div>
     </div>
 
-    <!-- 概况底行（卡③）：`N 篇文献 · M 块 · X 条素材 · Y 条引用` 四段数要资产计数
-         （那部分接口还没实现）→ **没数就走诚实档**，组件自己不摆一排 0 冒充统计好了。 -->
-    <LibOverview />
+    <!-- 概况底行（卡③）：四段数**现在真的有数了**（N42 `GET /api/me/overview`）。
+         ⚠️ 拿不到整块就仍走诚实档（不摆一排 0 冒充"统计好了"）。 -->
+    <LibOverview :stats="overviewStats" :tags="tags" @pick-tag="pickTag" />
 
     <div class="footline">
       <span v-if="taskActionError" style="color: var(--danger)">{{ taskActionError }}</span>
@@ -247,7 +247,7 @@ import LibOverview from '../components/LibOverview.vue'
 import { navigate } from '../router'
 import { openTask } from '../stores/useReader'
 import { historyError, statusTextMap, tasks } from '../stores/useTasks'
-import { collectionNameOf, collections, loadKnowledge, smartCollections, tags } from '../stores/useKnowledge'
+import { collectionNameOf, collections, loadKnowledge, overview, smartCollections, tags } from '../stores/useKnowledge'
 import { apiJson } from '../auth'
 
 const filters = ref({ ...(activeTaskQuery.value || {}) })
@@ -274,6 +274,23 @@ const extraFilterText = computed(() => {
   if (activeTaskQuery.value?.unfiled) return '当前只看「未归类」——还没放进任何集合的文献。'
   return ''
 })
+
+/** 概况四段数（N42）：`LibOverview` 要的就是这四个键；整块没拿到就传 null（走诚实档）。 */
+const overviewStats = computed(() => {
+  const data = overview.value
+  if (!data) return null
+  return {
+    tasks: data.tasks,
+    blocks: data.blocks,
+    materials: data.materials,
+    citations: data.citations,
+  }
+})
+
+/** 点标签云 = 按这个标签筛（与筛选条上的标签芯片同一条路）。 */
+function pickTag(name) {
+  applyFilters({ tag: [name] })
+}
 
 function applyFilters(next) {
   filters.value = { ...next }

@@ -693,3 +693,70 @@ def put_preferences(
     db.commit()
     db.refresh(row)
     return {"prefs": _prefs_payload(row), "updated_at": iso_utc(row.updated_at)}
+
+
+# ============================================================ N42 概览（真实条数）
+
+
+@router.get("/overview")
+def get_overview(
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_user)],
+):
+    """`GET /api/me/overview` → 库里**我的东西有多少**（N42）。
+
+    ⭐ 给「历史记录」页底部那条「N 篇文献 · M 块 · X 条素材 · Y 条引用」用。
+    以前那一行写的是"概况暂未接入（等基线 GET /api/tasks 带上计数）"——
+    **不是没数据，是没有出口**；这里就补这个出口。
+
+    口径（都跟列表页对齐，别另立一套）：
+    - `tasks` **不含归档**（列表也不显示归档的）；归档的单独给 `archived_tasks`；
+    - `blocks` 只数**未归档任务**的块（与"你实际能点开看的内容"一致）；
+    - 一切**真 SQL 计数**，数为 0 就回 0，不编。
+    """
+    my_tasks = select(Task.id).where(
+        Task.user_id == user.id, Task.archived_at.is_(None)
+    )
+
+    def _count(stmt) -> int:
+        return int(db.scalar(stmt) or 0)
+
+    tasks = _count(
+        select(func.count())
+        .select_from(Task)
+        .where(Task.user_id == user.id, Task.archived_at.is_(None))
+    )
+    archived = _count(
+        select(func.count())
+        .select_from(Task)
+        .where(Task.user_id == user.id, Task.archived_at.is_not(None))
+    )
+    blocks = _count(
+        select(func.count())
+        .select_from(TaskBlock)
+        .where(TaskBlock.task_id.in_(my_tasks))
+    )
+    return {
+        "tasks": tasks,
+        "archived_tasks": archived,
+        "blocks": blocks,
+        "materials": _count(
+            select(func.count())
+            .select_from(Material)
+            .where(Material.user_id == user.id)
+        ),
+        "drafts": _count(
+            select(func.count()).select_from(Draft).where(Draft.user_id == user.id)
+        ),
+        "citations": _count(
+            select(func.count())
+            .select_from(Citation)
+            .join(Draft, Draft.id == Citation.draft_id)
+            .where(Draft.user_id == user.id)
+        ),
+        "check_runs": _count(
+            select(func.count())
+            .select_from(CheckRun)
+            .where(CheckRun.user_id == user.id)
+        ),
+    }

@@ -80,6 +80,78 @@ export const materialById = computed(() => {
   return map
 })
 
+// ============================================================ 参考文献（契约 N31）
+//
+// ⭐ 为什么放在 store 里：样式选择、条目、跳过原因要跟着**当前草稿**走，
+// 视图切页签不该丢；而且导出/复制要用同一份文本（两边不一致比没有更糟）。
+// ⚠️ 后端支持 4 种样式；**样式列表以接口回的 `styles` 为准**（这里只是兜底默认）。
+
+/** 兜底样式表（接口会回 `styles`，以它为准）。 */
+export const BIB_STYLES = [
+  { key: 'gb-t-7714-2015-numeric', label: 'GB/T 7714 顺序编码' },
+  { key: 'gb-t-7714-2015-author-date', label: 'GB/T 7714 著者-出版年' },
+  { key: 'apa', label: 'APA' },
+  { key: 'ieee', label: 'IEEE' },
+]
+
+export const bibStyle = ref('gb-t-7714-2015-numeric')
+/** 接口承认的样式（拿不到就用兜底表） */
+export const bibStyleKeys = ref(BIB_STYLES.map((s) => s.key))
+export const bibEntries = ref([])
+/** 没生成的条目 + 原因（**如实展示**，不许悄悄少几条） */
+export const bibSkipped = ref([])
+export const bibError = ref('')
+export const bibLoading = ref(false)
+
+/** 下拉要显示的样式（按接口承认的 key 过滤兜底表，未知 key 也显示出来）。 */
+export const bibStyleOptions = computed(() => {
+  const known = BIB_STYLES.filter((s) => bibStyleKeys.value.includes(s.key))
+  const extra = bibStyleKeys.value
+    .filter((key) => !BIB_STYLES.some((s) => s.key === key))
+    .map((key) => ({ key, label: key }))
+  return [...known, ...extra]
+})
+
+/** 跳过项的说明（后端可能给字符串或对象，两种都收）。 */
+function skippedText(item) {
+  if (item === null || item === undefined) return ''
+  if (typeof item === 'string') return item
+  if (typeof item === 'object') {
+    return String(item.reason || item.title || item.id || JSON.stringify(item))
+  }
+  return String(item)
+}
+
+/**
+ * 拉一次参考文献（N31）。**没有引文就不请求**（省一次网络、也不显示空表）。
+ *
+ * ⚠️ 引擎环境没配好时接口回 503——那句话要**原样给用户看**，不要换成"出错了"。
+ */
+export async function loadBibliography() {
+  const draft = currentDraft.value
+  bibEntries.value = []
+  bibSkipped.value = []
+  bibError.value = ''
+  if (!draft || !citations.value.length) return
+
+  bibLoading.value = true
+  try {
+    const data = await apiJson(
+      `/api/drafts/${draft.id}/bibliography?style=${encodeURIComponent(bibStyle.value)}`,
+    )
+    bibEntries.value = Array.isArray(data?.entries) ? data.entries : []
+    bibSkipped.value = Array.isArray(data?.skipped) ? data.skipped.map(skippedText).filter(Boolean) : []
+    if (Array.isArray(data?.styles) && data.styles.length) bibStyleKeys.value = data.styles
+  } catch (err) {
+    bibError.value = err.message || '参考文献没生成出来'
+  } finally {
+    bibLoading.value = false
+  }
+}
+
+/** 复制用的一整段文本（与界面所见一致）。 */
+export const bibText = computed(() => bibEntries.value.join('\n'))
+
 /** 素材的来源清单（素材栏顶部的"来源筛选"用它，**客户端筛，不新造端点**）。 */
 export const materialSources = computed(() => {
   const seen = []
@@ -557,6 +629,53 @@ export function jumpToSuggested(finding) {
     return
   }
   jumpToMaterial(material)
+}
+
+// ============================================================ 检查历史（契约 N43 / N23）
+//
+// ⭐ 以前抽屉里只有"当场这一次"：关掉就没了，想对比两次检查办不到。
+// 现在列表走 N43（只带摘要），点一条再走 N23 取完整报告
+// —— 契约保证它与 POST 当场返回的**逐字节一致**。
+
+export const checkHistory = ref([])
+export const checkHistoryError = ref('')
+export const checkHistoryLoading = ref(false)
+
+/** 拉一次历史（当前草稿的；没草稿就整块空）。 */
+export async function loadCheckHistory() {
+  const draft = currentDraft.value
+  if (!draft) {
+    checkHistory.value = []
+    return
+  }
+  checkHistoryLoading.value = true
+  checkHistoryError.value = ''
+  try {
+    const data = await apiJson(`/api/check?draft_id=${draft.id}&limit=10`)
+    checkHistory.value = Array.isArray(data?.items) ? data.items : []
+  } catch (err) {
+    checkHistoryError.value = err.message || '历史报告没取到'
+    checkHistory.value = []
+  } finally {
+    checkHistoryLoading.value = false
+  }
+}
+
+/** 点一条历史 → 用 N23 取回那份报告，替换抽屉里的当前报告。 */
+export async function openCheckRun(runId) {
+  checkRunning.value = true
+  checkError.value = ''
+  try {
+    const report = await apiJson(`/api/check/${runId}`)
+    checkReport.value = report
+    logEvent(`回看检查报告 #${runId}`)
+    return true
+  } catch (err) {
+    checkError.value = err.message || '这份报告没取到'
+    return false
+  } finally {
+    checkRunning.value = false
+  }
 }
 
 // ============================================================ 收尾
