@@ -357,18 +357,18 @@ describe('App.vue 页面渲染', () => {
 
   // ======================================================== 屏 ①：L1 空库
 
-  it('L1 空库：hero 三枚可点描边按钮 + 原型 upload-card（drop / seg），且不出网格', async () => {
+  it('L1 空库：历史记录页给上传卡 + 真空态，**不出 hero**、不出网格', async () => {
     globalThis.fetch = stubFetch({ tasks: [] })
     wrapper = mountApp()
     await flushPromises()
 
-    // 结构照原型：#screen-lib-empty → .topbar + .lib-wrap(.hero + .card.upload-card)
+    // ⚠️ 2026-10-17：hero（"把文献读懂" + 三枚示例）**搬去了「读懂」页**。
+    //    历史记录页在空库时只做一件有用的事：摆出上传卡 + 说清"还没有文献"。
     expect(wrapper.find('.topbar').exists()).toBe(true)
-    expect(wrapper.find('.lib-wrap .hero').exists()).toBe(true)
-    expect(wrapper.find('.hero h1').text()).toBe('把文献读懂')
-    expect(wrapper.find('.hero .tagline').exists()).toBe(true)
-    expect(wrapper.findAll('.pills button.pill').length).toBe(3)
-    expect(wrapper.findAll('.pills button.pill').every((b) => b.attributes('disabled') === undefined)).toBe(true)
+    expect(wrapper.find('.hero').exists()).toBe(false)
+    expect(wrapper.find('.upload-card').exists()).toBe(true)
+    expect(wrapper.find('.grid3').exists()).toBe(false)
+    expect(wrapper.text()).toContain('还没有文献')
 
     // 上传卡：.card.upload-card > .drop + 档位 .seg（**不再是 n-radio-group / n-upload-dragger**）
     const upload = wrapper.find('.card.upload-card')
@@ -390,9 +390,10 @@ describe('App.vue 页面渲染', () => {
     expect(upload.text()).not.toContain('多一道审校，适合定稿引用')
     expect(upload.text()).not.toContain('慢档')
 
-    // 空库不出论文网格与标题行
+    // 空库不出论文网格；标题行**在**（2026-10-17 起历史记录页一直有标题行，
+    // 只是标题文案是「我的文献」，不带篇数）
     expect(wrapper.find('.grid3').exists()).toBe(false)
-    expect(wrapper.find('.title-row').exists()).toBe(false)
+    expect(wrapper.find('.title-row h2').text()).toBe('我的文献')
 
     for (const leak of SOURCE_LEAKS) {
       expect(wrapper.text()).not.toContain(leak)
@@ -402,15 +403,23 @@ describe('App.vue 页面渲染', () => {
     }
   })
 
-  it('L1 空库：三枚标签点了要说话（当前没有可读论文时不许装作打开了）', async () => {
+  it('读懂页（#/read）：hero 三枚可点描边按钮在，且点了要说话（没有可读论文时不许装作打开了）', async () => {
     globalThis.fetch = stubFetch({ tasks: [] })
+    // 「读懂」工作台 = `#/read`（历史记录仍是 `#/`）
+    window.history.replaceState(null, '', '#/read')
     wrapper = mountApp()
     await flushPromises()
+
+    expect(wrapper.find('.rh-hero h1').text()).toBe('把文献读懂')
+    expect(wrapper.findAll('.rh-pills button.pill').length).toBe(3)
+    expect(
+      wrapper.findAll('.rh-pills button.pill').every((b) => b.attributes('disabled') === undefined),
+    ).toBe(true)
 
     const drop = wrapper.find('.upload-card .drop')
     expect(drop.classes()).not.toContain('drop-over')
 
-    await wrapper.findAll('.pills button.pill')[0].trigger('click')
+    await wrapper.findAll('.rh-pills button.pill')[0].trigger('click')
     await flushPromises()
     expect(wrapper.find('.toast.show').exists()).toBe(true)
     expect(wrapper.text()).toContain('还没有可读的论文')
@@ -461,7 +470,7 @@ describe('App.vue 页面渲染', () => {
     expect(wrapper.find('.hero').exists()).toBe(false)
 
     // 标题行：篇数 + 唯一上传入口
-    expect(wrapper.find('.title-row h2').text()).toBe('我的论文（3 篇）')
+    expect(wrapper.find('.title-row h2').text()).toBe('我的文献 · 3 篇')
     expect(buttonByText(wrapper, '＋ 上传 PDF')).toBeTruthy()
 
     // 进行中任务条：3 段信息 + 进度条 + 取消 / 详情
@@ -1579,15 +1588,18 @@ describe('App.vue 页面渲染', () => {
     expect(wrapper.find('.rail-toggle').attributes('aria-label')).toContain('展开左栏')
   })
 
-  it('左栏：选中态跟着地址走——库页与阅读区都亮「读懂」', async () => {
+  it('左栏：选中态跟着地址走——历史记录亮「全部文献」，阅读区亮「读懂」', async () => {
     const { task, detail } = completedFixture()
     globalThis.fetch = stubFetch({ tasks: [task], detail })
     wrapper = mountApp()
     await flushPromises()
 
-    // 库页 = 「读懂」这个模块，所以它开局就是选中态（与形态 §1.2 的布局图一致）
+    // ⚠️ 2026-10-17：读懂工作台与历史记录**拆开**了。
+    // 库页（我有什么）亮下段的「全部文献」；点进「读懂」才亮上段那个动词。
     const readItem = () => wrapper.findAll('button.rail-item').find((b) => b.text() === '读懂')
-    expect(readItem().classes()).toContain('on')
+    const allItem = () => wrapper.findAll('button.rail-item').find((b) => b.text() === '全部文献')
+    expect(allItem().classes()).toContain('on')
+    expect(readItem().classes()).not.toContain('on')
 
     // 进阅读区：地址变成 #/read/:id，但仍在「读懂」这个模块里，选中态不该跳走
     await openReader(wrapper, '开始阅读')
@@ -1649,16 +1661,38 @@ describe('App.vue 页面渲染', () => {
     await flushPromises()
 
     const keys = wrapper.findAll('button.rail-item')
-    expect(keys).toHaveLength(12)
+    expect(keys).toHaveLength(11)
 
     for (const item of keys) {
       await item.trigger('click')
       await flushPromises()
       // 路由表里只有这几个 name，落在别的上面说明拼地址时写错了
-      expect(['#/', '#/read/', '#/write', '#/memory', '#/process', '#/me', '#/admin']).toContain(
-        ['#/', '#/read/', '#/write', '#/memory', '#/process', '#/me', '#/admin'].find((h) =>
-          window.location.hash.startsWith(h),
-        ),
+      expect(
+        [
+          '#/read/',
+          '#/read',
+          '#/collections',
+          '#/tags',
+          '#/write',
+          '#/memory',
+          '#/process',
+          '#/me',
+          '#/admin',
+          '#/',
+        ],
+      ).toContain(
+        [
+          '#/read/',
+          '#/read',
+          '#/collections',
+          '#/tags',
+          '#/write',
+          '#/memory',
+          '#/process',
+          '#/me',
+          '#/admin',
+          '#/',
+        ].find((h) => window.location.hash.startsWith(h)),
       )
     }
   })

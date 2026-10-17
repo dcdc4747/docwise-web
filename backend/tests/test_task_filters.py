@@ -282,3 +282,26 @@ def test_rule_value_reads_the_same_fields_as_the_api() -> None:
     assert _rule_value(chinese, "native", context) is True
     assert _rule_value(english, "native", context) is False
     assert _rule_value(chinese, "不认识的字段", context) is None
+
+
+def test_unfiled_only_returns_tasks_in_no_collection() -> None:
+    """⭐ `unfiled=1` 只回**没进任何集合**的（左栏「未归类」）。"""
+    filed = _make_task("filed.pdf")
+    loose = _make_task("loose.pdf")
+    also_loose = _make_task("also-loose.pdf")
+    collection_id = _make_collection("组")
+    _link_collection(filed, collection_id)
+    with TestClient(app) as client:
+        ids = _ids(client, "?unfiled=1")
+    assert ids == [also_loose, loose]
+    assert filed not in ids
+
+
+def test_unfiled_is_unaffected_by_archived_tasks() -> None:
+    """归档的照旧不出（与其它筛选同一条口径）。"""
+    visible = _make_task("visible.pdf")
+    hidden = _make_task("hidden.pdf", archived_at=utc_now())
+    with TestClient(app) as client:
+        ids = _ids(client, "?unfiled=1")
+    assert visible in ids
+    assert hidden not in ids

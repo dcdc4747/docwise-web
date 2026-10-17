@@ -58,12 +58,14 @@ afterEach(() => {
 })
 
 describe('AppRail 左栏形状（R4 判据①）', () => {
-  it('上段 3 个动作 + 下段 7 项 + 底部 2 条，全部是能点的按钮', () => {
+  it('上段 3 个动作 + 下段 6 项 + 底部 2 条，全部是能点的按钮', () => {
     const wrapper = mount(AppRail)
     const items = wrapper.findAll('button.rail-item')
 
-    // 3（读懂/起草/收口）+ 7（全部文献/集合/标签/待读/素材/草稿/引用）+ 2（记忆/处理过程）
-    expect(items).toHaveLength(12)
+    // 3（读懂/起草/收口）+ 6（全部文献/集合/标签/待读/未归类/素材）+ 2（记忆/处理过程）
+    // ⚠️ 2026-10-17：草稿/引用从这一组**拿掉**了（它们是写作资产，入口在「起草」页），
+    //    换来「未归类」——点了只弹"还没做"的入口，比没有这个入口更伤。
+    expect(items).toHaveLength(11)
     for (const item of items) {
       // 必须是真按钮：`<div @click>` 键盘用户按不动
       expect(item.element.tagName).toBe('BUTTON')
@@ -72,22 +74,14 @@ describe('AppRail 左栏形状（R4 判据①）', () => {
 
     const labels = items.map((i) => i.find('.rail-lbl').text())
     expect(labels.slice(0, 3)).toEqual(['读懂', '起草', '收口'])
-    expect(labels.slice(3, 10)).toEqual([
-      '全部文献',
-      '集合',
-      '标签',
-      '待读',
-      '素材',
-      '草稿',
-      '引用',
-    ])
-    expect(labels.slice(10)).toEqual(['记忆', '处理过程'])
+    expect(labels.slice(3, 9)).toEqual(['全部文献', '集合', '标签', '待读', '未归类', '素材'])
+    expect(labels.slice(9)).toEqual(['记忆', '处理过程'])
   })
 
-  it('两段的段标题是「做什么」与「我的库」（形态 §1.2：上段动词、下段名词）', () => {
+  it('两段的段标题是「做什么」与「历史记录」（上段动词、下段名词）', () => {
     const wrapper = mount(AppRail)
 
-    expect(wrapper.findAll('.rail-sec-t').map((t) => t.text())).toEqual(['做什么', '我的库'])
+    expect(wrapper.findAll('.rail-sec-t').map((t) => t.text())).toEqual(['做什么', '历史记录'])
   })
 
   it('点一项 → emit select，带的是稳定 key（不是显示名）', async () => {

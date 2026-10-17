@@ -43,18 +43,23 @@ const ACTIONS = [
 ]
 
 /**
- * 下段：知识库入口（名词）。
- * 按形态 v2 §1.2 的布局图逐项做（7 项）：全部文献 / 集合 / 标签 / 待读 / 素材 / 草稿 / 引用。
+ * 下段：**历史记录**（名词 · 我有什么 / 我读过什么）。
+ *
+ * ⭐ 2026-10-17 知识库重构，两处改动：
+ * - **「草稿」「引用」从这一组拿掉**：它们是**写作资产**，入口在「起草」页里
+ *   （草稿在左上角下拉、引文在「引用」页签）。放在这里点了只能弹一句"还没做"，
+ *   那是全站最伤的一种体验——**能力不在，就别给入口**。
+ * - **新增「未归类」**：没进任何集合的文献（N8 的 `unfiled`），Zotero 的 Unfiled Items 同一件事。
+ *
  * ⚠️ 「待读」是**智能集合**（已保存的搜索），不是手建的集合 —— 形态 §4.1 第 2 条。
  */
 const LIBRARY_ITEMS = [
-  { key: 'lib-all', label: '全部文献', tip: '全部文献', icon: 'layers' },
-  { key: 'lib-collections', label: '集合', tip: '集合 · 可嵌套的组织容器', icon: 'folder' },
+  { key: 'lib-all', label: '全部文献', tip: '全部文献 · 我读过什么', icon: 'layers' },
+  { key: 'lib-collections', label: '集合', tip: '集合 · 按项目/主题分组（一篇可进多个）', icon: 'folder' },
   { key: 'lib-tags', label: '标签', tip: '标签 · 主题 / 方法 / 状态', icon: 'tag' },
   { key: 'lib-todo', label: '待读', tip: '待读 · 智能集合（规则：状态 = 待读）', icon: 'filter' },
+  { key: 'lib-unfiled', label: '未归类', tip: '未归类 · 还没放进任何集合的文献', icon: 'filter' },
   { key: 'lib-materials', label: '素材', tip: '素材 · 从文献里取出的证据', icon: 'bookmark' },
-  { key: 'lib-drafts', label: '草稿', tip: '草稿', icon: 'file' },
-  { key: 'lib-refs', label: '引用', tip: '引用', icon: 'quote' },
 ]
 
 /** 底部两条（形态 v2 §1.2 布局图里在分隔线下面、账号区上面）。 */
@@ -101,9 +106,9 @@ const FOOT_ITEMS = [
       </button>
     </div>
 
-    <!-- 下段：我的库（名词） -->
+    <!-- 下段：历史记录（名词 · 我有什么 / 我读过什么） -->
     <div class="rail-sec">
-      <div class="rail-sec-t">我的库</div>
+      <div class="rail-sec-t">历史记录</div>
       <button
         v-for="item in LIBRARY_ITEMS"
         :key="item.key"

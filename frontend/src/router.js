@@ -11,10 +11,17 @@
 
 /** 路由表：`name` → 路径模式。`:taskId` 这类是参数段。 */
 export const ROUTES = {
+  // ⭐ 2026-10-17 知识库重构：**「读懂」和「历史记录」是两个不同的地方**
+  // `readHome` = 开工页（上传 / 示例 / 继续读）；`library` = 历史记录（全部 + 筛选）
+  // ⚠️ 首屏仍是「历史记录」：打开先看"我有什么"（Zotero 也是这样），
+  //    「读懂」是主按钮，点进去才是开工页。
   library: '/',
+  readHome: '/read',
   read: '/read/:taskId',
   write: '/write',
   materials: '/materials',
+  collections: '/collections',
+  tags: '/tags',
   memory: '/memory',
   process: '/process',
   me: '/me',
@@ -54,12 +61,15 @@ export function parseHash(hash) {
   const path = normalizePath(hash)
   const parts = segments(path)
 
+  // 空地址 = **历史记录**（我有什么）。「读懂」是主按钮，点进去才是开工页（`/read`）。
   if (parts.length === 0) return { name: 'library', params: {} }
 
   const [head, ...rest] = parts
+  // ⚠️ **必须同时比首段和段数**：`/read`（1 段）与 `/read/12`（2 段）首段相同，
+  // 只比首段的话 `/read/12` 会被 `/read` 抢走 → 落兜底（这个 bug 真出现过一次）。
   const name = Object.keys(ROUTES).find((key) => {
     const pattern = segments(ROUTES[key])
-    return pattern.length > 0 && pattern[0] === head
+    return pattern.length === parts.length && pattern[0] === head
   })
 
   if (!name) return { name: FALLBACK_ROUTE, params: {} }

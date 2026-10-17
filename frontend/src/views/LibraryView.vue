@@ -1,22 +1,11 @@
 <template>
+  <!-- 「历史记录」= 全部文献 + 筛选 + 管理（2026-10-17 知识库重构后的定位）。
+       ⚠️ **开工的事（上传 / 示例 / 继续读）搬去了「读懂」工作台**：
+       以前这一页既是入口又是清单，于是"点读懂看到的是清单"——那正是用户报的问题。
+       这一页只做一件事：**我读过什么、怎么找回来**。 -->
   <div class="lib-wrap">
-    <!-- 空库态才出大 hero；三枚标签是**可点的描边按钮**（点了进对应副页签） -->
-    <div v-if="libraryEmpty" class="hero">
-      <h1>把文献读懂</h1>
-      <p class="tagline">翻译只是起点，理解才是价值</p>
-      <p>
-        上传文献 PDF，得到双语对照稿、结构化导读与统一术语表；
-        还能就文献提问，每条答案都标明来自哪一段原文。
-      </p>
-      <div class="pills">
-        <button class="pill" @click="openExample('guide')">看示例论文的结构化导读</button>
-        <button class="pill" @click="openExample('terms')">看示例论文的术语表</button>
-        <button class="pill" @click="openExample('ask')">看示例论文的带出处问答</button>
-      </div>
-    </div>
-
-    <div v-else class="title-row">
-      <h2>我的论文（{{ tasks.length }} 篇）</h2>
+    <div class="title-row">
+      <h2>{{ countsText }}</h2>
       <span class="spacer" />
       <button class="btn primary" @click="showUpload = !showUpload">
         {{ showUpload ? '收起上传' : '＋ 上传 PDF' }}
@@ -24,24 +13,28 @@
     </div>
 
     <!-- ==================== 筛选区（卡③ + 契约 N8） ====================
-         **状态**那一行现在是真能筛的（N8 四个参数已在后端）；集合 / 标签 / 智能集合
-         三行的列表接口（N1 / N6 / N9）还没实现，所以传空数组 —— `LibFilters` 里那几行
-         是 `v-if="xxx.length"`，**不摆空壳**。
-         ⚠️ `shown` 用 `tasks.length`（筛过之后服务端返回的条数），**不是** `taskCards.length`
-         —— 后者是"渲成卡片的那些"，进行中的任务不在里面，拿它会误报"筛空了"。 -->
+         ⭐ 2026-10-17：**集合 / 标签 / 智能集合三条列表接上了**（N1 / N6 / N9）。
+         在此之前这里传的是三个空数组（那三条接口早就活着，只是没人接），
+         于是筛选条上永远只有「状态」一行——看着像"没做"，其实是"没接"。 -->
     <LibFilters
-      v-if="!libraryEmpty"
       :filters="filters"
       :total="libraryTotal"
       :shown="tasks.length"
-      :collections="[]"
-      :tags="[]"
-      :smart-collections="[]"
+      :collections="collections"
+      :tags="tags"
+      :smart-collections="smartCollections"
       @change="applyFilters"
       @clear="clearFilters"
     />
 
-    <!-- 上传卡：空库时就在 hero 下面；有历史时由「＋ 上传 PDF」按需展开 -->
+    <!-- 归集/未归类这类**筛选条没画出来的条件**，在这里如实说一句（否则"筛空了"没头没尾） -->
+    <p v-if="extraFilterText" class="lib-extra-filter">
+      {{ extraFilterText }}
+      <button type="button" class="btn ghost sm" @click="clearFilters">清除筛选</button>
+    </p>
+
+    <!-- 上传卡：**空库时直接摆出来**（库里一篇都没有，这一页唯一有用的事就是上传）；
+         有历史时由标题行的「＋ 上传 PDF」按需展开（那一页的主角是清单）。 -->
     <div v-if="libraryEmpty || showUpload" class="card upload-card">
       <div class="drop" :class="{ 'drop-over': uploading || dropHinting }" @click="pickFile()" @dragover.prevent @drop.prevent="onDrop">
         <div class="big">点击或拖拽 PDF 到此处</div>
@@ -52,7 +45,7 @@
               : '上传后自动开始翻译；完成后可读双语稿、导读与术语表'
           }}
         </div>
-        <div class="drop-hint">支持电子版 PDF 与扫描件（扫描件走本地 OCR，文字可能有错字）；耗时取决于页数与档位</div>
+        <div class="drop-hint">支持电子版 PDF 与扫描件（扫描件走本地 OCR，文字可能有错别字）；耗时取决于页数与档位</div>
         <div v-if="uploading" class="drop-hint">正在上传…</div>
         <div v-if="uploadError" class="drop-hint" style="color: var(--danger)">{{ uploadError }}</div>
       </div>
@@ -97,100 +90,129 @@
       </div>
     </div>
 
-    <template v-if="!libraryEmpty">
-      <!-- 进行中任务条：只留 3 段信息 + 队列数 -->
-      <div v-for="bar in activeBars" :key="bar.task.id" class="card running">
-        <!-- 文件名本身是进阅读工作区的入口（原型这里只有取消 / 详情，但"看翻译中的进度"
-             总得有个门；做成文件名可点，不新增控件、不动信息密度） -->
-        <span class="name name-link" title="打开阅读工作区" @click="openTask(bar.task)">
-          {{ bar.task.filename }}
-        </span>
-        <div class="bar" :class="{ striped: bar.striped }"><i :style="{ width: bar.percent + '%' }" /></div>
-        <span class="tiny muted">{{ bar.line }}</span>
-        <span v-if="bar.queue" class="queue">{{ bar.queue }}</span>
-        <button class="btn sm" :disabled="taskActionBusy" @click="cancelTask(bar.task)">取消</button>
-        <button class="btn ghost sm" @click="openPanel('blocks', bar.task)">详情</button>
-      </div>
+    <!-- 进行中任务条：只留 3 段信息 + 队列数 -->
+    <div v-for="bar in activeBars" :key="bar.task.id" class="card running">
+      <!-- 文件名本身是进阅读工作区的入口（原型这里只有取消 / 详情，但"看翻译中的进度"
+           总得有个门；做成文件名可点，不新增控件、不动信息密度） -->
+      <span class="name name-link" title="打开阅读工作区" @click="openTask(bar.task)">
+        {{ bar.task.filename }}
+      </span>
+      <div class="bar" :class="{ striped: bar.striped }"><i :style="{ width: bar.percent + '%' }" /></div>
+      <span class="tiny muted">{{ bar.line }}</span>
+      <span v-if="bar.queue" class="queue">{{ bar.queue }}</span>
+      <button class="btn sm" :disabled="taskActionBusy" @click="cancelTask(bar.task)">取消</button>
+      <button class="btn ghost sm" @click="openPanel('blocks', bar.task)">详情</button>
+    </div>
 
-      <!-- 翻译完成后任务条不静默消失：变绿给下一步动作，可手动关掉 -->
-      <div v-if="completedBannerTask" class="card taskbar-ok">
-        <span class="ok-text">翻译完成</span>
-        <span class="tiny muted">{{ bannerMeta }}</span>
-        <span class="spacer" />
-        <button class="btn primary sm" @click="openTask(completedBannerTask)">开始阅读</button>
-        <button class="btn ghost sm" @click="dismissBanner(completedBannerTask)">关闭</button>
-      </div>
+    <!-- 翻译完成后任务条不静默消失：变绿给下一步动作，可手动关掉 -->
+    <div v-if="completedBannerTask" class="card taskbar-ok">
+      <span class="ok-text">翻译完成</span>
+      <span class="tiny muted">{{ bannerMeta }}</span>
+      <span class="spacer" />
+      <button class="btn primary sm" @click="openTask(completedBannerTask)">开始阅读</button>
+      <button class="btn ghost sm" @click="dismissBanner(completedBannerTask)">关闭</button>
+    </div>
 
-      <div v-if="historyError" class="card" style="margin-bottom: 14px; color: var(--danger)">
-        历史任务加载失败：{{ historyError }}
-        <button class="btn sm" style="margin-left: 10px" @click="loadTasksAndSync">重试</button>
-      </div>
+    <div v-if="historyError" class="card" style="margin-bottom: 14px; color: var(--danger)">
+      历史任务加载失败：{{ historyError }}
+      <button class="btn sm" style="margin-left: 10px" @click="loadTasksAndSync">重试</button>
+    </div>
 
-      <div v-else-if="!taskCards.length" class="card muted">
-        还没有可读的论文——上面点「＋ 上传 PDF」传一篇，译文出来后会出现在这里。
-      </div>
+    <!-- 真空态：一份文献都没有。**说清"下面就能传" + 给去"读懂"的出口** -->
+    <div v-else-if="libraryEmpty" class="card muted">
+      还没有文献 —— 下面拖一份 PDF 进来就行；想看示例导读，去「读懂」页。
+      <button class="btn ghost sm lib-go-read" @click="goReadHome">去读懂 →</button>
+    </div>
 
-      <div v-else class="grid3">
-        <div v-for="card in taskCards" :key="card.task.id" class="card paper-card">
-          <div class="row">
-            <span class="fname">{{ card.task.filename }}</span>
-            <span class="chip" :class="card.chip">{{ statusTextMap[card.task.status] || card.task.status }}</span>
-            <span v-if="card.task.native" class="chip">中文文献</span>
-          </div>
-          <div class="meta">{{ card.meta }}</div>
-          <div v-if="card.task.last_read_page" class="lastpos">
-            上次读到第 {{ card.task.last_read_page }} 页
-          </div>
-          <div class="actions">
-            <button
-              v-if="card.retryable"
-              class="btn primary sm"
-              :disabled="taskActionBusy"
-              @click="retryTask(card.task)"
-            >
-              {{ card.primary }}
+    <div v-else-if="!taskCards.length" class="card muted">
+      这个筛选下没有可读的文献——上面点「清除筛选」回到全部。
+    </div>
+
+    <div v-else class="grid3">
+      <div v-for="card in taskCards" :key="card.task.id" class="card paper-card">
+        <div class="row">
+          <span class="fname">{{ card.task.filename }}</span>
+          <span class="chip" :class="card.chip">{{ statusTextMap[card.task.status] || card.task.status }}</span>
+          <span v-if="card.task.native" class="chip">中文文献</span>
+        </div>
+        <div class="meta">{{ card.meta }}</div>
+        <div v-if="card.task.last_read_page" class="lastpos">
+          上次读到第 {{ card.task.last_read_page }} 页
+        </div>
+
+        <!-- ⭐ 归集（N5）：**只有"不在集合里 / 只在一个集合里"的才给下拉**。
+             在多个集合里的直接禁用并说明——N5 是**全量替换**，给下拉就等于
+             "改一个、悄悄抹掉另一个"，宁可少给一个操作。 -->
+        <label v-if="collections.length" class="lib-assign">
+          <span>归到</span>
+          <select
+            class="lib-assign-select"
+            :value="primaryCollectionId(card.task)"
+            :disabled="taskActionBusy || (card.task.collection_ids || []).length > 1"
+            :title="
+              (card.task.collection_ids || []).length > 1
+                ? '这篇同时在多个集合里，改归属请去「集合」页'
+                : '把这篇归到一个集合（也可以放回未归类）'
+            "
+            @change="assignCollection(card.task, $event.target.value)"
+          >
+            <option value="">未归类</option>
+            <option v-for="item in collections" :key="item.id" :value="String(item.id)">
+              {{ item.name }}
+            </option>
+          </select>
+        </label>
+
+        <div class="actions">
+          <button
+            v-if="card.retryable"
+            class="btn primary sm"
+            :disabled="taskActionBusy"
+            @click="retryTask(card.task)"
+          >
+            {{ card.primary }}
+          </button>
+          <button v-else class="btn primary sm" @click="openTask(card.task)">
+            {{ card.primary }}
+          </button>
+          <button class="btn ghost sm" @click="openPanel('blocks', card.task)">详情</button>
+          <template v-if="deleteConfirmId === card.task.id">
+            <button class="btn danger sm" :disabled="taskActionBusy" @click="deleteTask(card.task)">
+              确认删除
             </button>
-            <button v-else class="btn primary sm" @click="openTask(card.task)">
-              {{ card.primary }}
-            </button>
-            <button class="btn ghost sm" @click="openPanel('blocks', card.task)">详情</button>
-            <template v-if="deleteConfirmId === card.task.id">
-              <button class="btn danger sm" :disabled="taskActionBusy" @click="deleteTask(card.task)">
-                确认删除
-              </button>
-              <button class="btn ghost sm" @click="deleteConfirmId = null">再想想</button>
-            </template>
-            <button v-else class="btn ghost sm" @click="deleteConfirmId = card.task.id">删除</button>
-          </div>
+            <button class="btn ghost sm" @click="deleteConfirmId = null">再想想</button>
+          </template>
+          <button v-else class="btn ghost sm" @click="deleteConfirmId = card.task.id">删除</button>
         </div>
       </div>
+    </div>
 
-      <!-- 概况底行（卡③）：`N 篇文献 · M 块 · X 条素材 · Y 条引用` 四段数要资产计数
-           （那部分接口还没实现）→ **没数就走诚实档**，组件自己不摆一排 0 冒充统计好了。 -->
-      <LibOverview />
+    <!-- 概况底行（卡③）：`N 篇文献 · M 块 · X 条素材 · Y 条引用` 四段数要资产计数
+         （那部分接口还没实现）→ **没数就走诚实档**，组件自己不摆一排 0 冒充统计好了。 -->
+    <LibOverview />
 
-      <div class="footline">
-        <span v-if="taskActionError" style="color: var(--danger)">{{ taskActionError }}</span>
-        <span class="spacer" />
-        <span>docwise · 学术文献理解智能体</span>
-      </div>
-    </template>
+    <div class="footline">
+      <span v-if="taskActionError" style="color: var(--danger)">{{ taskActionError }}</span>
+      <span class="spacer" />
+      <span>docwise · 学术文献理解智能体</span>
+    </div>
   </div>
 </template>
 
 <script setup>
 /**
- * L1「我的论文」库页：空库 hero、上传卡、进行中任务条、完成横幅、论文卡片网格。
+ * 「历史记录」整页（原「L1 我的论文」库页）：全部文献 + 筛选 + 归集 + 删除。
  *
- * **纯搬迁**：模板整段来自 `App.vue` 的「L1 库页」段，一个类名、一句文案都没改。
- * 状态不在这里，在 `stores/useLibrary`——阅读区也要用其中几样（当前在读哪一篇、
- * 打开任务），放视图里就共享不了了。这个组件只管"把 store 的东西摆出来"。
+ * ⭐ 2026-10-17 知识库重构：
+ * - **开工入口搬去「读懂」工作台**（上传 / 示例 / 继续读），这一页只做"回顾与管理"；
+ * - **筛选条接上真选项**（集合 N1 / 标签 N6 / 智能集合 N9）——此前传的是空数组；
+ * - **卡片上加「归集」**（N5）。⚠️ N5 是**全量替换**，所以只在"0 或 1 个集合"时给下拉：
+ *   在多个集合里的禁用，宁少一个操作也不悄悄抹掉归属。
  *
- * ⚠️ 顶栏 `.topbar`（品牌 / 账号菜单 / 退出）**留在 `App.vue`**：它是外壳的登录分发，
- * 与"当前显示哪个视图"同属一件事；拆进视图反而要穿 4 个 props + 2 个事件，
- * 为的是把 18 行挪个地方，并不划算。
+ * ⚠️ 筛选状态的主人是这一页：`LibFilters` 走"`filters` 进、`change`/`clear` 出"，
+ * 这里把条件交给 `loadTasksAndSync()`（**服务端筛**，契约 N8）。
  */
-import { ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 
 import {
   activeBars,
@@ -207,7 +229,6 @@ import {
   libraryTotal,
   loadTasksAndSync,
   onDrop,
-  openExample,
   openPanel,
   pickFile,
   retryTask,
@@ -223,21 +244,35 @@ import {
 } from '../stores/useLibrary'
 import LibFilters from '../components/LibFilters.vue'
 import LibOverview from '../components/LibOverview.vue'
+import { navigate } from '../router'
 import { openTask } from '../stores/useReader'
 import { historyError, statusTextMap, tasks } from '../stores/useTasks'
+import { collectionNameOf, collections, loadKnowledge, smartCollections, tags } from '../stores/useKnowledge'
+import { apiJson } from '../auth'
 
-// ---------------------------------------------------------------- 筛选（契约 N8）
-//
-// ⚠️ **筛选状态的主人是这一页**：`LibFilters` 走"`filters` 进、`change`/`clear` 出"
-// （卡③⑥ 明令它自己不许进 store）。这里同时做三件事：
-// ① 把条件交给 `loadTasksAndSync()`（**服务端筛**，不是客户端过滤——契约写的是查询参数）；
-// ② 从「待读」这类左栏入口进来时，条件已经写在 store 里了，跟着它走；
-// ③ 组件的「筛空了给出口」要 `total` 与 `shown`：家底读 store 的 `libraryTotal`
-//    （只在没筛的那一次记），当前条数就是筛过之后返回的 `tasks.length`。
 const filters = ref({ ...(activeTaskQuery.value || {}) })
 
 watch(activeTaskQuery, (query) => {
   filters.value = { ...(query || {}) }
+})
+
+onMounted(() => {
+  // 筛选条的可选项（集合 / 标签 / 智能集合）：一个挂了只影响一行，各自容错
+  loadKnowledge()
+})
+
+/** 标题：没筛 = 共 N 篇；筛了 = 本筛选 N 篇（与"共"分开，避免两个数字打架）。 */
+const countsText = computed(() => {
+  const n = tasks.value.length
+  const hasFilters = Object.keys(activeTaskQuery.value || {}).length > 0
+  if (!n && !hasFilters) return '我的文献'
+  return hasFilters ? `本筛选 ${n} 篇` : `我的文献 · ${n} 篇`
+})
+
+/** 筛选条没画出来的条件（`unfiled`），在这里补一句人话。 */
+const extraFilterText = computed(() => {
+  if (activeTaskQuery.value?.unfiled) return '当前只看「未归类」——还没放进任何集合的文献。'
+  return ''
 })
 
 function applyFilters(next) {
@@ -247,5 +282,35 @@ function applyFilters(next) {
 
 function clearFilters() {
   applyFilters({})
+}
+
+function goReadHome() {
+  navigate('readHome')
+}
+
+/** 卡片上「归到」下拉显示的当前值（0 个集合 = 未归类 = 空串）。 */
+function primaryCollectionId(task) {
+  const ids = Array.isArray(task?.collection_ids) ? task.collection_ids : []
+  return ids.length === 1 ? String(ids[0]) : ''
+}
+
+/**
+ * 归集（N5）。传 `[]` = 放回未归类。
+ *
+ * ⚠️ 成功后**重新拉列表**（不本地改）——归属的真相在服务端，本地改容易与
+ * `collection_ids` 失配，而失配的下一步就是"改一个抹掉另一个"。
+ */
+async function assignCollection(task, value) {
+  const ids = value === '' ? [] : [Number(value)]
+  try {
+    await apiJson(`/api/tasks/${task.id}/collections`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ collection_ids: ids }),
+    })
+    await Promise.all([loadTasksAndSync(filters.value), loadKnowledge()])
+  } catch (err) {
+    taskActionError.value = `没归集成功（${err && err.message ? err.message : '网络或服务异常'}）`
+  }
 }
 </script>
