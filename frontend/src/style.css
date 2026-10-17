@@ -3005,7 +3005,10 @@ svg.ic-inl {
    ⚠️ 从 00:20 起补的：这两块以前只有接口、没有界面。
    样式跟 `[M3]` 起草页同一套 token，不另起炉灶。 */
 .dw .wr-biblio { margin-top: var(--sp-5); border-top: 1px dashed var(--line); padding-top: var(--sp-3); }
-.dw .wr-biblio-style { max-width: 190px; padding: 3px 6px; font: inherit; font-size: var(--fs-meta); border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface); }
+/* 助手栏只有 ~330px：这一行的标题/下拉/复制必须能换行，否则编辑框被压成一条缝 */
+.dw .wr-biblio .wr-colhead { flex-wrap: wrap; row-gap: var(--sp-2); }
+.dw .wr-biblio .wr-colhead > span:first-child { white-space: nowrap; }
+.dw .wr-biblio-style { min-width: 0; flex: 1 1 150px; max-width: none; padding: 3px 6px; font: inherit; font-size: var(--fs-meta); border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface); }
 .dw .wr-biblio-list { margin: var(--sp-2) 0 0; padding-left: 1.4em; color: var(--ink); line-height: 1.9; font-size: var(--fs-meta); }
 .dw .wr-biblio-list li { margin-bottom: var(--sp-1); word-break: break-word; }
 
