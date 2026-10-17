@@ -15,6 +15,7 @@ from ..db import get_db
 from ..deps import require_admin
 from ..logging_setup import get_logger
 from ..models import Task, User
+from ..timeutil import iso_utc
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 logger = get_logger(__name__)
@@ -38,8 +39,8 @@ def _serialize_user_row(user: User, task_count: int) -> dict:
         "username": user.username,
         "role": user.role,
         "is_active": user.is_active,
-        "created_at": user.created_at.isoformat() if user.created_at else None,
-        "last_login_at": user.last_login_at.isoformat() if user.last_login_at else None,
+        "created_at": iso_utc(user.created_at),
+        "last_login_at": iso_utc(user.last_login_at),
         "task_count": task_count,
     }
 
@@ -87,7 +88,7 @@ def list_tasks(
             "progress": task.progress,
             "owner": username or "（无主）",
             "owner_id": task.user_id,
-            "created_at": task.created_at.isoformat() if task.created_at else None,
+            "created_at": iso_utc(task.created_at),
             "error_message": task.error_message,
         }
         for task, username in db.execute(query).all()
