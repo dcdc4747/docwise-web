@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sqlite3
 import sys
 from collections import defaultdict
@@ -37,6 +38,12 @@ if str(BACKEND_DIR) not in sys.path:
 
 # 控制台是 GBK 时，`⚠️` / `→` 这类字符会直接抛 UnicodeEncodeError（Windows 实测）
 sys.stdout.reconfigure(encoding="utf-8")
+
+# ⚠️ **必须切到 backend 目录再导入 `app.*`**：`SettingsConfigDict(env_file=".env")` 是
+# **相对当前工作目录**解析的。从仓库根目录跑这个脚本时，`.env` 根本读不到 → 密钥读到空串
+# → 模型 API 回 **401**，看起来像"密钥失效"，其实是"没找到 .env"
+# （真踩过，浪费一轮排查）。
+os.chdir(BACKEND_DIR)
 
 
 def _db_path() -> str:
