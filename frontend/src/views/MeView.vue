@@ -58,6 +58,14 @@
       />
 
       <h3 class="me-sub-t">登录设备与会话</h3>
+      <!-- ⭐ 2026-10-18：会话以前**只增不减**（每登录一次一条、30 天过期），
+           实测一个账号攒到 132 条、页面一屏放不下。后端现在按用户封顶 20 条，
+           这里把"一共几台"和"只显示最近的"说清楚，免得以为丢了设备。 -->
+      <p v-if="sessions.length" class="me-line me-sessions-sum">
+        共 {{ sessionsTotal }} 台设备在线<template v-if="sessionsTotal > sessions.length"
+          >，下面只显示最近 {{ sessions.length }} 台</template
+        >。标着<b>本机</b>的那条是<b>你现在用的这个浏览器</b>。
+      </p>
       <HonestNote v-if="errors.sessions" :text="errors.sessions" />
       <table v-else-if="sessions.length" class="me-table me-sessions">
         <thead>
@@ -65,18 +73,26 @@
             <th scope="col">设备</th>
             <th scope="col">登录时间</th>
             <th scope="col">最近活动</th>
-            <th scope="col">到期</th>
             <th scope="col">操作</th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="item in sessions" :key="item.id">
-            <td>{{ item.user_agent || '未知设备' }}</td>
-            <td>{{ fmtTime(item.created_at) }}</td>
-            <td>{{ fmtTime(item.last_seen_at) }}</td>
-            <td>{{ fmtTime(item.expires_at) }}</td>
+          <tr v-for="item in sessions" :key="item.id" :class="{ 'me-this': item.current }">
             <td>
-              <button type="button" class="btn me-kill" @click="revoke(item.id)">吊销</button>
+              <span class="me-dev">{{ item.user_agent || '未知设备' }}</span>
+              <span v-if="item.current" class="me-chip-now">本机</span>
+            </td>
+            <td class="me-when">{{ fmtShort(item.created_at) }}</td>
+            <td class="me-when">{{ fmtShort(item.last_seen_at) }}</td>
+            <td>
+              <button
+                type="button"
+                class="btn me-kill"
+                :title="item.current ? '吊销这一条 = 退出当前浏览器登录' : '让那台设备立刻下线'"
+                @click="revoke(item.id)"
+              >
+                {{ item.current ? '退出这台' : '吊销' }}
+              </button>
             </td>
           </tr>
         </tbody>
@@ -257,6 +273,8 @@ import { loadPrefs, prefsError, readLocalPrefs, savePrefs } from '../stores/useP
 const me = ref(null)
 const storage = ref(null)
 const sessions = ref([])
+/** 还能用的会话一共几台（`items` 只有最近 20 条） */
+const sessionsTotal = ref(0)
 const ledger = ref([])
 const errors = reactive({ me: '', storage: '', sessions: '', ledger: '' })
 
@@ -289,6 +307,8 @@ async function load() {
     }),
     loadBlock('sessions', '/api/me/sessions', (data) => {
       sessions.value = Array.isArray(data?.items) ? data.items : []
+      // `total` 是"还能用的会话一共几台"（列表只回最近 20 条）；旧后端没这个字段时退回条数
+      sessionsTotal.value = Number.isFinite(data?.total) ? data.total : sessions.value.length
     }),
     loadBlock('ledger', '/api/me/ledger', (data) => {
       ledger.value = Array.isArray(data?.items) ? data.items : []
@@ -517,6 +537,22 @@ function fmtTime(value) {
     hour: '2-digit',
     minute: '2-digit',
   })
+}
+
+/**
+ * 会话表里的时间：**一行放得下**。
+ *
+ * ⚠️ 用 `fmtTime` 会在 100px 宽的列里折成两行（"2026/10/18" + "00:03"），
+ * 四列都折 → 整张表挤到溢出卡片（用户截图里就是这样）。
+ * 会话只关心"哪台、什么时候"，**当年不写年份**（跨年时日期本身看得出来）。
+ */
+function fmtShort(value) {
+  if (!value) return '—'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '—'
+  const pad = (n) => String(n).padStart(2, '0')
+  // ⚠️ 不写年份：会话最长 30 天就走完，年份是噪音；而 14 个字的宽度在 5 列布局里会溢出撞到下一列。
+  return `${pad(date.getMonth() + 1)}/${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
 function fmtBytes(value) {
