@@ -14,6 +14,7 @@
  */
 
 import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -83,9 +84,9 @@ async function mountProc(options) {
   return { wrapper, calls }
 }
 
-/** 源码读取：本项目既有做法（结构断言用，见 `mount-points.test.js`）。 */
+/** 源码读取：本项目既有做法（`resolve(process.cwd(), …)`，见 `block-edit.test.js` 那段说明）。 */
 function srcText(relative) {
-  return readFileSync(new URL(relative, import.meta.url), 'utf8')
+  return readFileSync(resolve(process.cwd(), relative), 'utf8')
 }
 
 beforeEach(() => {
@@ -198,7 +199,7 @@ describe('E15 处理过程一屏', () => {
   })
 
   it('⭐ 左栏「处理过程」真的接上了 #/process（不是"还没做"的提示）', () => {
-    const app = srcText('../src/App.vue')
+    const app = srcText('src/App.vue')
 
     // 路由表的真源就在 router.js 里（`#/process` 本来就认识）
     expect(parseHash('#/process')).toEqual({ name: 'process', params: {} })
@@ -211,7 +212,7 @@ describe('E15 处理过程一屏', () => {
   })
 
   it('窄档不溢出的样式契约：JSON 自己横滚 + 手机档给标签栏让位 + 不许出现 100vw', () => {
-    const css = srcText('../src/style.css')
+    const css = srcText('src/style.css')
     const start = css.indexOf('[E15]')
     expect(start).toBeGreaterThan(-1)
     // ⚠️ `[E15]` 本身写在**注释块内部**，所以要**从注释的起点**切，

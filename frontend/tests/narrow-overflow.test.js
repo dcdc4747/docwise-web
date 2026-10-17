@@ -18,10 +18,16 @@
  *      → 三条一起补（label 的 max-width + 下拉的 max-width/flex/min-width）→ 299.3 / 275.8
  */
 import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+
 import { describe, expect, it } from 'vitest'
 
-const readSrc = (rel) => readFileSync(new URL(rel, import.meta.url), 'utf8')
-const css = readSrc('../src/style.css')
+// ⚠️ 用 `resolve(process.cwd(), …)` 读源码，**不用 `new URL(rel, import.meta.url)`**：
+// happy-dom 里 `import.meta.url` 不是 `file:` URL，`new URL` / `fileURLToPath` 两条路都会抛
+// （`app.smoke.test.js` 里把这个坑写过；`block-edit` / `mount-points` / `common-components` 都是这么读的）。
+// vitest 的 cwd 就是 `frontend/`，所以调用处传**相对 `frontend/`** 的路径。
+const readSrc = (rel) => readFileSync(resolve(process.cwd(), rel), 'utf8')
+const css = readSrc('src/style.css')
 
 /** 去掉注释（注释里的花括号会把深度算歪）。与 `css` 同一套下标（注释被换成等长空格）。 */
 const blanked = css.replace(/\/\*[\s\S]*?\*\//g, (m) => ' '.repeat(m.length))
