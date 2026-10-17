@@ -46,6 +46,7 @@ from ..deps import (
 from ..engine import TaskState, Tier, is_native_pair
 from ..ledger import record_event
 from ..llm import extract_understanding
+from ..memory import enrich, resolve_active
 from ..models import (
     AuthTicket,
     Material,
@@ -729,7 +730,11 @@ def compute_understanding(
     db.commit()
 
     try:
-        result = extract_understanding(items)
+        # M7 记忆的「请求前注入」：这个人固定的译名/引用格式带上（没有记忆时为空串，
+        # 行为与之前一字不差）。⚠️ 只影响用词，不改出处口径——见 app/memory.py 的护栏。
+        mem = resolve_active(db, user.id)
+        hint = enrich(mem["terms"], mem["cite"], "\n".join(text for _, text in items))
+        result = extract_understanding(items, memory_hint=hint)
         u.guide_json = json.dumps(
             {
                 k: result.get(k)

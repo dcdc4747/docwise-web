@@ -37,7 +37,9 @@ def _make_completed_task_with_block() -> int:
 
 
 def test_compute_understanding_ready(monkeypatch) -> None:
-    monkeypatch.setattr("app.routers.tasks.extract_understanding", lambda items: FAKE)
+    monkeypatch.setattr(
+        "app.routers.tasks.extract_understanding", lambda items, **kwargs: FAKE
+    )
     with TestClient(app) as client:
         task_id = _make_completed_task_with_block()
         res = client.post(f"/api/tasks/{task_id}/understanding")
@@ -53,7 +55,7 @@ def test_compute_understanding_ready(monkeypatch) -> None:
 def test_compute_understanding_idempotent(monkeypatch) -> None:
     calls: list = []
 
-    def fake(items) -> dict:
+    def fake(items, **kwargs) -> dict:
         calls.append(items)
         return FAKE
 
@@ -67,7 +69,7 @@ def test_compute_understanding_idempotent(monkeypatch) -> None:
 
 
 def test_compute_understanding_failed_degrades(monkeypatch) -> None:
-    def boom(items) -> dict:
+    def boom(items, **kwargs) -> dict:
         raise RuntimeError("llm down")
 
     monkeypatch.setattr("app.routers.tasks.extract_understanding", boom)
@@ -83,7 +85,9 @@ def test_compute_understanding_failed_degrades(monkeypatch) -> None:
 
 
 def test_get_understanding_pending_before_compute(monkeypatch) -> None:
-    monkeypatch.setattr("app.routers.tasks.extract_understanding", lambda items: FAKE)
+    monkeypatch.setattr(
+        "app.routers.tasks.extract_understanding", lambda items, **kwargs: FAKE
+    )
     with TestClient(app) as client:
         with SessionLocal() as session:
             task = Task(user_id=TEST_USER_ID, filename="a.pdf", status="completed")

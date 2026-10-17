@@ -185,11 +185,17 @@ def _sample_blocks(
     return selected, True
 
 
-def extract_understanding(blocks: list[tuple[str, str]]) -> dict:
+def extract_understanding(
+    blocks: list[tuple[str, str]], memory_hint: str = ""
+) -> dict:
     """从 (block_id, text) 列表抽取结构化导读 + 术语表，返回 dict。
 
     每个导字段为 {"text": str, "source_block_ids": [str]}，使"点结论→跳回原文块"可溯源。
     整篇超预算时按均匀抽样压缩（见 `_sample_blocks`），并在提示词里说明这是抽样。
+
+    `memory_hint`：M7 记忆的「请求前注入」那一段（`app/memory.py::enrich` 的产物）。
+    ⚠️ 它只影响**用词**（术语译名、引用格式），**不改出处口径**——
+    `source_block_ids` 照样必须确实支撑结论。为空就是没有记忆（默认行为一字不变）。
     """
     selected, sampled = _sample_blocks(blocks, settings.docwise_understanding_max_chars)
     labeled = "\n\n".join(f"[{bid}] {txt}" for bid, txt in selected)
@@ -211,7 +217,7 @@ def extract_understanding(blocks: list[tuple[str, str]]) -> dict:
     )
     content = _chat(
         [
-            {"role": "system", "content": _SYSTEM_PROMPT},
+            {"role": "system", "content": _SYSTEM_PROMPT + memory_hint},
             {"role": "user", "content": user_msg},
         ],
         max_tokens=settings.docwise_understanding_max_tokens,
@@ -223,6 +229,7 @@ def answer_question(
     blocks: list[tuple[str, str]],
     question: str,
     focus_block_ids: list[str] | None = None,
+    memory_hint: str = "",
 ) -> dict:
     """基于 (block_id, text) 片段回答论文问题，返回 {answer, source_block_ids}。
 
@@ -231,6 +238,9 @@ def answer_question(
     focus_block_ids：用户在阅读区**划词提问**时选中的段落（提问锚点）。
     锚点与出处是同一个坐标系——带上它，模型才知道问题里的"这句话 / 这段"指哪一段，
     回答的出处也才能回到同一段（这是本产品对外那句"每条结论点得回原文那一句"的支撑）。
+
+    `memory_hint`：M7 记忆的「请求前注入」那一段。⚠️ 只影响用词与引用格式，
+    **不改出处口径**；为空就是没有记忆（默认行为一字不变）。
     """
     labeled = "\n\n".join(f"[{bid}] {txt}" for bid, txt in blocks)
     focus = [str(item) for item in (focus_block_ids or []) if str(item)]
@@ -251,7 +261,7 @@ def answer_question(
     user_msg = f"文献分段文字：\n\n{labeled}{focus_hint}\n\n问题：{question}"
     content = _chat(
         [
-            {"role": "system", "content": _QA_SYSTEM_PROMPT},
+            {"role": "system", "content": _QA_SYSTEM_PROMPT + memory_hint},
             {"role": "user", "content": user_msg},
         ],
         max_tokens=1500,

@@ -31,6 +31,7 @@ from .routers.drafts import router as drafts_router
 from .routers.ledger import router as ledger_router
 from .routers.materials import router as materials_router
 from .routers.me import router as me_router
+from .routers.memory import router as memory_router
 from .routers.smart_collections import router as smart_collections_router
 from .routers.tags import router as tags_router
 from .routers.tags import task_router as tags_task_router
@@ -253,6 +254,9 @@ app.include_router(tags_task_router)
 app.include_router(smart_collections_router)
 # 埋点 1：译文改动与块曝光（契约 §2.9–§2.10 / N33–N34）。同样在挂载之前。
 app.include_router(block_events_router)
+# 记忆（M7）：跨文献的用法偏好（术语/译名偏好、引用习惯）。**契约外的新端点**，
+# 见 `routers/memory.py` 顶部那三条口径。同样在挂载之前。
+app.include_router(memory_router)
 
 
 def _database_writable() -> tuple[bool, str | None]:

@@ -36,7 +36,7 @@ def _make_task_with_blocks(translated: list[str]) -> int:
 def test_ask_full_context_short_text(monkeypatch) -> None:
     calls: list = []
 
-    def fake(items, question) -> dict:
+    def fake(items, question, **kwargs) -> dict:
         calls.append((items, question))
         return FAKE_ANSWER
 
@@ -57,7 +57,7 @@ def test_ask_full_context_short_text(monkeypatch) -> None:
 def test_ask_fts_when_over_threshold(monkeypatch) -> None:
     calls: list = []
 
-    def fake(items, question) -> dict:
+    def fake(items, question, **kwargs) -> dict:
         calls.append(items)
         return FAKE_ANSWER
 
@@ -83,7 +83,7 @@ def test_ask_fts_scoped_to_current_task(monkeypatch) -> None:
     """回归：FTS/LIKE 检索必须限定在本任务内，否则会拿别的论文的块当出处。"""
     calls: list = []
 
-    def fake(items, question) -> dict:
+    def fake(items, question, **kwargs) -> dict:
         calls.append(items)
         return FAKE_ANSWER
 
@@ -113,7 +113,10 @@ def test_ask_filters_hallucinated_source_ids(monkeypatch) -> None:
     """回归：LLM 编造的 block_id 不应出现在出处里。"""
     monkeypatch.setattr(
         "app.routers.ask.answer_question",
-        lambda items, q: {"answer": "答案", "source_block_ids": ["b1", "b999", "b1"]},
+        lambda items, q, **kwargs: {
+            "answer": "答案",
+            "source_block_ids": ["b1", "b999", "b1"],
+        },
     )
     with TestClient(app) as client:
         task_id = _make_task_with_blocks([B1])
@@ -126,7 +129,7 @@ def test_ask_filters_hallucinated_source_ids(monkeypatch) -> None:
 def test_ask_fts_no_hits_honest(monkeypatch) -> None:
     calls: list = []
 
-    def fake(items, question) -> dict:
+    def fake(items, question, **kwargs) -> dict:
         calls.append(items)
         return FAKE_ANSWER
 
@@ -147,7 +150,9 @@ def test_ask_fts_no_hits_honest(monkeypatch) -> None:
 
 
 def test_ask_empty_question_400(monkeypatch) -> None:
-    monkeypatch.setattr("app.routers.ask.answer_question", lambda items, q: FAKE_ANSWER)
+    monkeypatch.setattr(
+        "app.routers.ask.answer_question", lambda items, q, **kwargs: FAKE_ANSWER
+    )
     with TestClient(app) as client:
         task_id = _make_task_with_blocks([B1])
         res = client.post(f"/api/tasks/{task_id}/ask", json={"question": "   "})
@@ -156,7 +161,9 @@ def test_ask_empty_question_400(monkeypatch) -> None:
 
 
 def test_ask_task_without_blocks_400(monkeypatch) -> None:
-    monkeypatch.setattr("app.routers.ask.answer_question", lambda items, q: FAKE_ANSWER)
+    monkeypatch.setattr(
+        "app.routers.ask.answer_question", lambda items, q, **kwargs: FAKE_ANSWER
+    )
     with TestClient(app) as client:
         with SessionLocal() as session:
             task = Task(user_id=TEST_USER_ID, filename="a.pdf", status="completed")
@@ -184,7 +191,7 @@ def test_ask_passes_focus_block_ids_to_llm(monkeypatch) -> None:
     task_id = _make_task_with_blocks([B1, B2])
     captured: dict = {}
 
-    def fake(items, question, focus_block_ids=None) -> dict:
+    def fake(items, question, focus_block_ids=None, **kwargs) -> dict:
         captured["focus"] = list(focus_block_ids or [])
         return {"answer": "这一段说的是实验方法。", "source_block_ids": ["b1"]}
 

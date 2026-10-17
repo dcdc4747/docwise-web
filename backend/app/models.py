@@ -75,9 +75,7 @@ class Task(Base):
     # 摆在一起会让人以为产品就这样；删掉又不可逆、还要清磁盘产物。
     # 只影响列表接口（`GET /api/tasks`）；详情/下载/问答照旧可用，便于随时恢复。
     archived_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
     )
@@ -103,9 +101,7 @@ class TaskHistory(Base):
     task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id"), index=True)
     action: Mapped[str] = mapped_column(String(64))
     detail: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
 class TaskBlock(Base):
@@ -238,9 +234,7 @@ class TaskCollection(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id"), index=True)
-    collection_id: Mapped[int] = mapped_column(
-        ForeignKey("collections.id"), index=True
-    )
+    collection_id: Mapped[int] = mapped_column(ForeignKey("collections.id"), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
 
@@ -315,9 +309,7 @@ class Material(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
-    task_id: Mapped[int | None] = mapped_column(
-        ForeignKey("tasks.id"), nullable=True
-    )
+    task_id: Mapped[int | None] = mapped_column(ForeignKey("tasks.id"), nullable=True)
     block_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     text_quote: Mapped[str] = mapped_column(Text)
     translated_quote: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -464,9 +456,7 @@ class BlockExposure(Base):
     """
 
     __tablename__ = "block_exposures"
-    __table_args__ = (
-        UniqueConstraint("user_id", "task_id", "block_id", "session_id"),
-    )
+    __table_args__ = (UniqueConstraint("user_id", "task_id", "block_id", "session_id"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
@@ -476,3 +466,46 @@ class BlockExposure(Base):
     entered_at: Mapped[datetime] = mapped_column(DateTime)
     left_at: Mapped[datetime] = mapped_column(DateTime)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
+class MemoryItem(Base):
+    """记忆条目（M7）：跨文献的**用法偏好**。
+
+    ⚠️ **这张表不是台账**。台账是 `memory_events`（L0 环节流水："几点几分做了什么"）；
+    记忆是**结论**（"这个人习惯把 `chiral` 叫手性"）。两者**不是一回事**，别混。
+    ⚠️ 它也**不是素材卡**（数据模型 §4 那条）——素材是"从文献里取出的证据"，
+    记忆是"这个人的说法与偏好"。
+
+    `kind` 两种：
+    - `term` —— 术语/译名偏好：`source` = 原文里的词，`target` = 这个人习惯的译法；
+    - `cite` —— 引用习惯：`source` = 固定串 `default`，`target` = 习惯的引文格式。
+
+    ⭐ **`hits` 是"这条记忆被真正用上过几次"**（注入到请求里算一次）。
+    它的用处只有一个：让用户看得出**哪条真在起作用**——没被用过的条目是最该删的。
+    界面上**如实显示**，不许当成"聪明度"吹。
+
+    ⚠️ **源文献删了，记忆不删**：记忆挂在**用户**身上，不挂在任务上（所以没有 task_id）。
+    ⚠️ **必须能改能删**（形态 §六）：用户改一条就覆盖 `target`；
+    `enabled=false` 是"先别用，但别丢"。**系统不许背着人改**——
+    只有用户自己（或他明确点头的动作）能写这张表。
+    """
+
+    __tablename__ = "memory_items"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id", "kind", "source", name="uq_memory_items_user_kind_source"
+        ),
+        Index("ix_memory_items_user_id_kind", "user_id", "kind"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(16))  # term / cite
+    source: Mapped[str] = mapped_column(String(255))
+    target: Mapped[str] = mapped_column(Text)
+    hits: Mapped[int] = mapped_column(Integer, default=0)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=utc_now, onupdate=utc_now
+    )

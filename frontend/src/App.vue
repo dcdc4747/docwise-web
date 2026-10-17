@@ -81,6 +81,7 @@ import {
 import LibraryView from './views/LibraryView.vue'
 import MeView from './views/MeView.vue'
 import ProcessView from './views/ProcessView.vue'
+import MemoryView from './views/MemoryView.vue'
 import ReadView from './views/ReadView.vue'
 import WriteView from './views/WriteView.vue'
 import { NConfigProvider, NSpin, zhCN, dateZhCN } from 'naive-ui'
@@ -255,6 +256,12 @@ async function syncFromRoute() {
     return
   }
 
+  // M7 记忆（`#/memory`）：整页，自己取数（N35–N39）。与上两页同理，**这里只切屏**。
+  if (route.name === 'memory') {
+    if (view.value !== 'memory') view.value = 'memory'
+    return
+  }
+
   // 离开个人中心时**把偏好重新读一遍**：那一页改完字号/档位/动效，
   // 外壳当场跟上（不刷新页面也能看到效果；下次进来也还在）。
   if (view.value === 'me' && route.name !== 'me') reloadShellPrefs()
@@ -275,17 +282,11 @@ async function syncFromRoute() {
   // 从后台回别的页（浏览器后退 / 点我们自己那条「回我的论文」）→ 面板跟着关
   if (showAdmin.value && route.name !== 'admin') showAdmin.value = false
 
-  // 已经声明、但这一期还没做的页面（#/memory、#/process）。
-  // **不假装能打开**：如实说 + 指出它要做的事，然后回库页，绝不白屏。
-  const NOT_BUILT_YET = {
-    // ⚠️ 只剩「记忆」了。处理过程（E15）已经做出来（`#/process`）——
-    // **做出来的页面必须从这张表里摘掉**，否则它会把自己挡在门外（点了只 toast 回库页）。
-    memory: '记忆页',
-  }
-  if (NOT_BUILT_YET[route.name]) {
-    showToast(`${NOT_BUILT_YET[route.name]}还没做（形态 v2 的分期任务），先回「我的论文」`)
-    navigateToHash({ name: 'library' }, { replace: true })
-  }
+  // ⭐ **现在已经没有"还没做的页面"了**：`#/process`（E15）与 `#/memory`（M7）都做出来了。
+  // 这里原来有一张 `NOT_BUILT_YET` 表，作用是"如实说它还没做、然后回库页，绝不白屏"。
+  // ⚠️ **以后再加页面时**：要么真做出来（并在上面加一条切屏分支），要么把那张表加回来——
+  // **只加路由不加分支，结果就是"地址变了、屏没变"**（比白屏还难查；这次真踩到了：
+  // 在 JS 里直接改 `#/memory` 时地址对了、页面还是库页）。
 }
 
 /** 订阅地址变化。 */
@@ -335,7 +336,8 @@ const RAIL_TARGETS = {
   'lib-materials': { note: '素材列表接口（契约 N13）还没做——素材已经能在起草页左栏里用', },
   'lib-drafts': { note: '草稿列表页还没做——你的草稿在「起草」页里（点左上「起草」）' },
   'lib-refs': { note: '引用列表页还没做——引文在「起草」页的「引用」页签里看' },
-  memory: { note: '记忆页（形态 v2 的 M7）还没做，先回「我的论文」' },
+  // ⭐ 记忆页（M7）已经做出来：真跳 `#/memory`（N35–N39，自己的表、不是台账）
+  memory: { go: { name: 'memory' } },
   // ⭐ 处理过程一屏（E15）已经做出来：真跳 `#/process`（吃 N17 那张台账，与「我的」页同源）
   process: { go: { name: 'process' } },
 }
@@ -359,8 +361,8 @@ function onRailSelect(key) {
   const go = target.go || { name: 'library' }
   // ⭐「收口」= 进起草页**并当场拉开检查抽屉**（形态 §3.3：收口是起草页里的抽屉，不是新页面）
   if (target.opens === 'check') openCheck()
-  // ⭐ 整页只有这三张（起草 / 个人中心 / 处理过程）；其余一律回库页
-  const PAGES = { write: 'write', me: 'me', process: 'process' }
+  // ⭐ 整页只有这四张（起草 / 个人中心 / 处理过程 / 记忆）；其余一律回库页
+  const PAGES = { write: 'write', me: 'me', process: 'process', memory: 'memory' }
   view.value = PAGES[go.name] || 'library'
   activeNav.value = PAGES[go.name] ? go.name : 'read'
   // ⭐ 带筛选条件的入口（「待读」= 智能集合"状态 = 待读"；「全部文献」= 清掉筛选）：
@@ -656,6 +658,13 @@ function handleUnauthorized() {
                否则"正在读一篇 + 点左栏「处理过程」"会被 `currentTask` 那条分支吃掉。 -->
           <section v-else-if="view === 'process'" class="screen-process">
             <ProcessView />
+          </section>
+
+          <!-- ==================== M7 记忆（#/memory 整页） ====================
+               与上两张同理：**必须排在阅读区前面判断**，
+               否则"正在读一篇 + 点左栏「记忆」"会被 `currentTask` 那条分支吃掉。 -->
+          <section v-else-if="view === 'memory'" class="screen-memory">
+            <MemoryView />
           </section>
 
           <!-- ==================== L2 阅读工作区 ==================== -->
