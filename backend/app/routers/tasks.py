@@ -153,7 +153,11 @@ def _engine_progress(task: Task) -> dict | None:
     }
 
 
-def _serialize_task(task: Task, blocks: list[TaskBlock] | None = None) -> dict:
+def _serialize_task(
+    task: Task,
+    blocks: list[TaskBlock] | None = None,
+    collection_ids: list[int] | None = None,
+) -> dict:
     data = {
         "id": task.id,
         "filename": task.filename,
@@ -177,6 +181,9 @@ def _serialize_task(task: Task, blocks: list[TaskBlock] | None = None) -> dict:
         "finished_at": iso_utc(task.finished_at),
         # 阅读位置记忆：null 表示没读过（前端据此显示「开始阅读」而不是「继续读」）
         "last_read_page": task.last_read_page,
+        # ⭐ 归属（N5 是**全量替换**，前端必须先知道当前在哪几个集合里，
+        # 否则一发请求就把别人的归属抹了）。没归集就是空数组。
+        "collection_ids": collection_ids or [],
         # 诚实性：这批字是文字层抽的还是 OCR 认的（扫描件要在界面上说清楚）
         "text_source": task.text_source,
     }
@@ -238,6 +245,7 @@ def list_tasks(
     tag: Annotated[list[str] | None, Query()] = None,
     tag_bracket: Annotated[list[str] | None, Query(alias="tag[]")] = None,
     smart_id: Annotated[int | None, Query()] = None,
+    unfiled: Annotated[bool, Query()] = False,
 ):
     """当前登录用户自己的任务（最多 50 条，新的在前）。
 
@@ -255,7 +263,9 @@ def list_tasks(
     - `tag[]`（`?tag[]=A&tag[]=B`，手写成 `?tag=A` 也收）：
       **每个标签都要命中（AND）**；
     - `smart_id`：套那条智能集合的 `query` 规则
-      （**规则即数据**；三种 `op` 见 `_match_condition`）。
+      （**规则即数据**；三种 `op` 见 `_match_condition`）；
+    - `unfiled`：**只回没进任何集合的**（左栏「未归类」那一档）。
+      与 `collection_id` 同时传没有意义（"既在 X 集合里又没进任何集合"）→ 照实回空。
 
     多条参数之间是 **AND**（交集）。
     ⚠️ **查不到的 `smart_id` 返回空数组**，不报错——契约没为它定义错误，
@@ -283,6 +293,13 @@ def list_tasks(
                 )
             )
 
+    if unfiled:
+        # ⚠️ 用 NOT IN 子查询而不是 outer join：一件文献可以进多个集合，
+        # join 会把同一篇扩成多行（去重又要再加一层），NOT IN 语义最直白。
+        stmt = stmt.where(
+            Task.id.not_in(select(TaskCollection.task_id))
+        )
+
     rows = list(db.scalars(stmt.order_by(Task.id.desc())).all())
 
     if smart_id is not None:
@@ -296,7 +313,20 @@ def list_tasks(
         context = _rule_context(db, [task.id for task in rows])
         rows = [task for task in rows if _matches_smart_rule(task, rule.query, context)]
 
-    return [_serialize_task(task) for task in rows[:50]]
+    page = rows[:50]
+    memberships: dict[int, list[int]] = {}
+    if page:
+        pairs = db.execute(
+            select(TaskCollection.task_id, TaskCollection.collection_id).where(
+                TaskCollection.task_id.in_([task.id for task in page])
+            )
+        ).all()
+        for task_id, collection_id in pairs:
+            memberships.setdefault(task_id, []).append(collection_id)
+    return [
+        _serialize_task(task, collection_ids=memberships.get(task.id, []))
+        for task in page
+    ]
 
 
 def _rule_context(db: Session, task_ids: list[int]) -> dict[str, dict[int, list]]:

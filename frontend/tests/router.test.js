@@ -38,7 +38,9 @@ describe('parseHash：地址 → 路由', () => {
   })
 
   it('任务号不合法的一律当"不认识的地址"落库页 —— 调用方永远不用处理"进了阅读页却没任务号"', () => {
-    for (const bad of ['abc', '0', '-3', '1.5', '']) {
+    // ⚠️ 空串那条去掉了：`#/read/` 会被规范化成 `#/read` = **读懂工作台**（已知路由），
+    //    不再是"任务号不合法"。它由下面那条专门的用例覆盖。
+    for (const bad of ['abc', '0', '-3', '1.5']) {
       expect(parseHash(`#/read/${bad}`).name).toBe(FALLBACK_ROUTE)
     }
   })
@@ -50,9 +52,12 @@ describe('parseHash：地址 → 路由', () => {
   })
 
   it('未知地址 → 兜底路由（库页），不抛错', () => {
-    for (const bad of ['#/garbage', '#/read', '#/library/x', '#/read/1/2', '#//']) {
+    // ⚠️ `#/read` 现在是**读懂工作台**（已知路由），不再算未知地址
+    for (const bad of ['#/garbage', '#/library/x', '#/read/1/2', '#//', '#/nope/1']) {
       expect(parseHash(bad).name).toBe(FALLBACK_ROUTE)
     }
+    expect(parseHash('#/read').name).toBe('readHome')
+    expect(parseHash('#/read/').name).toBe('readHome')
   })
 
   it('忽略查询串与末尾斜杠', () => {

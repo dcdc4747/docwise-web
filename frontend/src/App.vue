@@ -84,6 +84,9 @@ import MeView from './views/MeView.vue'
 import ProcessView from './views/ProcessView.vue'
 import MemoryView from './views/MemoryView.vue'
 import MaterialsView from './views/MaterialsView.vue'
+import ReadHomeView from './views/ReadHomeView.vue'
+import CollectionsView from './views/CollectionsView.vue'
+import TagsView from './views/TagsView.vue'
 import ReadView from './views/ReadView.vue'
 import WriteView from './views/WriteView.vue'
 import { NConfigProvider, NSpin, zhCN, dateZhCN } from 'naive-ui'
@@ -207,9 +210,27 @@ async function syncFromRoute() {
   const route = currentRoute()
   // 左栏选中态跟着地址走。**在这里同步而不是散在各处 go**：`syncFromRoute` 是
   // "地址变了"的唯一入口（主动切页 / 后退 / 刷新都汇到这里），一处就够了。
-  // ⚠️ 库页算「读懂」这个模块（形态 §1.2 的布局图：读懂 → 书单 → 选一篇进阅读区），
-  // 所以 `library` 与 `read` 都亮「读懂」；下段的「全部文献」要等 R5 把首页换成"我的库"再分。
-  activeNav.value = route.name === 'library' ? 'read' : route.name
+  // ⭐ 2026-10-17 起「读懂」和「全部文献」是**两个不同的页面**：
+  //    读懂工作台 / 阅读页 → 亮「读懂」；历史记录 → 亮下段的「全部文献」。
+  activeNav.value = NAV_OF_ROUTE[route.name] || route.name
+
+  // ⭐ 读懂工作台（`#/read`）：上传 / 示例 / 继续读 / 最近三篇。
+  // 它要"最近三篇"，所以顺手把列表拉一次（已有列表就不重复拉）。
+  if (route.name === 'readHome') {
+    if (view.value !== 'readHome') view.value = 'readHome'
+    if (!tasks.value.length && getToken()) await loadTasksAndSync()
+    return
+  }
+
+  // ⭐ 集合整页（`#/collections`）/ 标签整页（`#/tags`）：自己取数（N1–N6），**这里只切屏**。
+  if (route.name === 'collections') {
+    if (view.value !== 'collections') view.value = 'collections'
+    return
+  }
+  if (route.name === 'tags') {
+    if (view.value !== 'tags') view.value = 'tags'
+    return
+  }
 
   if (route.name === 'library') {
     if (view.value !== 'library') view.value = 'library'
@@ -330,25 +351,40 @@ async function applyBootRoute() {
  * ⚠️ 两者**必须给一个**：既没有 `go` 也没有 `note` 的项点了会像没反应（判据①是"都能点"）。
  */
 const RAIL_TARGETS = {
-  read: { go: { name: 'library' } },
+  // ⭐ 2026-10-17 知识库重构：**「读懂」与「历史记录」是两个地方**
+  //    读懂 = 开工页（上传 / 示例 / 继续读）；历史记录 = 全部文献 + 筛选。
+  read: { go: { name: 'readHome' } },
   write: { go: { name: 'write' } },
   check: { go: { name: 'write' }, opens: 'check' },
-  // 「全部文献」= 回库页**并清掉筛选**（不传 filter 会沿用上一次的条件，那就不是"全部"了）
+  // 「全部文献」= 回**历史记录**并清掉筛选（不传 filter 会沿用上一次的条件，那就不是"全部"了）
   'lib-all': { go: { name: 'library' }, filter: {} },
-  'lib-collections': { note: '集合列表接口（契约 N1）还没做——筛选条上的「集合」那一行等它', },
-  'lib-tags': { note: '标签列表接口（契约 N6）还没做——筛选条上的「标签」那一行等它' },
-  // ⭐「待读」是一条**真的智能集合**（规则：状态 = 待读）：N8 已经能按 `reading_status` 筛了，
-  // 所以这里不再是"还没做"的提示，而是带着条件进库页（以后智能集合列表接口上来，
-  // 这条要改成读 N9 返回的规则、按 `smart_id` 筛）。
+  // ⭐ 集合 / 标签 两个整页（后端 N1–N6 早就有，此前左栏点了只弹"还没做"）
+  'lib-collections': { go: { name: 'collections' } },
+  'lib-tags': { go: { name: 'tags' } },
+  // ⭐「待读」是一条**真的智能集合**（规则：状态 = 待读）：进历史记录并带上条件
   'lib-todo': { go: { name: 'library' }, filter: { reading_status: 'todo' } },
-  // ⭐ 素材库（E2）已经做出来：真跳 `#/materials`（吃 N13 的 `?collection_id?` / `&tag?`）
+  // ⭐「未归类」= 没进任何集合的文献（N8 新增的 `unfiled` 参数，Zotero 的 Unfiled 同一件事）
+  'lib-unfiled': { go: { name: 'library' }, filter: { unfiled: 1 } },
+  // ⭐ 素材库（E2）：真跳 `#/materials`（吃 N13 的 `?collection_id?` / `&tag?`）
   'lib-materials': { go: { name: 'materials' } },
-  'lib-drafts': { note: '草稿列表页还没做——你的草稿在「起草」页里（点左上「起草」）' },
-  'lib-refs': { note: '引用列表页还没做——引文在「起草」页的「引用」页签里看' },
-  // ⭐ 记忆页（M7）已经做出来：真跳 `#/memory`（N35–N39，自己的表、不是台账）
+  // ⚠️「草稿」「引用」**不再放在历史记录这一组**：它们是写作资产，入口在「起草」页里
+  //    （草稿在左上角下拉、引文在「引用」页签）——放这儿点了只能弹一句"还没做"，最伤。
+  // ⭐ 记忆页（M7）：真跳 `#/memory`（N35–N39，自己的表、不是台账）
   memory: { go: { name: 'memory' } },
-  // ⭐ 处理过程一屏（E15）已经做出来：真跳 `#/process`（吃 N17 那张台账，与「我的」页同源）
+  // ⭐ 处理过程一屏（E15）：真跳 `#/process`（吃 N17 那张台账，与「我的」页同源）
   process: { go: { name: 'process' } },
+}
+
+/**
+ * 地址名 → 左栏高亮项。**两处不是同名**：读懂工作台与阅读页都算「读懂」，
+ * 历史记录算下段的「全部文献」。
+ */
+const NAV_OF_ROUTE = {
+  readHome: 'read',
+  read: 'read',
+  library: 'lib-all',
+  collections: 'lib-collections',
+  tags: 'lib-tags',
 }
 
 /** 点左栏一项：**先动状态，地址跟着状态走**（与 `backToLibrary` 同一个规矩）。 */
@@ -367,19 +403,23 @@ function onRailSelect(key) {
   // 现在左栏能真正打开的有两处（库页与起草页），所以两样状态都在这一处显式设对：
   // `view` 决定渲染哪一屏，`activeNav` 决定左栏哪一项亮着（那次 hashchange 被吞了，
   // `syncFromRoute` 不会替我们做这件事）。
-  const go = target.go || { name: 'library' }
+  const go = target.go || { name: 'readHome' }
   // ⭐「收口」= 进起草页**并当场拉开检查抽屉**（形态 §3.3：收口是起草页里的抽屉，不是新页面）
   if (target.opens === 'check') openCheck()
-  // ⭐ 整页只有这几张（起草 / 素材库 / 个人中心 / 处理过程 / 记忆）；其余一律回库页
+  // ⭐ 整页只有这几张（读懂工作台 / 历史记录 / 起草 / 素材库 / 集合 / 标签 / 个人中心 / 处理过程 / 记忆）
   const PAGES = {
+    readHome: 'readHome',
+    library: 'library',
     write: 'write',
     materials: 'materials',
+    collections: 'collections',
+    tags: 'tags',
     me: 'me',
     process: 'process',
     memory: 'memory',
   }
-  view.value = PAGES[go.name] || 'library'
-  activeNav.value = PAGES[go.name] ? go.name : 'read'
+  view.value = PAGES[go.name] || 'readHome'
+  activeNav.value = NAV_OF_ROUTE[go.name] || go.name
   // ⭐ 带筛选条件的入口（「待读」= 智能集合"状态 = 待读"；「全部文献」= 清掉筛选）：
   // **不止跳过去，还要真的筛**——N8 的四个参数已经在后端了（契约 §2.2）。
   if (target.filter) loadTasksAndSync(target.filter)
@@ -634,8 +674,32 @@ function handleUnauthorized() {
 
         <!-- ==================== 右侧内容列 ==================== -->
         <div class="dw-main">
-          <!-- ==================== L1 库页 ==================== -->
-          <section v-if="view === 'library'">
+          <!-- ==================== 「读懂」开工页（#/read） ====================
+               ⭐ 2026-10-17 知识库重构后它是**首屏**：上传 / 示例 / 继续读 / 最近三篇。
+               历史上这张"英雄页"被绑在"库里一篇都没有"上（`libraryEmpty`），
+               于是有论文的人永远看不到上传入口——这才是"点读懂却是清单"的根因。 -->
+          <section v-if="view === 'readHome'">
+            <div class="topbar">
+              <span class="brand">docwise</span>
+              <span class="brand-sub">学术文献理解智能体</span>
+              <span class="spacer" />
+              <span v-if="authNotice" class="tiny" style="color: var(--danger)">{{ authNotice }}</span>
+              <div class="menu-wrap">
+                <button class="btn ghost sm" @click.stop="toggleMenu('acct')">
+                  {{ authUser.username }} ▾
+                </button>
+                <div class="menu" :class="{ open: openMenu === 'acct' }">
+                  <button @click="setNote('当前账号：' + accountLabel)">{{ accountLabel }}</button>
+                  <button v-if="isAdmin" @click="showAdmin = true">管理后台</button>
+                  <button @click="onLogout">退出</button>
+                </div>
+              </div>
+            </div>
+            <ReadHomeView />
+          </section>
+
+          <!-- ==================== 「历史记录」（#/library） ==================== -->
+          <section v-else-if="view === 'library'">
             <div class="topbar">
               <span class="brand">docwise</span>
               <span class="brand-sub">学术文献理解智能体</span>
@@ -690,6 +754,17 @@ function handleUnauthorized() {
                同理：**必须排在阅读区前面判断**，否则"正在读一篇 + 点左栏「素材」"会被吃掉。 -->
           <section v-else-if="view === 'materials'" class="screen-materials">
             <MaterialsView />
+          </section>
+
+          <!-- ==================== 集合（#/collections 整页 · N1–N4） ====================
+               2026-10-17 新开：左栏「集合」以前点了只弹"还没做"，而接口与数据一直都在。 -->
+          <section v-else-if="view === 'collections'" class="screen-kn">
+            <CollectionsView />
+          </section>
+
+          <!-- ==================== 标签（#/tags 整页 · N6） ==================== -->
+          <section v-else-if="view === 'tags'" class="screen-kn">
+            <TagsView />
           </section>
 
           <!-- ==================== L2 阅读工作区 ==================== -->

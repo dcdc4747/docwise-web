@@ -2918,6 +2918,87 @@ svg.ic-inl {
 }
 
 /* ============================================================================
+   [IA] 读懂工作台 + 集合 / 标签（2026-10-17 知识库重构）
+   ============================================================================
+   为什么要在这一段：左栏「读懂」以前和「全部文献」是**同一个去处**（都进库页），
+   而"把文献读懂"那张英雄页只绑在"库空了"上——有论文的人永远看不到上传入口。
+   这一段只管**两屏各自的骨架**：开工页（`.rh`）与集合/标签页（`.kn`）。
+   ⚠️ 放在 [M7] 之前：[R9] 必须是最后一段卡片样式（#162 的用例钉着这一条）。 */
+
+.dw .rh { max-width: 1080px; padding: var(--sp-5) var(--sp-6) var(--sp-7); }
+.dw .rh-hero { text-align: center; padding: var(--sp-4) 0 var(--sp-3); }
+.dw .rh-h1 { margin: 0; font-size: var(--fs-display); letter-spacing: -0.01em; }
+.dw .rh-tagline { margin: var(--sp-2) 0 0; font-size: var(--fs-h3); color: var(--ink); }
+.dw .rh-lede { margin: var(--sp-3) auto 0; max-width: 46em; color: var(--muted); line-height: var(--lh-body); }
+.dw .rh-pills { display: flex; gap: var(--sp-2); justify-content: center; flex-wrap: wrap; margin-top: var(--sp-4); }
+
+.dw .rh-continue { display: flex; align-items: center; gap: var(--sp-3); margin-top: var(--sp-4); padding: var(--sp-3) var(--sp-4); border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); }
+.dw .rh-continue-main { display: flex; align-items: baseline; gap: var(--sp-2); min-width: 0; flex: 1; }
+.dw .rh-continue-k { font-size: var(--fs-micro); color: var(--accent); font-weight: 600; }
+.dw .rh-continue-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dw .rh-continue-page { font-size: var(--fs-meta); color: var(--muted); }
+
+.dw .rh-upload { display: grid; grid-template-columns: minmax(320px, 1fr) 320px; gap: var(--sp-5); margin-top: var(--sp-4); padding: var(--sp-4); }
+.dw .rh-tier-gap { margin-top: var(--sp-4); }
+.dw .rh-err { color: var(--danger); }
+
+.dw .rh-recent { margin-top: var(--sp-6); }
+.dw .rh-recent-head { display: flex; align-items: center; gap: var(--sp-3); margin-bottom: var(--sp-3); }
+.dw .rh-h2 { margin: 0; font-size: var(--fs-h2); }
+.dw .rh-recent-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-3); }
+.dw .rh-card { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-3) var(--sp-4); text-align: left; font: inherit; cursor: pointer; }
+.dw .rh-card:hover { border-color: var(--accent-line); }
+.dw .rh-card-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dw .rh-card-meta { display: flex; gap: var(--sp-1); }
+.dw .rh-empty { margin-top: var(--sp-5); color: var(--muted); line-height: var(--lh-body); }
+.dw .rh-link { border: 0; background: none; padding: 0; font: inherit; color: var(--accent); text-decoration: underline; cursor: pointer; }
+
+/* ---- 集合 / 标签 两屏共用骨架 ---- */
+.dw .kn { max-width: 880px; padding: var(--sp-5) var(--sp-6) var(--sp-7); }
+.dw .kn-top { display: flex; align-items: flex-start; gap: var(--sp-4); }
+.dw .kn-t { margin: 0; font-size: var(--fs-h1); }
+.dw .kn-sub { margin: var(--sp-2) 0 0; color: var(--muted); line-height: var(--lh-body); max-width: 46em; }
+.dw .kn-ops { margin-left: auto; display: flex; align-items: center; gap: var(--sp-2); }
+.dw .kn-count { font-size: var(--fs-meta); color: var(--muted); }
+.dw .kn-note { margin: var(--sp-3) 0 0; font-size: var(--fs-meta); color: var(--muted); }
+.dw .kn-note-err { color: var(--danger); }
+.dw .kn-hint { margin-top: var(--sp-4); }
+
+.dw .kn-editor { display: flex; gap: var(--sp-2); margin-top: var(--sp-4); }
+.dw .kn-input { flex: 1; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--r-sm); font: inherit; background: var(--surface); }
+.dw .kn-input:focus { outline: none; border-color: var(--accent); }
+
+.dw .kn-list { list-style: none; margin: var(--sp-4) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
+.dw .kn-row { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-2) var(--sp-3); }
+.dw .kn-row-main { flex: 1; display: flex; align-items: baseline; gap: var(--sp-3); border: 0; background: none; padding: var(--sp-2); text-align: left; font: inherit; cursor: pointer; border-radius: var(--r-sm); }
+.dw .kn-row-main:hover { background: var(--hover); }
+.dw .kn-name { font-weight: 600; }
+.dw .kn-num { font-size: var(--fs-meta); color: var(--muted); }
+.dw .kn-row-ops { display: flex; gap: var(--sp-1); }
+.dw .kn-kind { font-size: var(--fs-micro); }
+.dw .kn-unfiled { display: flex; align-items: center; gap: var(--sp-3); margin-top: var(--sp-2); padding: var(--sp-2) var(--sp-3); }
+.dw .kn-empty { margin-top: var(--sp-5); padding: var(--sp-4); border: 1px dashed var(--line); border-radius: var(--r-md); color: var(--muted); line-height: var(--lh-body); }
+
+/* ---- 历史记录页新增的小东西 ---- */
+.dw .lib-extra-filter { display: flex; align-items: center; gap: var(--sp-2); margin: var(--sp-2) 0 0; font-size: var(--fs-meta); color: var(--muted); }
+.dw .lib-go-read { margin-left: var(--sp-2); }
+.dw .lib-assign { display: flex; align-items: center; gap: var(--sp-1); margin-top: var(--sp-2); font-size: var(--fs-meta); color: var(--muted); }
+.dw .lib-assign-select { padding: 3px 6px; border: 1px solid var(--line); border-radius: var(--r-sm); font: inherit; font-size: var(--fs-meta); background: var(--surface); }
+.dw .lib-assign-select:disabled { opacity: 0.6; cursor: not-allowed; }
+
+@media (max-width: 1099px) {
+  .dw .rh-upload { grid-template-columns: 1fr; }
+  .dw .rh-recent-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 719px) {
+  .dw .rh, .dw .kn { padding: var(--sp-4) var(--sp-3) var(--sp-6); }
+  .dw .kn-top { flex-direction: column; }
+  .dw .kn-ops { margin-left: 0; }
+  .dw .kn-editor { flex-wrap: wrap; }
+}
+
+/* ============================================================================
    [M7] 记忆页（2026-10-16）—— 用法偏好的"可看可改可删"
    ============================================================================
    自己那一段：只加 `.mem-*`。颜色 / 字号 / 间距一律 token 名，不动上面任何人的段。
