@@ -108,13 +108,34 @@ export const sheetGripText = computed(() => {
   return '上拖到近全屏'
 })
 
+/**
+ * 桌面 1024–1099 档的「助手抽屉」是否展开。
+ *
+ * ⚠️ **默认收起**：这一档左栏 260 + 右栏 340 会吃掉 600px，正文只剩 764px（`docs/断点逐档量测记录`）。
+ * 收起后正文拿回整宽，需要助手时点顶栏「助手」再拉出来。
+ * 与手机那套 `sheetState`（底部三档）**是两回事**，不要合并成一个状态。
+ */
+export const assistDrawerOpen = ref(false)
+
+export function toggleAssistDrawer() {
+  assistDrawerOpen.value = !assistDrawerOpen.value
+}
+
+export function closeAssistDrawer() {
+  assistDrawerOpen.value = false
+}
+
 export const assistClass = computed(() => {
-  if (!isNarrow.value) return ['assist']
-  return [
-    'sheet',
-    sheetState.value === 'peek' ? 'peek' : '',
-    sheetState.value === 'full' ? 'full' : '',
-  ]
+  if (isNarrow.value) {
+    return [
+      'sheet',
+      sheetState.value === 'peek' ? 'peek' : '',
+      sheetState.value === 'full' ? 'full' : '',
+    ]
+  }
+  // 桌面档：1024–1099 那一档右栏是**抽屉**（形态 §3.4 第 2 档），开关状态挂成类名；
+  // ≥1100 时 CSS 里根本没有抽屉规则，这个类名自然不起作用（不影响常驻右栏）。
+  return ['assist', assistDrawerOpen.value ? 'assist-open' : '']
 })
 
 export const assistBodyClass = computed(() => (isNarrow.value ? 'sbody' : 'tabbody'))
