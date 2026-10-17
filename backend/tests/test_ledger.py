@@ -312,7 +312,7 @@ def test_understanding_generation_writes_event(monkeypatch) -> None:
     _make_block(task_id=task_id)
     monkeypatch.setattr(
         "app.routers.tasks.extract_understanding",
-        lambda items: {
+        lambda items, **kwargs: {
             "research_question": {"text": "问题", "source_block_ids": ["p0_b1"]},
             "terms": [{"term": "chirality", "cn": "手性", "definition": "x"}],
         },

@@ -32,6 +32,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..deps import get_current_user, get_db
+from ..memory import resolve_active
 from ..models import MemoryItem, User
 from ..timeutil import iso_utc
 
@@ -303,28 +304,14 @@ def resolve_memories(
     - ⭐ 取过的条目 `hits += 1`（"这条真被用上过几次"的账）。
       `resolve` 的语义就是"要拿去用了"，所以这里计数是对的；
       调用方**别把它当普通列表接口反复调**。
+
+    ⚠️ 真正的实现是 `app/memory.py::resolve_active`（问答/导读注入走的是同一个函数）——
+    这里只是把它包成 HTTP，**不另写一套**（否则两条路的计数口径迟早会漂）。
     """
-    rows = db.scalars(
-        select(MemoryItem).where(
-            MemoryItem.user_id == user.id, MemoryItem.enabled.is_(True)
-        )
-    ).all()
-
-    terms: dict[str, str] = {}
-    cite: str | None = None
-    for row in rows:
-        if row.kind == "term":
-            terms[row.source] = row.target
-        elif row.kind == "cite":
-            cite = row.target
-        row.hits = (row.hits or 0) + 1
-
-    counts = {"term": len(terms), "cite": 1 if cite else 0}
-    if rows:
-        try:
-            db.commit()
-        except Exception:  # noqa: BLE001
-            # 计数写失败**不影响本次注入**（不能因为记不上账就把记忆丢了）
-            db.rollback()
-            logger.exception("记忆命中计数失败：user=%s", user.id)
-    return {"terms": terms, "cite": cite, "counts": counts}
+    data = resolve_active(db, user.id)
+    terms, cite = data["terms"], data["cite"]
+    return {
+        "terms": terms,
+        "cite": cite,
+        "counts": {"term": len(terms), "cite": 1 if cite else 0},
+    }

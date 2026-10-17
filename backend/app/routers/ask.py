@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from ..deps import get_current_user, get_db, load_owned_task, settings
 from ..ledger import record_ask
 from ..llm import answer_question
+from ..memory import enrich, resolve_active
 from ..models import TaskBlock, User
 
 router = APIRouter(prefix="/api/tasks", tags=["ask"])
@@ -192,8 +193,12 @@ def ask_paper(
     focus_ids = [bid for bid in body.focus_block_ids if bid in known_ids]
     focus_kwargs: dict = {"focus_block_ids": focus_ids} if focus_ids else {}
     total_chars = sum(len(text) for _, text in items)
+    # M7 记忆的「请求前注入」：把这个人固定的译名/引用格式带上（没有记忆时为空串，
+    # 行为与之前一字不差）。⚠️ 只影响用词，不改出处口径——见 app/memory.py 的护栏。
+    mem = resolve_active(db, user.id)
+    hint = enrich(mem["terms"], mem["cite"], "\n".join(text for _, text in items))
     if total_chars <= settings.docwise_ask_full_context_max_chars:
-        result = answer_question(items, question, **focus_kwargs)
+        result = answer_question(items, question, memory_hint=hint, **focus_kwargs)
         return _finish_ask(
             user=user,
             task_id=task_id,
@@ -222,7 +227,7 @@ def ask_paper(
         row for row in items if row[0] in focus_ids and row[0] not in hit_ids
     ]
     hits = anchor_rows + hits
-    result = answer_question(hits, question, **focus_kwargs)
+    result = answer_question(hits, question, memory_hint=hint, **focus_kwargs)
     return _finish_ask(
         user=user,
         task_id=task_id,
