@@ -208,6 +208,10 @@ function navigateToHash(target, { replace = false } = {}) {
 /** 地址 → 状态的唯一入口。**它只做"该显示什么"，不自己拼地址**（那会绕开 `expectedHash` 防抖）。 */
 async function syncFromRoute() {
   const route = currentRoute()
+  // ⚠️ **离开管理后台时必须先把面板关掉，且必须放在所有 early return 之前**。
+  // 以前这行在函数末尾：点左栏 / 改地址时上面那些分支先 `return` 了，
+  // 这行永远走不到 → 面板一直盖着、目标页压根不渲染（用户报的"管理后台做的有问题"）。
+  if (showAdmin.value && route.name !== 'admin') showAdmin.value = false
   // 左栏选中态跟着地址走。**在这里同步而不是散在各处 go**：`syncFromRoute` 是
   // "地址变了"的唯一入口（主动切页 / 后退 / 刷新都汇到这里），一处就够了。
   // ⭐ 2026-10-17 起「读懂」和「全部文献」是**两个不同的页面**：
@@ -309,7 +313,7 @@ async function syncFromRoute() {
     return
   }
   // 从后台回别的页（浏览器后退 / 点我们自己那条「回我的论文」）→ 面板跟着关
-  if (showAdmin.value && route.name !== 'admin') showAdmin.value = false
+  // （已在函数开头统一处理；这里保留一句说明，免得以后有人又加回末尾）
 
   // ⭐ **现在已经没有"还没做的页面"了**：`#/process`（E15）与 `#/memory`（M7）都做出来了。
   // 这里原来有一张 `NOT_BUILT_YET` 表，作用是"如实说它还没做、然后回库页，绝不白屏"。
@@ -648,8 +652,8 @@ function handleUnauthorized() {
            既然 `#/admin` 现在是真地址，就得有个正常的出口——否则从地址进来的人被困住。 -->
       <template v-if="showAdmin">
         <div class="admin-backbar">
-          <button class="btn ghost sm" @click="closeAdmin">← 回我的论文</button>
-          <span class="admin-backbar-tip">管理后台 · 也可以直接用浏览器后退</span>
+          <button class="btn ghost sm" @click="closeAdmin">← 回历史记录</button>
+          <span class="admin-backbar-tip">管理后台 · 点左栏或浏览器后退也能离开</span>
         </div>
         <AdminView class="admin-page" />
       </template>

@@ -44,12 +44,28 @@ const taskColumns = [
     title: '创建时间',
     key: 'created_at',
     width: 140,
-    render: (row) => (row.created_at || '—').replace('T', ' ').slice(0, 16),
+    render: (row) => formatTime(row.created_at),
   },
 ]
 
+/**
+ * 时间一律**按本地时区显示**。
+ *
+ * ⚠️ 原来是 `value.replace('T',' ').slice(0,16)`——那是把接口给的 **UTC 字符串直接截断**，
+ * 于是后台比别处**慢 8 小时**（实测：本地 23:20 显示成 15:20）。全站其它地方都走
+ * `toLocaleString`，只有这一处是手切字符串。接口的 `iso_utc()` 带时区，`new Date` 能正确解析。
+ */
 function formatTime(value) {
-  return value ? value.replace('T', ' ').slice(0, 16) : '—'
+  if (!value) return '—'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return String(value).replace('T', ' ').slice(0, 16)
+  return date.toLocaleString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 }
 
 async function load() {
