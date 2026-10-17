@@ -2741,12 +2741,17 @@ svg.ic-inl {
 
 .dw .mem-field {
   display: inline-flex;
+  /* ⚠️ 必须允许换行：390 下"插引文默认用"这五个字比控件还宽，
+     不换行就会被挤成「插引文默 / 认用」这种断在词中间的两行（实拍抓到过）。 */
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--sp-2);
   font-size: var(--fs-meta);
   color: var(--muted);
   min-width: 0;
 }
+/* 标签本身不许断在词中间（它是给人读的，不是容器） */
+.dw .mem-field > span { white-space: nowrap; }
 .dw .mem-input,
 .dw .mem-select {
   max-width: 100%;

@@ -323,4 +323,15 @@ describe('接线：这页真能打开', () => {
     const app = readSrc('src/App.vue')
     expect(app).not.toContain('记忆页（形态 v2 的 M7）还没做')
   })
+
+  it('窄屏排版：标签不许断在词中间（`.mem-field` 可换行 + 标签 `nowrap`）', () => {
+    // ⚠️ 实拍抓到过：390 下「插引文默认用」被挤成「插引文默 / 认用」。
+    // 这类问题构建不报、用例不报，只能靠截图发现 —— 所以用两条 CSS 断言钉住。
+    const css = readSrc('src/style.css')
+    const at = css.indexOf('.dw .mem-field {')
+    expect(at, 'style.css 里没有 .mem-field 规则').toBeGreaterThan(-1)
+    const block = css.slice(at, css.indexOf('}', at))
+    expect(block).toMatch(/flex-wrap:\s*wrap/)
+    expect(css).toMatch(/\.dw \.mem-field > span \{[^}]*white-space:\s*nowrap/)
+  })
 })
