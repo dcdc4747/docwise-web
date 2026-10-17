@@ -70,6 +70,51 @@
       还没有集合。点右上角「＋ 新建集合」，然后用「历史记录」卡片上的「归集」把文献放进来。
     </div>
 
+    <!-- ==================== 智能集合（契约 N9–N11） ====================
+         与"集合"的区别：集合是**手建的容器**，智能集合是**一条规则**
+         （"状态 = 待读"），文献自己进进出出，不用手动搬。
+         ⚠️ **内置的那几条不许删**（契约 N11 回 400），所以按钮就不给它。 -->
+    <section class="kn-smart">
+      <div class="kn-top">
+        <div>
+          <h2 class="kn-h2">智能集合</h2>
+          <p class="kn-sub">按规则自动收文献——不用手动往里面放，条件满足就出现。</p>
+        </div>
+      </div>
+
+      <ul v-if="smart.length" class="kn-list">
+        <li v-for="item in smart" :key="item.id" class="card kn-row">
+          <button type="button" class="kn-row-main" @click="openSmart(item)">
+            <span class="kn-name">{{ item.name }}</span>
+            <span class="kn-num">{{ item.count ?? 0 }} 篇</span>
+          </button>
+          <span class="chip kn-kind">{{ ruleText(item.query) }}</span>
+          <span v-if="item.builtin" class="kn-hint">内置</span>
+          <button v-else type="button" class="btn ghost sm" @click="removeSmart(item)">删除</button>
+        </li>
+      </ul>
+      <p v-else class="kn-empty">还没有智能集合——下面建一条。</p>
+
+      <form class="kn-editor" @submit.prevent="createSmart">
+        <input
+          v-model="smartName"
+          class="kn-input"
+          type="text"
+          maxlength="40"
+          placeholder="新智能集合的名字，例如：还没读的方法类"
+        />
+        <select v-model="smartStatus" class="kn-input kn-select">
+          <option value="todo">规则：状态 = 待读</option>
+          <option value="reading">规则：状态 = 在读</option>
+          <option value="done">规则：状态 = 已读</option>
+        </select>
+        <button type="submit" class="btn primary sm" :disabled="smartBusy || !smartName.trim()">
+          建
+        </button>
+      </form>
+      <p v-if="smartError" class="kn-note kn-note-err">{{ smartError }}</p>
+    </section>
+
     <p v-if="toast" class="kn-note">{{ toast }}</p>
   </section>
 </template>
@@ -90,7 +135,7 @@ import { computed, onMounted, ref } from 'vue'
 import { apiJson } from '../auth'
 import { navigate } from '../router'
 import { loadTasksAndSync } from '../stores/useLibrary'
-import { collections, loadKnowledge } from '../stores/useKnowledge'
+import { collections, loadKnowledge, smartCollections } from '../stores/useKnowledge'
 
 const loading = ref(false)
 const busy = ref(false)
@@ -197,6 +242,68 @@ async function openCollection(item) {
 
 async function openUnfiled() {
   await loadTasksAndSync({ unfiled: 1 })
+  navigate('library')
+}
+
+// ---------------------------------------------------------------- 智能集合（N9–N11）
+const smart = smartCollections
+const smartName = ref('')
+const smartStatus = ref('todo')
+const smartBusy = ref(false)
+const smartError = ref('')
+
+const STATUS_TEXT = { todo: '状态 = 待读', reading: '状态 = 在读', done: '状态 = 已读' }
+
+/** 规则 → 人话（"规则即数据"：不能只显示名字，用户要看得见它凭什么收文献）。 */
+function ruleText(query) {
+  const parts = query?.all
+  if (!Array.isArray(parts) || !parts.length) return '规则未给出'
+  return parts
+    .map((part) => {
+      const field = part?.field === 'reading_status' ? '状态' : String(part?.field ?? '?')
+      const value = STATUS_TEXT[part?.value] || String(part?.value ?? '?')
+      return part?.field === 'reading_status' ? `状态 = ${value.replace('状态 = ', '')}` : `${field} ${part?.op ?? '?'} ${value}`
+    })
+    .join('，')
+}
+
+async function createSmart() {
+  const name = smartName.value.trim()
+  if (!name || smartBusy.value) return
+  smartBusy.value = true
+  smartError.value = ''
+  try {
+    await apiJson('/api/smart-collections', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name,
+        query: { all: [{ field: 'reading_status', op: 'eq', value: smartStatus.value }] },
+      }),
+    })
+    smartName.value = ''
+    toast.value = `已建智能集合「${name}」`
+    await load()
+  } catch (err) {
+    smartError.value = `没建成（${messageOf(err, '网络或服务异常')}）`
+  } finally {
+    smartBusy.value = false
+  }
+}
+
+async function removeSmart(item) {
+  smartError.value = ''
+  try {
+    await apiJson(`/api/smart-collections/${item.id}`, { method: 'DELETE' })
+    toast.value = `已删除智能集合「${item.name}」——文献一篇都没动`
+    await load()
+  } catch (err) {
+    smartError.value = `没删掉（${messageOf(err, '网络或服务异常')}）`
+  }
+}
+
+async function openSmart(item) {
+  await loadTasksAndSync({ smart_id: item.id })
   navigate('library')
 }
 </script>

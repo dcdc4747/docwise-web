@@ -98,6 +98,8 @@ export const MOCK_ROUTES = [
   { n: 'N28', method: 'PATCH', path: '/api/me' },
   { n: 'N29', method: 'GET', path: '/api/me/sessions' },
   { n: 'N29', method: 'DELETE', path: '/api/me/sessions/{id}' },
+  { n: 'N42', method: 'GET', path: '/api/me/overview' },
+  { n: 'N43', method: 'GET', path: '/api/check' },
   { n: 'N40', method: 'GET', path: '/api/me/preferences' },
   { n: 'N41', method: 'PUT', path: '/api/me/preferences' },
 ]
@@ -1216,6 +1218,37 @@ const HANDLERS = {
   },
 
   // ---- N40 / N41 偏好：服务端权威（与后端同口径：整包覆盖、只收标量、≤32 项 / ≤8KB）
+  // ---- N42 概览：真数（mock 的库里有几条就报几条）
+  'GET /api/me/overview': () => ok({
+    tasks: state.tasks.length,
+    archived_tasks: 0,
+    blocks: state.tasks.length * 3,
+    materials: state.materials.length,
+    drafts: state.drafts.length,
+    citations: state.drafts.reduce((n, d) => n + (d.citations?.length || 0), 0),
+    check_runs: state.check_runs.length,
+  }),
+
+  // ---- N43 检查历史：只带摘要（明细走 N23）
+  'GET /api/check': ({ query }) => {
+    const draftId = Number(query.get('draft_id'))
+    const rows = state.check_runs
+      .filter((row) => !draftId || row.draft_id === draftId)
+      .slice()
+      .reverse()
+      .slice(0, 50)
+      .map((row) => ({
+        id: row.id,
+        draft_id: row.draft_id,
+        lang: row.report?.step?.lang ?? 'zh',
+        citation_style: row.report?.step?.citation_style ?? 'numeric',
+        ruleset_version: row.report?.ruleset_version ?? 2,
+        created_at: row.created_at,
+        summary: row.report?.summary ?? { reported: 0, unknown: 0 },
+      }))
+    return ok({ items: rows })
+  },
+
   'GET /api/me/preferences': () => ok({ prefs: { ...state.prefs } }),
 
   'PUT /api/me/preferences': ({ body }) => {

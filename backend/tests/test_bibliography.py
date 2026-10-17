@@ -343,3 +343,26 @@ def test_other_users_draft_is_404(monkeypatch) -> None:
 
     assert resp.status_code == 404, resp.text
     assert resp.json()["detail"] == "草稿不存在"
+
+
+def test_csl_titles_lose_the_storage_hash_prefix() -> None:
+    """⭐ 引用条目里不许出现上传落盘的哈希前缀（`{32位hex}_原名`）。
+
+    素材是"创建时快照"，老引文的 `csl_json` 里已经存了带哈希的名字；
+    出参统一洗一遍，用户看到的条目才是干净文件名（不用迁移、不用重插引文）。
+    """
+    from app.routers.bibliography import _clean_csl
+
+    dirty = {
+        "id": "material-1",
+        "title": "1236dde973c54bb1abc08afd55495989_math_arXiv_2609.38101v1.pdf",
+        "container-title": "abcdefabcdefabcdefabcdefabcdef12_期刊名.pdf",
+        "page": 3,
+    }
+    clean = _clean_csl(dirty)
+    assert clean["title"] == "math_arXiv_2609.38101v1.pdf"
+    assert clean["container-title"] == "期刊名.pdf"
+    # 非字符串字段原样保留
+    assert clean["page"] == 3
+    # 前端自己起的名字（没有 32 位哈希）一个字都不动
+    assert _clean_csl({"title": "2026_年度报告.pdf"})["title"] == "2026_年度报告.pdf"
