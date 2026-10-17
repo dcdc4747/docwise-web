@@ -14,7 +14,7 @@
     "真实性来源：本清单的 anchors 是由 backend/scripts/check_contract.py --print 打出来的真实路由表逐条核对的，",
     "  不是从文档抄的 —— 手抄文档正是第一版把 25 个端点写成 23 个的原因。"
   ],
-  "declared_endpoint_count": 68,
+  "declared_endpoint_count": 70,
   "anchors": [
     {
       "method": "GET",
@@ -355,6 +355,16 @@
       "method": "GET",
       "path": "/api/memories/resolve",
       "note": "M7 记忆：请求前注入用——只回启用的 → {terms, cite, counts}，取过的条目 hits+1"
+    },
+    {
+      "method": "GET",
+      "path": "/api/me/preferences",
+      "note": "F 偏好：取本人偏好（**没存过回空包**，不是 404）→ {prefs}；前端靠它判断「该不该把本机 localStorage 那份推上来」"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/me/preferences",
+      "note": "F 偏好：**整包覆盖**（PUT 语义，没给的键就是不要了）→ {prefs, updated_at}；一个用户一行（user_id unique）；标量值 / ≤32 项 / ≤8KB，超了 400 说明原因"
     }
   ],
   "expected_new": []

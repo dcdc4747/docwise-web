@@ -1,4 +1,4 @@
-"""个人中心的数据面（契约 §2.8 / N24–N29，共 7 个端点）。
+"""个人中心的数据面（契约 §2.8 / N24–N29，共 9 个端点）。
 
 口径（照契约与设计规范，别自己发明）：
 
@@ -20,7 +20,7 @@ import io
 import json
 import zipfile
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel
@@ -50,6 +50,7 @@ from ..models import (
     TaskTag,
     TaskUnderstanding,
     User,
+    UserPrefs,
 )
 from ..timeutil import iso_utc, utc_now
 from .auth import _serialize_user
@@ -585,6 +586,9 @@ def delete_me(
     db.execute(delete(Draft).where(Draft.user_id == user_id))
     db.execute(delete(Material).where(Material.user_id == user_id))
     db.execute(delete(MemoryEvent).where(MemoryEvent.user_id == user_id))
+    # ⚠️ 偏好也要一起清：`user_prefs.user_id` 是 unique 的，
+    # 留着就是一条永远对不上人的孤儿行
+    db.execute(delete(UserPrefs).where(UserPrefs.user_id == user_id))
     db.execute(delete(Task).where(Task.user_id == user_id))
     db.execute(delete(Collection).where(Collection.user_id == user_id))
     db.execute(delete(Tag).where(Tag.user_id == user_id))
@@ -597,3 +601,95 @@ def delete_me(
     for task_id, original, translated, dual in file_paths:
         storage.remove_task_files(task_id, original, translated, dual)
     return {"deleted": True, "id": user_id}
+
+# ============================================================ 偏好（N40 / N41）
+
+
+_PREF_MAX_CHARS = 8192
+_PREF_MAX_KEYS = 32
+_PREF_KEY_MAX = 64
+
+
+class PrefsIn(BaseModel):
+    """偏好整包（键值都是 JSON 标量）。"""
+
+    prefs: dict[str, Any]
+
+
+def _clean_prefs(raw: dict[str, Any]) -> dict[str, Any]:
+    """校验并瘦身一份偏好包；不合格一律 **400 并说明为什么**（不静默丢字段）。
+
+    判据（都很保守，因为这是"整包覆盖"，写坏了会连带别的偏好一起没）：
+    - 键必须是 1–64 字的字符串、最多 32 个；
+    - 值只能是 JSON 标量（bool / int / float / str / null）——**嵌套结构直接拒**，
+      否则"整包存 JSON"迟早变成一个能塞任意东西的口袋；
+    - 整个包序列化后不超过 8 KB。
+    """
+    if len(raw) > _PREF_MAX_KEYS:
+        raise HTTPException(
+            status_code=400, detail=f"偏好项太多（{len(raw)} > {_PREF_MAX_KEYS}）"
+        )
+    cleaned: dict[str, Any] = {}
+    for key, value in raw.items():
+        if not isinstance(key, str) or not key or len(key) > _PREF_KEY_MAX:
+            raise HTTPException(status_code=400, detail="偏好名必须是 1–64 字的字符串")
+        if value is not None and not isinstance(value, (bool, int, float, str)):
+            raise HTTPException(
+                status_code=400, detail=f"偏好 {key} 只能是标量（布尔/数字/文本）"
+            )
+        cleaned[key] = value
+    size = len(json.dumps(cleaned, ensure_ascii=False))
+    if size > _PREF_MAX_CHARS:
+        raise HTTPException(
+            status_code=400, detail=f"偏好包太大（{size} > {_PREF_MAX_CHARS} 字节）"
+        )
+    return cleaned
+
+
+def _prefs_payload(row: UserPrefs | None) -> dict[str, Any]:
+    """库里的 JSON 文本 → dict。**坏数据回空包**（不让一条脏记录把整页顶掉）。"""
+    if row is None or not row.payload:
+        return {}
+    try:
+        data = json.loads(row.payload)
+    except (TypeError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+@router.get("/preferences")
+def get_preferences(
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_user)],
+):
+    """N40 取偏好。**没存过就回空包**（不是 404）——
+
+    前端靠它判断"该不该把本机那份推上来"。
+    """
+    row = db.scalar(select(UserPrefs).where(UserPrefs.user_id == user.id))
+    return {"prefs": _prefs_payload(row)}
+
+
+@router.put("/preferences")
+def put_preferences(
+    payload: PrefsIn,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_user)],
+):
+    """N41 整包覆盖偏好（PUT 语义：没给的键就是不要了）。返回写进去的那份。
+
+    ⚠️ **一个用户只有一行**（`user_id` unique）：有就改、没有就建，
+    免得留下两行"谁的偏好算数"说不清。
+    """
+    cleaned = _clean_prefs(payload.prefs)
+    row = db.scalar(select(UserPrefs).where(UserPrefs.user_id == user.id))
+    text = json.dumps(cleaned, ensure_ascii=False, sort_keys=True)
+    if row is None:
+        row = UserPrefs(user_id=user.id, payload=text)
+        db.add(row)
+    else:
+        row.payload = text
+        row.updated_at = utc_now()
+    db.commit()
+    db.refresh(row)
+    return {"prefs": _prefs_payload(row), "updated_at": iso_utc(row.updated_at)}

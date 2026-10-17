@@ -39,6 +39,7 @@ import LoginView from './components/LoginView.vue'
 import TaskPanels from './components/TaskPanels.vue'
 import { buildHash, currentRoute, navigate, onRouteChange } from './router'
 import { initAsk, lastQuestion } from './stores/useAsk'
+import { loadPrefs } from './stores/usePrefs'
 import {
   fileInput,
   initLibrary,
@@ -474,6 +475,10 @@ onMounted(async () => {
   startRouteWatch()
   await checkBackend()
   await restoreSession()
+  // ⭐ 偏好（N40）：恢复会话后跟服务端对一次 → 反写本机缓存 → 外壳（字号/档位/动效）当场跟上。
+  //    放 `await` 是因为上传卡的默认档位、阅读区字号都吃这份，晚了会先按旧缓存闪一下。
+  await loadPrefs()
+  reloadShellPrefs()
 })
 
 /**

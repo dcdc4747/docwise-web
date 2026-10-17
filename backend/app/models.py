@@ -509,3 +509,33 @@ class MemoryItem(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=utc_now, onupdate=utc_now
     )
+
+
+class UserPrefs(Base):
+    """个人偏好（F 卡）：**一个人一行**，整包存 JSON。
+
+    ⚠️ **为什么是 JSON 一列、而不是四列**：偏好是"键值一堆"，且**会继续长**
+    （默认读法 / 默认档位 / 字号 / 动效 / 引文格式…）。加一个偏好就要改一次表结构、
+    再写一次迁移脚本——那是拿 DDL 换一行配置，不值。
+    代价是数据库层面查不了"谁的 defaultView 是 dual"，但**没有任何查询需要那么做**
+    （唯一用法是"取这个人的偏好"和"整包写回"）。
+
+    ⚠️ **它不是 `memory_items`**：那张是"用户的说法与习惯"、按条存、可增删；
+    这张是**界面偏好**，一个用户一份、整包覆盖。
+
+    ⚠️ **换设备要跟得上**（这张卡存在的理由）：偏好以前只在本机 `localStorage`，
+    换台电脑就没了。现在**服务端是权威**，`localStorage` 降级成**缓存**——
+    阅读页要**同步**读偏好（等不了网络往返），所以缓存必须留。
+    """
+
+    __tablename__ = "user_prefs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"), unique=True, index=True
+    )
+    # JSON 文本，形状如 `{"defaultView":"blocks","tier":"medium",...}`
+    payload: Mapped[str] = mapped_column(Text, default="{}")
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=utc_now, onupdate=utc_now
+    )

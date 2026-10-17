@@ -98,6 +98,8 @@ export const MOCK_ROUTES = [
   { n: 'N28', method: 'PATCH', path: '/api/me' },
   { n: 'N29', method: 'GET', path: '/api/me/sessions' },
   { n: 'N29', method: 'DELETE', path: '/api/me/sessions/{id}' },
+  { n: 'N40', method: 'GET', path: '/api/me/preferences' },
+  { n: 'N41', method: 'PUT', path: '/api/me/preferences' },
 ]
 
 /**
@@ -337,6 +339,8 @@ function seed() {
     block_exposures: [],
     // 记忆（M7 · N35–N39）：用法偏好。⚠️ 默认**空**——界面要如实显示"还没有记忆"，不许编
     memories: [],
+    // 偏好（F · N40/N41）：整包键值。⚠️ 默认**空**——空包是"没存过"，前端靠它决定要不要迁移本机那份
+    prefs: {},
     next_id: { collections: 4, smart_collections: 5, materials: 3, ask_logs: 2, drafts: 2, citations: 2, check_runs: 13, block_edits: 1, block_exposures: 1, memories: 1 },
   }
 }
@@ -1209,6 +1213,24 @@ const HANDLERS = {
     if (!state.sessions.some((item) => item.id === id)) return fail(404, '会话不存在')
     state.sessions = state.sessions.filter((item) => item.id !== id)
     return ok({ deleted: true, id })
+  },
+
+  // ---- N40 / N41 偏好：服务端权威（与后端同口径：整包覆盖、只收标量、≤32 项 / ≤8KB）
+  'GET /api/me/preferences': () => ok({ prefs: { ...state.prefs } }),
+
+  'PUT /api/me/preferences': ({ body }) => {
+    const prefs = body && typeof body.prefs === 'object' && body.prefs ? body.prefs : null
+    if (!prefs) return fail(400, '要给 {prefs: {...}}')
+    const keys = Object.keys(prefs)
+    if (keys.length > 32) return fail(400, '偏好项太多')
+    for (const key of keys) {
+      const value = prefs[key]
+      if (value !== null && !['boolean', 'number', 'string'].includes(typeof value)) {
+        return fail(400, `偏好 ${key} 只能是标量（布尔/数字/文本）`)
+      }
+    }
+    state.prefs = { ...prefs }
+    return ok({ prefs: { ...state.prefs }, updated_at: '2026-10-17T00:00:00Z' })
   },
 
   // ---- 基线端点上的两处"追加"（N8 / N30，清单见 MOCK_DELTAS）----
