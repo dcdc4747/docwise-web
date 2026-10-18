@@ -473,6 +473,34 @@
 
         <!-- ============ 问答 ============ -->
         <div class="tabpane" :class="{ on: assistTab === 'ask' }">
+          <!-- ⭐ 两种问答：助手会自己查库（默认）；老的"只读这一篇"保留成另一个模式 -->
+          <div class="ask-mode">
+            <button
+              :class="{ on: askMode === 'agent' }"
+              @click="switchAskMode('agent')"
+            >
+              🛠 助手（会查库）
+            </button>
+            <button
+              :class="{ on: askMode === 'direct' }"
+              @click="switchAskMode('direct')"
+            >
+              只读这一篇
+            </button>
+            <button
+              v-if="askMode === 'agent' && agentMessages.length"
+              class="ask-mode-reset"
+              @click="resetAgentThread()"
+            >
+              清空
+            </button>
+          </div>
+
+          <template v-if="askMode === 'agent'">
+            <AgentChat :scope="agentScope" />
+          </template>
+
+          <template v-else>
           <div class="chips">
             <button
               v-for="chip in quickChips"
@@ -541,6 +569,7 @@
           <div v-if="!askTurns.length" class="chips-hint">
             问点什么吧——答案会标出处，点出处能跳回原文那一段并高亮一次。
           </div>
+          </template>
         </div>
 
         <!-- ============ 导读 ============ -->
@@ -622,16 +651,35 @@
 
       <!-- 问答输入框吸底 -->
       <div class="composer">
-        <textarea
-          v-model="askQuestion"
-          rows="1"
-          :placeholder="composerPlaceholder"
-          :disabled="askLoading"
-          @keydown.enter.exact.prevent="submitAsk"
-        />
-        <button class="btn primary" :disabled="askLoading || !askQuestion.trim()" @click="submitAsk">
-          ↑
-        </button>
+        <template v-if="askMode === 'agent'">
+          <textarea
+            v-model="agentInput"
+            rows="1"
+            placeholder="问它：库里有什么、这段讲了什么、和哪篇像…"
+            :disabled="agentBusy"
+            @keydown.enter.exact.prevent="submitFromComposer"
+          />
+          <button
+            class="btn primary"
+            :disabled="agentBusy || !agentInput.trim()"
+            @click="submitFromComposer"
+          >
+            ↑
+          </button>
+        </template>
+
+        <template v-else>
+          <textarea
+            v-model="askQuestion"
+            rows="1"
+            :placeholder="composerPlaceholder"
+            :disabled="askLoading"
+            @keydown.enter.exact.prevent="submitAsk"
+          />
+          <button class="btn primary" :disabled="askLoading || !askQuestion.trim()" @click="submitAsk">
+            ↑
+          </button>
+        </template>
       </div>
     </div>
   </div>
@@ -649,6 +697,7 @@
  * `lastQuestion`，而"摘要留在外壳"是上一轮定下的（放进 `useUi` 会绕成环），
  * 所以由 `App.vue` 算好、当 prop 传进来。
  */
+import AgentChat from '../components/AgentChat.vue'
 import AiBadge from '../components/AiBadge.vue'
 import Icon from '../components/Icon.vue'
 import MaterialSaveButton from '../components/MaterialSaveButton.vue'
@@ -668,8 +717,39 @@ import {
   submitAsk,
 } from '../stores/useAsk'
 import { canRetryCurrent, openDeletePanel, openPanel, retryCurrent } from '../stores/useLibrary'
+// Agent 对话（会自己调工具查库）：状态在 stores/useAgent，页面只传 scope
+import {
+  agentBusy,
+  agentConfigOpen,
+  agentError,
+  agentMessages,
+  loadConfig as loadAgentConfig,
+  resetAgentThread,
+  sendAgent,
+} from '../stores/useAgent'
 // 埋点 1（译文改动）：入口只在"有译文"的块上给，存下之后打「已人工修改」标记
-import { nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+
+// 问答页签的两种模式：`agent` = 会调工具的助手（默认），`direct` = 只读这一篇的老问答
+const askMode = ref('direct')
+const agentScope = computed(() => ({ task_id: currentTask.value && currentTask.value.id }))
+const agentInput = ref('')
+
+function submitFromComposer() {
+  if (askMode.value === 'agent') {
+    const text = agentInput.value.trim()
+    if (!text || agentBusy.value) return
+    sendAgent(text, agentScope.value)
+    agentInput.value = ''
+    return
+  }
+  submitAsk()
+}
+
+function switchAskMode(mode) {
+  askMode.value = mode
+  if (mode === 'agent') loadAgentConfig()
+}
 
 // 埋点 2（块曝光 N34）：形态 §5 假设 1 的**分母**（修改率 = 被改块数 / 被曝光块数）
 import { createExposureReporter } from '../exposure'
