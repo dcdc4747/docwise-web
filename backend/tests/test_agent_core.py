@@ -37,7 +37,15 @@ def test_scenes_endpoint_lists_ready_scenes() -> None:
     assert items["read_ask"]["status"] == "ready"
     assert items["write_compose"]["status"] == "ready"
     # 写作场景要同时带两类工具：写作（草稿/素材）+ 查库（找依据）
-    assert set(items["write_compose"]["packs"]) == {"writing", "library"}
+    # 写作场景带四类工具：写作（草稿/素材）+ 查库（找依据）+ 术语 + 引文
+    assert set(items["write_compose"]["packs"]) == {
+        "writing",
+        "library",
+        "terms",
+        "cite",
+    }
+    # 读懂侧也要能查术语表、能定位文献（"那篇讲手性的" → task_id）
+    assert set(items["read_ask"]["packs"]) == {"library", "terms", "tasks"}
 
 
 # ============================================================ ② 密钥只写不读
@@ -444,5 +452,110 @@ def test_verify_revisions_drops_unmatched() -> None:
     assert any("剔掉 1 条" in n for n in notes)
 
     with SessionLocal() as session:
+        session.delete(session.get(Draft, draft_id))
+        session.commit()
+
+
+# ============================================================ ⑧ 新工具箱
+def test_terms_pack_reads_and_filters() -> None:
+    """术语表：能读、能按关键词过滤、坏的 JSON 不炸。"""
+    import json as _json
+
+    from app.agent.contracts import ToolContext
+    from app.agent.packs import terms as terms_pack
+    from app.db import SessionLocal
+    from app.models import Task, TaskUnderstanding
+
+    with SessionLocal() as session:
+        task = Task(user_id=TEST_USER_ID, filename="术语用例.pdf", status="completed")
+        session.add(task)
+        session.commit()
+        session.refresh(task)
+        session.add(
+            TaskUnderstanding(
+                task_id=task.id,
+                guide_json=None,
+                terms_json=_json.dumps(
+                    {"terms": [{"source": "chirality", "target": "手性"}]},
+                    ensure_ascii=False,
+                ),
+                status="ready",
+            )
+        )
+        session.commit()
+        task_id = task.id
+
+    ctx = ToolContext(db=None, user_id=TEST_USER_ID, scene_id="read_ask", scope={})
+    all_terms = terms_pack.search_terms(ctx, {})
+    assert any(item["translation"] == "手性" for item in all_terms.data)
+
+    filtered = terms_pack.search_terms(ctx, {"query": "chirality"})
+    assert len(filtered.data) == 1
+    assert filtered.data[0]["task_id"] == task_id
+
+    with SessionLocal() as session:
+        session.query(TaskUnderstanding).filter_by(task_id=task_id).delete()
+        session.delete(session.get(Task, task_id))
+        session.commit()
+
+
+def test_tasks_pack_locates_my_documents_only() -> None:
+    """列文献只能列自己的；别人的看不见。"""
+    from app.agent.contracts import ToolContext
+    from app.agent.packs import tasks as tasks_pack
+    from app.db import SessionLocal
+    from app.models import Task
+
+    with SessionLocal() as session:
+        mine = Task(
+            user_id=TEST_USER_ID, filename="我的手性论文.pdf", status="completed"
+        )
+        other = Task(
+            user_id=TEST_USER_ID + 999, filename="别人的.pdf", status="completed"
+        )
+        session.add_all([mine, other])
+        session.commit()
+        session.refresh(mine)
+        session.refresh(other)
+        mine_id, other_id = mine.id, other.id
+
+    ctx = ToolContext(db=None, user_id=TEST_USER_ID, scene_id="read_ask", scope={})
+    listed = tasks_pack.list_tasks(ctx, {"query": "手性"})
+    ids = [item["task_id"] for item in listed.data]
+    assert mine_id in ids
+    assert other_id not in ids
+
+    with SessionLocal() as session:
+        for task_id in (mine_id, other_id):
+            session.delete(session.get(Task, task_id))
+        session.commit()
+
+
+def test_cite_pack_lists_citations_without_writing_anything() -> None:
+    """引文工具只读：空草稿返回空列表，且不会往库里插东西。"""
+    from app.agent.contracts import ToolContext
+    from app.agent.packs import cite as cite_pack
+    from app.db import SessionLocal
+    from app.models import Citation, Draft
+
+    with SessionLocal() as session:
+        draft = Draft(user_id=TEST_USER_ID, title="引文用例", body_md="正文")
+        session.add(draft)
+        session.commit()
+        session.refresh(draft)
+        draft_id = draft.id
+
+    ctx = ToolContext(
+        db=None,
+        user_id=TEST_USER_ID,
+        scene_id="write_compose",
+        scope={"draft_id": draft_id},
+    )
+    got = cite_pack.list_citations(ctx, {})
+    assert got.data == []
+
+    with SessionLocal() as session:
+        count = session.query(Citation).filter_by(draft_id=draft_id).count()
+        assert count == 0, "读工具不许写库"
         session.delete(session.get(Draft, draft_id))
         session.commit()
