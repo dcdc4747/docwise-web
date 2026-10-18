@@ -24,9 +24,10 @@ SYSTEM = (
     "④ 拿不准就说不确定，不要编造文献结论；"
     "⑤ 若 read_draft 返回 empty=true，就直说「这篇草稿还没有正文」，"
     "并请用户先写一段或贴一段，不要说自己看不到稿件；"
-    "⑥ 要给改写建议就放进 revisions：original 必须逐字复制稿子里的一句话"
-    "（改了标点也算对不上，会被服务端剔掉），"
-    "revised 是替换后的写法，reason 一句话说明。"
+    "⑥ 要给改写建议就放进 revisions：original 必须逐字复制稿子里的原文，"
+    "可以是**一句**，也可以是**一整段（多句连在一起）**；"
+    "改了标点、或跨了两个不相邻的段落，都会对不上而被服务端剔掉；"
+    "revised 是替换后的写法（与 original 同样可以是整段），reason 一句话说明。"
 )
 
 
@@ -63,12 +64,16 @@ def verify_revisions(ctx, output):
     if not body.strip():
         return output, ["草稿正文为空，改写建议未核对原文"]
 
+    # 换行归一：草稿常是 \r\n，模型给的是 \n；不归一就会"假失败"
+    normalized_body = body.replace("\r\n", "\n").replace("\r", "\n")
+
     kept = []
     dropped = 0
     for item in revisions:
         original = (getattr(item, "original", "") or "").strip()
+        normalized_original = original.replace("\r\n", "\n").replace("\r", "\n")
         # 空 original 不能用于定位，直接丢
-        if original and original in body:
+        if normalized_original and normalized_original in normalized_body:
             kept.append(item)
         else:
             dropped += 1
@@ -83,7 +88,16 @@ SCENE = Scene(
     title="写作 · 与助手一起改稿",
     system_prompt=SYSTEM,
     output_type=WriteAnswer,
-    packs=("writing", "library", "terms", "cite", "check", "biblio", "materials"),
+    packs=(
+        "writing",
+        "library",
+        "terms",
+        "cite",
+        "check",
+        "biblio",
+        "materials",
+        "memory_write",
+    ),
     default_tier="standard",
     build_context=build_context,
     verify=verify_revisions,

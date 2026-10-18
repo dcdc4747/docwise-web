@@ -47,6 +47,7 @@ def test_scenes_endpoint_lists_ready_scenes() -> None:
         "check",
         "biblio",
         "materials",
+        "memory_write",
     }
     # 读懂：定位文献 + 读段 + 术语 + 进度/重译 + 偏好 + 章节定位 + 文献对比
     assert set(items["read_ask"]["packs"]) == {
@@ -57,13 +58,16 @@ def test_scenes_endpoint_lists_ready_scenes() -> None:
         "memory",
         "outline",
         "compare",
+        "figures",
     }
     # ⭐ 工具清单要能被前端/用户核对；同时钉住"别无限堆工具"的上限
     assert "search_library" in items["read_ask"]["tools"]
     assert "read_draft" in items["write_compose"]["tools"]
     assert "run_check" in items["write_compose"]["tools"]
-    assert 10 <= len(items["read_ask"]["tools"]) <= 15
-    assert 10 <= len(items["write_compose"]["tools"]) <= 15
+    assert "list_figures" in items["read_ask"]["tools"]
+    assert "save_term_preference" in items["write_compose"]["tools"]
+    assert 12 <= len(items["read_ask"]["tools"]) <= 15
+    assert 12 <= len(items["write_compose"]["tools"]) <= 15
     # ⭐ 工具清单要能被前端/用户核对（文档与接口必须一一对应）
     assert "search_library" in items["read_ask"]["tools"]
     assert "read_draft" in items["write_compose"]["tools"]
@@ -641,3 +645,94 @@ def test_packs_and_scenes_never_import_the_engine() -> None:
             if pattern.search(path.read_text(encoding="utf-8")):
                 offenders.append(str(path))
     assert not offenders, f"这些文件直接 import 了引擎：{offenders}"
+
+
+def test_verify_revisions_accepts_whole_paragraph() -> None:
+    """整段（多句）替换也要能通过校验。"""
+    from app.agent.contracts import ToolContext
+    from app.agent.outputs import Revision, WriteAnswer
+    from app.agent.scenes.write_compose import verify_revisions
+    from app.db import SessionLocal
+    from app.models import Draft
+
+    paragraph = (
+        "相关研究表明，消费者面对 AI 生成内容时往往呈现算法欣赏与算法厌恶并存的态度。"
+        "一方面认可效率优势，另一方面又因缺乏人类经验而产生抵触。"
+    )
+    with SessionLocal() as session:
+        draft = Draft(
+            user_id=TEST_USER_ID,
+            title="整段改写",
+            body_md=f"前言。\n{paragraph}\n后记。",
+        )
+        session.add(draft)
+        session.commit()
+        session.refresh(draft)
+        draft_id = draft.id
+
+    ctx = ToolContext(
+        db=None,
+        user_id=TEST_USER_ID,
+        scene_id="write_compose",
+        scope={"draft_id": draft_id},
+    )
+    output = WriteAnswer(
+        answer="整段重写一版",
+        revisions=[
+            Revision(
+                original=paragraph,
+                revised="杨娟等基于漂移扩散模型发现…（整段重写）",
+                reason="去掉悬空引证",
+            )
+        ],
+    )
+    kept, notes = verify_revisions(ctx, output)
+    assert len(kept.revisions) == 1, notes
+
+    with SessionLocal() as session:
+        session.delete(session.get(Draft, draft_id))
+        session.commit()
+
+
+def test_verify_revisions_ignores_line_ending_difference() -> None:
+    """草稿是 \r\n、模型给 \n —— 不能因为换行符不同就判"对不上"。"""
+    from app.agent.contracts import ToolContext
+    from app.agent.outputs import Revision, WriteAnswer
+    from app.agent.scenes.write_compose import verify_revisions
+    from app.db import SessionLocal
+    from app.models import Draft
+
+    with SessionLocal() as session:
+        draft = Draft(
+            user_id=TEST_USER_ID,
+            title="换行差异",
+            body_md="第一句。\r\n第二句。\r\n第三句。",
+        )
+        session.add(draft)
+        session.commit()
+        session.refresh(draft)
+        draft_id = draft.id
+
+    ctx = ToolContext(
+        db=None,
+        user_id=TEST_USER_ID,
+        scene_id="write_compose",
+        scope={"draft_id": draft_id},
+    )
+    # 模型给的是 \n（这是最常见的情况）
+    output = WriteAnswer(
+        answer="",
+        revisions=[
+            Revision(
+                original="第一句。\n第二句。",
+                revised="第一句。第二句（合并成一句）。",
+                reason="合并",
+            )
+        ],
+    )
+    kept, notes = verify_revisions(ctx, output)
+    assert len(kept.revisions) == 1, f"换行差异被误判：{notes}"
+
+    with SessionLocal() as session:
+        session.delete(session.get(Draft, draft_id))
+        session.commit()

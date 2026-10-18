@@ -1,9 +1,11 @@
-"""记忆工具包（`memory` pack）的只读用例。
+"""记忆工具包（`memory` pack）的用例：读偏好/查记忆 + 确认后写偏好。
 
-三条底线：
+底线：
 1. 有偏好时能读出来（没设置时是空 dict + 如实 note）；
 2. 记忆按关键词过滤生效（中文命中译名、英文命中原文）；
-3. 别人的记忆读不到（按 `ctx.user_id` 过滤）。
+3. 别人的记忆读不到（按 `ctx.user_id` 过滤）；
+4. 写工具不带布尔 `confirm: true` 时**一行都不许写**；
+5. 按 `(user_id, kind, source)` 幂等：同一条再存只改 `target`，**不动 `hits`**。
 
 ⚠️ 不用 `db_session` fixture：自己开 `SessionLocal()` 造数据，并在用例末尾清理。
 """
@@ -58,7 +60,34 @@ def _add_memory(user_id: int, kind: str, source: str, target: str) -> None:
         session.commit()
 
 
-def test_pack_registers_both_tools() -> None:
+def _count_memories(user_id: int = TEST_USER_ID) -> int:
+    with SessionLocal() as session:
+        rows = session.scalars(
+            select(MemoryItem).where(MemoryItem.user_id == user_id)
+        ).all()
+    return len(rows)
+
+
+def _only_memory(user_id: int = TEST_USER_ID) -> dict:
+    """取唯一一条记忆的快照（多于/少于一条都算用例失败）。"""
+    with SessionLocal() as session:
+        rows = session.scalars(
+            select(MemoryItem).where(MemoryItem.user_id == user_id)
+        ).all()
+        assert len(rows) == 1, f"预期 1 条记忆，实际 {len(rows)} 条"
+        row = rows[0]
+        return {
+            "id": row.id,
+            "user_id": row.user_id,
+            "kind": row.kind,
+            "source": row.source,
+            "target": row.target,
+            "hits": row.hits,
+            "enabled": bool(row.enabled),
+        }
+
+
+def test_pack_registers_all_tools() -> None:
     from app.agent import registry
 
     registry.reset_cache()
@@ -66,6 +95,14 @@ def test_pack_registers_both_tools() -> None:
     assert {tool.name for tool in memory_pack.PACK.tools} == {
         "get_preferences",
         "search_memories",
+    }
+
+    # 写工具单独成包（读懂场景不占名额），实现仍在 memory.py
+    from app.agent.packs import memory_write
+
+    assert {tool.name for tool in memory_write.PACK.tools} == {
+        "save_memory",
+        "save_term_preference",
     }
     assert "memory" in registry.packs()
 
@@ -182,3 +219,157 @@ def test_search_memories_tolerates_missing_args() -> None:
         assert len(memory_pack.search_memories(_ctx(), {"limit": 0}).data) == 1
     finally:
         _clean_memories()
+
+
+# ============================================================ ⑨ 写工具：确认
+
+
+def test_save_memory_without_confirm_writes_nothing() -> None:
+    """① 不带 confirm（含字符串 "true"）：只回 needs_confirmation，没新行。"""
+    _clean_memories()
+    before = _count_memories()
+
+    for args in (
+        {"kind": "term", "source": "chiral", "target": "手性"},
+        {"kind": "term", "source": "chiral", "target": "手性", "confirm": False},
+        {
+            "kind": "term",
+            "source": "chiral",
+            "target": "手性",
+            "confirm": "true",
+        },
+    ):
+        got = memory_pack.save_memory(_ctx(), args)
+        assert got.data["status"] == "needs_confirmation"
+        assert got.data["id"] is None
+        assert "确认" in got.note
+
+    assert _count_memories() == before, "没确认就不许写库"
+
+
+def test_save_memory_with_confirm_creates_row() -> None:
+    """② confirm=True：字段正确，新条目的 hits 是 0。"""
+    _clean_memories()
+    got = memory_pack.save_memory(
+        _ctx(),
+        {
+            "kind": "Term",
+            "source": "  chiral  ",
+            "target": "手性",
+            "confirm": True,
+        },
+    )
+    assert got.data["status"] == "saved"
+    assert got.data["id"] is not None
+    assert got.data["kind"] == "term"
+    assert got.data["source"] == "chiral"
+    assert got.data["target"] == "手性"
+    assert got.data["enabled"] is True
+    assert got.data["created"] is True
+
+    row = _only_memory()
+    assert row["user_id"] == TEST_USER_ID
+    assert row["kind"] == "term"
+    assert row["source"] == "chiral"
+    assert row["target"] == "手性"
+    assert row["enabled"] is True
+    assert row["hits"] == 0, "写偏好不碰 hits，新条目应是 0"
+    _clean_memories()
+
+
+def test_save_memory_same_key_updates_without_new_row() -> None:
+    """③ 同 (kind, source) 再存：不新增行、只改 target、hits 不被碰。"""
+    _clean_memories()
+    first = memory_pack.save_memory(
+        _ctx(),
+        {"kind": "term", "source": "chiral", "target": "手性", "confirm": True},
+    )
+    again = memory_pack.save_memory(
+        _ctx(),
+        {"kind": "term", "source": "chiral", "target": "手征", "confirm": True},
+    )
+    assert again.data["status"] == "saved"
+    assert again.data["created"] is False
+    assert again.data["id"] == first.data["id"]
+    assert _count_memories() == 1, "同一 (user_id, kind, source) 不许新增行"
+
+    row = _only_memory()
+    assert row["target"] == "手征"
+    assert row["hits"] == 0
+
+    # 就算 hits 已经被真正用过（>0），覆盖译法也不许把它清零或加一
+    with SessionLocal() as session:
+        item = session.get(MemoryItem, first.data["id"])
+        item.hits = 7
+        session.commit()
+    memory_pack.save_memory(
+        _ctx(),
+        {"kind": "term", "source": "chiral", "target": "手性", "confirm": True},
+    )
+    assert _only_memory()["hits"] == 7
+    _clean_memories()
+
+
+def test_save_term_preference_uses_same_upsert() -> None:
+    """④ save_term_preference 走同一条路径：kind=term，且幂等。"""
+    _clean_memories()
+    pending = memory_pack.save_term_preference(
+        _ctx(), {"term": "chiral", "cn": "手性"}
+    )
+    assert pending.data["status"] == "needs_confirmation"
+    assert _count_memories() == 0
+
+    saved = memory_pack.save_term_preference(
+        _ctx(), {"term": "chiral", "cn": "手性", "confirm": True}
+    )
+    assert saved.data["status"] == "saved"
+    assert saved.data["kind"] == "term"
+    assert saved.data["source"] == "chiral"
+    assert saved.data["target"] == "手性"
+
+    # 再走 save_memory 的同一个 (kind, source)：仍是同一行，只改 target
+    merged = memory_pack.save_memory(
+        _ctx(),
+        {"kind": "term", "source": "chiral", "target": "手征", "confirm": True},
+    )
+    assert merged.data["created"] is False
+    assert merged.data["id"] == saved.data["id"]
+    assert _count_memories() == 1
+    row = _only_memory()
+    assert row["kind"] == "term"
+    assert row["target"] == "手征"
+    assert row["hits"] == 0
+    _clean_memories()
+
+
+def test_save_memory_rejects_invalid_args() -> None:
+    """⑤ 坏参数明确拒绝、一行不写；cite 的 source 固定成 default。"""
+    _clean_memories()
+    for args in (
+        {"kind": "note", "source": "chiral", "target": "手性", "confirm": True},
+        {"kind": "term", "source": "   ", "target": "手性", "confirm": True},
+        {"kind": "term", "source": "chiral", "target": "  ", "confirm": True},
+    ):
+        got = memory_pack.save_memory(_ctx(), args)
+        assert got.data["status"] == "rejected"
+        assert got.data["reason"]
+
+    assert memory_pack.save_memory(_ctx(), None).data["status"] == "rejected"
+    assert _count_memories() == 0
+
+    cite = memory_pack.save_memory(
+        _ctx(),
+        {
+            "kind": "cite",
+            "source": "whatever",
+            "target": "author-year",
+            "confirm": True,
+        },
+    )
+    assert cite.data["status"] == "saved"
+    assert cite.data["source"] == "default"
+    row = _only_memory()
+    assert row["kind"] == "cite"
+    assert row["source"] == "default"
+    assert row["hits"] == 0
+    _clean_memories()
