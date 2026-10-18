@@ -568,22 +568,6 @@
       </div>
 
       <!-- 问答输入框吸底 -->
-      <div class="composer">
-        <textarea
-          v-model="agentInput"
-          rows="1"
-          placeholder="问它：库里有什么、这段讲了什么、和哪篇像…"
-          :disabled="agentBusy"
-          @keydown.enter.exact.prevent="submitFromComposer"
-        />
-        <button
-          class="btn primary"
-          :disabled="agentBusy || !agentInput.trim()"
-          @click="submitFromComposer"
-        >
-          ↑
-        </button>
-      </div>
     </div>
   </div>
 </template>
@@ -626,8 +610,6 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 
 // 问答页签的两种模式：`agent` = 会调工具的助手（默认），`direct` = 只读这一篇的老问答
 const agentScope = computed(() => ({ task_id: currentTask.value && currentTask.value.id }))
-const agentInput = ref('')
-
 // ============================================================ 正文 / 助手 可拖拽
 // 宽度存 localStorage：用户调过一次，下次进阅读页还是那个比例（换文献也该保持）。
 const ASSIST_W_KEY = 'docwise_assist_w'
@@ -681,13 +663,6 @@ function resetSplitter() {
   localStorage.setItem(ASSIST_W_KEY, '340')
 }
 
-
-function submitFromComposer() {
-  const text = agentInput.value.trim()
-  if (!text || agentBusy.value) return
-  sendAgentStream(text, agentScope.value)
-  agentInput.value = ''
-}
 
 // 埋点 2（块曝光 N34）：形态 §5 假设 1 的**分母**（修改率 = 被改块数 / 被曝光块数）
 import { createExposureReporter } from '../exposure'

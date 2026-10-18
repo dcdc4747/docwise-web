@@ -33,18 +33,22 @@ describe('AgentChat（读懂侧）', () => {
     agentMessages.value.length = 0
   })
 
-  it('没配模型时，顶部直接说「未配置模型」（不是等打完字才 500）', async () => {
+  it('没配模型时，**输入框那一行**直接说「未配置模型」（不是等打完字才 500）', async () => {
     const wrapper = mount(AgentChat, { props: { scope: { task_id: 41 } } })
     await flushPromises()
-    expect(wrapper.find('.agent-model').text()).toContain('未配置模型')
-    expect(wrapper.find('.agent-model').classes()).toContain('warn')
+    // ⚠️ 2026-10-18：模型选择从"顶部"搬到"输入框那一行"（与主流 agent 工具一致），
+    // 所以断言的目标从 `.agent-model` 改成输入行里的那个按钮。
+    const modelBtn = wrapper.find('.agent-composer-row .agent-model-btn')
+    expect(modelBtn.exists()).toBe(true)
+    expect(modelBtn.text()).toContain('未配置模型')
+    expect(modelBtn.classes()).toContain('warn')
   })
 
-  it('点齿轮能打开设置：有厂商下拉、强度、密钥输入（密钥不回显）', async () => {
+  it('点输入行里的模型按钮能打开设置：有厂商下拉、强度、密钥输入（密钥不回显）', async () => {
     const wrapper = mount(AgentChat, { props: { scope: {} } })
     await flushPromises()
     expect(wrapper.find('.agent-config').exists()).toBe(false)
-    await wrapper.find('.agent-gear').trigger('click')
+    await wrapper.find('.agent-model-btn').trigger('click')
     expect(wrapper.find('.agent-config').exists()).toBe(true)
     const labels = wrapper.findAll('.agent-config label > span').map((n) => n.text())
     expect(labels).toContain('厂商')

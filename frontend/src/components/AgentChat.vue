@@ -2,75 +2,6 @@
   <!-- Agent 对话：模型会自己调工具（查库 / 读段落），每一步都能看见 -->
   <div class="agent-pane">
     <!-- 顶部：模型 + 强度 + 设置 -->
-    <div class="agent-bar">
-      <!-- pill 本身就是入口：不然用户根本不知道模型能换（上一版只藏在 ⚙️ 里） -->
-      <button
-        class="agent-model"
-        :class="{ warn: !modelReady }"
-        type="button"
-        :title="modelReady ? '点这里换模型 / 厂商 / 强度' : '还没配模型，点这里配'"
-        @click="toggleConfig()"
-      >
-        {{ modelLabel }} <span class="agent-model-hint">换</span>
-      </button>
-      <span class="agent-tier">{{ tierLabel }}</span>
-      <button class="agent-gear" type="button" title="模型设置" @click="toggleConfig()">
-        ⚙️
-      </button>
-    </div>
-
-    <!-- 设置面板 -->
-    <div v-if="configOpen" class="agent-config">
-      <label>
-        <span>厂商</span>
-        <select :value="currentProvider" @change="pickProvider($event.target.value)">
-          <option v-for="p in providers" :key="p.id" :value="p.id">{{ p.name }}</option>
-        </select>
-      </label>
-      <label>
-        <span>接口地址</span>
-        <input v-model="form.baseUrl" type="text" placeholder="https://api.deepseek.com/v1" />
-      </label>
-      <label>
-        <span>模型</span>
-        <select :value="form.model" @change="pickModel($event.target.value)">
-          <option v-for="m in modelOptions" :key="m" :value="m">{{ m }}</option>
-          <option value="__custom">自定义…</option>
-        </select>
-      </label>
-      <label v-if="customModel">
-        <span>手填模型名</span>
-        <input v-model="form.model" type="text" placeholder="例如 deepseek-reasoner" />
-      </label>
-      <label>
-        <span>强度</span>
-        <select v-model="form.tier">
-          <option value="fast">快（便宜，适合多轮查库）</option>
-          <option value="standard">标准</option>
-          <option value="strong">强（贵，复杂推理）</option>
-        </select>
-      </label>
-      <label>
-        <span>API Key</span>
-        <input
-          v-model="form.apiKey"
-          type="password"
-          :placeholder="keyHint || '留空 = 不动已保存的密钥'"
-        />
-      </label>
-      <div class="agent-config-ops">
-        <span class="agent-note">{{ saveNote }}</span>
-        <button class="btn primary sm" type="button" :disabled="saving" @click="save">
-          保存
-        </button>
-      </div>
-      <p class="agent-hint">
-        密钥只写不读：保存后这里不会回显，页面上只显示末四位。
-        <template v-if="!config || !config.server_default">
-          没配就直接用不了——先填一个，或者让管理员在服务端配默认。
-        </template>
-      </p>
-    </div>
 
     <!-- 对话流 -->
     <div class="agent-flow">
@@ -154,6 +85,89 @@
       <div v-if="busy" class="agent-bubble pending">{{ pendingText }}</div>
       <div v-if="error" class="agent-bubble err">{{ error }}</div>
     </div>
+
+    <!-- ⭐ 输入框那一行：模型选择在这里（和 DS Harness 一样，不占消息区顶部） -->
+    <div class="agent-composer">
+      <!-- 设置面板 -->
+      <div v-if="configOpen" class="agent-config">
+        <label>
+          <span>厂商</span>
+          <select :value="currentProvider" @change="pickProvider($event.target.value)">
+            <option v-for="p in providers" :key="p.id" :value="p.id">{{ p.name }}</option>
+          </select>
+        </label>
+        <label>
+          <span>接口地址</span>
+          <input v-model="form.baseUrl" type="text" placeholder="https://api.deepseek.com/v1" />
+        </label>
+        <label>
+          <span>模型</span>
+          <select :value="form.model" @change="pickModel($event.target.value)">
+            <option v-for="m in modelOptions" :key="m" :value="m">{{ m }}</option>
+            <option value="__custom">自定义…</option>
+          </select>
+        </label>
+        <label v-if="customModel">
+          <span>手填模型名</span>
+          <input v-model="form.model" type="text" placeholder="例如 deepseek-reasoner" />
+        </label>
+        <label>
+          <span>强度</span>
+          <select v-model="form.tier">
+            <option value="fast">快（便宜，适合多轮查库）</option>
+            <option value="standard">标准</option>
+            <option value="strong">强（贵，复杂推理）</option>
+          </select>
+        </label>
+        <label>
+          <span>API Key</span>
+          <input
+            v-model="form.apiKey"
+            type="password"
+            :placeholder="keyHint || '留空 = 不动已保存的密钥'"
+          />
+        </label>
+        <div class="agent-config-ops">
+          <span class="agent-note">{{ saveNote }}</span>
+          <button class="btn primary sm" type="button" :disabled="saving" @click="save">
+            保存
+          </button>
+        </div>
+        <p class="agent-hint">
+          密钥只写不读：保存后这里不会回显，页面上只显示末四位。
+          <template v-if="!config || !config.server_default">
+            没配就直接用不了——先填一个，或者让管理员在服务端配默认。
+          </template>
+        </p>
+      </div>
+
+      <div class="agent-composer-row">
+        <textarea
+          v-model="input"
+          rows="1"
+          placeholder="问它：库里有什么、这段在讲什么…"
+          :disabled="busy"
+          @keydown.enter.exact.prevent="submit"
+        />
+        <button
+          class="agent-model-btn"
+          :class="{ warn: !modelReady }"
+          type="button"
+          :title="modelReady ? '点这里换模型 / 厂商 / 强度' : '还没配模型，点这里配'"
+          @click="toggleConfig()"
+        >
+          {{ modelReady ? `${modelLabel} · ${tierLabel}` : '未配置模型' }}
+          <span class="agent-model-hint">▾</span>
+        </button>
+        <button
+          class="btn primary agent-send"
+          :disabled="busy || !input.trim()"
+          @click="submit"
+        >
+          ↑
+        </button>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -204,6 +218,14 @@ const saving = ref(false)
 const traceOpen = reactive({})
 
 const form = reactive({ baseUrl: '', model: '', tier: 'standard', apiKey: '' })
+const input = ref('')
+
+function submit() {
+  const text = input.value.trim()
+  if (!text || busy.value) return
+  sendAgentStream(text, props.scope)
+  input.value = ''
+}
 const customModel = ref(false)
 
 const providers = computed(() => (config.value && config.value.providers) || [])
@@ -331,5 +353,4 @@ onMounted(async () => {
   await Promise.all([loadScenes(), loadConfig()])
 })
 
-defineExpose({ send: (q) => sendAgentStream(q, props.scope) })
 </script>
