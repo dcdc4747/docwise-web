@@ -95,9 +95,13 @@ describe('出现位置：至少三处可见标注', () => {
   const src = readSrc('src/views/ReadView.vue')
 
   it('四处都在：段落精读译文 / 问答答案 / 导读要点 / 术语表', () => {
+    // ⚠️ 2026-10-18：问答与 agent 合并后，`kind="answer"` 挂在 `AgentChat.vue` 里，
+    // 不再在 ReadView —— 这里两个文件一起看（标注本身一个字没少）。
+    const agentSrc = readSrc('src/components/AgentChat.vue')
     expect(src).toContain("import AiBadge from '../components/AiBadge.vue'")
     for (const kind of KINDS) {
-      expect(src).toContain(`kind="${kind}"`)
+      const where = kind === 'answer' ? agentSrc : src
+      expect(where, `kind=${kind} 没找到`).toContain(`kind="${kind}"`)
     }
   })
 
@@ -111,11 +115,13 @@ describe('出现位置：至少三处可见标注', () => {
   })
 
   it('问答那颗贴在回答气泡里、导读那颗贴在导读面板里（标注要挨着内容）', () => {
-    const bubble = src.slice(
-      src.indexOf('<div class="bubble-a">'),
-      src.indexOf('<div class="a-tools">'),
-    )
-    expect(bubble).toContain('kind="answer"')
+    // 问答那颗现在在 AgentChat 里：必须在「答案气泡」**之前**
+    const agentSrc = readSrc('src/components/AgentChat.vue')
+    const badgeAt = agentSrc.indexOf('kind="answer"')
+    const answerAt = agentSrc.indexOf('agent-bubble answer')
+    expect(badgeAt).toBeGreaterThan(-1)
+    expect(answerAt).toBeGreaterThan(-1)
+    expect(badgeAt).toBeLessThan(answerAt)
 
     // ⚠️ 导读那颗走**面板头**（不是每张卡片的 `.k` 里）：`app.smoke` 把 `.k` 的文本
     // 锁成 ['研究问题','方法',…]，塞进去会把老用例顶红，也没必要糊满芯片。

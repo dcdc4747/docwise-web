@@ -471,105 +471,9 @@
       <div :class="assistBodyClass" :ref="setAssistBody">
         <div v-if="honestNote" class="honest">{{ honestNote }}</div>
 
-        <!-- ============ 问答 ============ -->
+        <!-- ============ 问答（与 agent 统一：它自己会查库） ============ -->
         <div class="tabpane" :class="{ on: assistTab === 'ask' }">
-          <!-- ⭐ 两种问答：助手会自己查库（默认）；老的"只读这一篇"保留成另一个模式 -->
-          <div class="ask-mode">
-            <button
-              :class="{ on: askMode === 'agent' }"
-              @click="switchAskMode('agent')"
-            >
-              🛠 助手（会查库）
-            </button>
-            <button
-              :class="{ on: askMode === 'direct' }"
-              @click="switchAskMode('direct')"
-            >
-              只读这一篇
-            </button>
-            <button
-              v-if="askMode === 'agent' && agentMessages.length"
-              class="ask-mode-reset"
-              @click="resetAgentThread()"
-            >
-              清空
-            </button>
-          </div>
-
-          <template v-if="askMode === 'agent'">
-            <AgentChat :scope="agentScope" />
-          </template>
-
-          <template v-else>
-          <div class="chips">
-            <button
-              v-for="chip in quickChips"
-              :key="chip.label"
-              :disabled="askLoading"
-              @click="askPreset(chip.q)"
-            >
-              {{ chip.label }}
-            </button>
-          </div>
-          <div class="chips-hint">{{ askChipsHint }}</div>
-
-          <div v-for="turn in askTurns" :key="turn.id" class="turn">
-            <div class="bubble-q">{{ turn.question }}</div>
-            <div v-if="turn.loading" class="bubble-a muted">正在读原文并作答…</div>
-            <div v-else-if="turn.error" class="fail-card">
-              {{ turn.error }}
-              <div v-if="turn.errorDetail" class="q-kept">{{ turn.errorDetail }}</div>
-              <div class="q-kept">你的问题已保留：「{{ turn.question }}」</div>
-              <button class="btn primary sm" style="margin-top: 8px" @click="retryTurn(turn)">重试</button>
-            </div>
-            <template v-else>
-              <div class="bubble-a">
-                <!-- ⭐ 合规 #147：这条回答是模型生成的。出处由后端校验过，但**结论仍是模型写的**，
-                     所以标注不能省（"有出处"不等于"不是 AI 写的"）。 -->
-                <AiBadge kind="answer" />
-                {{ turn.answer }}
-                <div class="srcs">
-                  <span class="lbl">出处：</span>
-                  <template v-if="turn.sources.length">
-                    <template v-for="src in turn.sources" :key="src.id">
-                      <button
-                        class="src-tag"
-                        :class="{ unknown: !src.found }"
-                        :title="'原文块 ' + src.ids.join(' + ')"
-                        @click="traceTo(src.id, { text: src.text })"
-                      >
-                        {{ src.label || '出处未能定位' }} ▸
-                      </button>
-                      <!-- ⭐ 入口②：问答答案的出处后面「存为素材」。
-                           ⚠️ 只给出处**定位得到**的那些：模型编出来的块编号存下去只会 404。 -->
-                      <MaterialSaveButton
-                        v-if="src.found"
-                        variant="src"
-                        label="存素材"
-                        :task-id="currentTask && currentTask.id"
-                        :block-id="src.id"
-                      />
-                    </template>
-                  </template>
-                  <span v-else class="lbl">（回答未给出处）</span>
-                </div>
-                <!-- 存素材失败要说人话（不是静默什么都不发生） -->
-                <div v-if="saveState.status === 'error'" class="mat-saveerr">
-                  {{ saveState.message }}
-                </div>
-              </div>
-              <div class="a-tools">
-                <span v-if="turn.mode === 'fts'" class="muted">长文 · 检索模式</span>
-                <button @click="copyAnswer(turn)">{{ turn.copied ? '已复制' : '复制答案' }}</button>
-                <button v-if="turn.sources.length" @click="traceTo(turn.sources[0].id, { text: turn.sources[0].text })">展开原文</button>
-              </div>
-            </template>
-          </div>
-
-          <div v-if="!askTurns.length" class="chips-hint">
-            问点什么吧——答案会标出处，点出处能跳回原文那一段并高亮一次。
-          </div>
-          </template>
+          <AgentChat :scope="agentScope" />
         </div>
 
         <!-- ============ 导读 ============ -->
@@ -651,35 +555,20 @@
 
       <!-- 问答输入框吸底 -->
       <div class="composer">
-        <template v-if="askMode === 'agent'">
-          <textarea
-            v-model="agentInput"
-            rows="1"
-            placeholder="问它：库里有什么、这段讲了什么、和哪篇像…"
-            :disabled="agentBusy"
-            @keydown.enter.exact.prevent="submitFromComposer"
-          />
-          <button
-            class="btn primary"
-            :disabled="agentBusy || !agentInput.trim()"
-            @click="submitFromComposer"
-          >
-            ↑
-          </button>
-        </template>
-
-        <template v-else>
-          <textarea
-            v-model="askQuestion"
-            rows="1"
-            :placeholder="composerPlaceholder"
-            :disabled="askLoading"
-            @keydown.enter.exact.prevent="submitAsk"
-          />
-          <button class="btn primary" :disabled="askLoading || !askQuestion.trim()" @click="submitAsk">
-            ↑
-          </button>
-        </template>
+        <textarea
+          v-model="agentInput"
+          rows="1"
+          placeholder="问它：库里有什么、这段讲了什么、和哪篇像…"
+          :disabled="agentBusy"
+          @keydown.enter.exact.prevent="submitFromComposer"
+        />
+        <button
+          class="btn primary"
+          :disabled="agentBusy || !agentInput.trim()"
+          @click="submitFromComposer"
+        >
+          ↑
+        </button>
       </div>
     </div>
   </div>
@@ -703,18 +592,9 @@ import Icon from '../components/Icon.vue'
 import MaterialSaveButton from '../components/MaterialSaveButton.vue'
 import PdfPane from '../components/PdfPane.vue'
 import {
-  askChipsHint,
-  askLoading,
   askParagraph,
   askPreset,
-  askQuestion,
-  askTurns,
-  composerPlaceholder,
-  copyAnswer,
   probePoint,
-  quickChips,
-  retryTurn,
-  submitAsk,
 } from '../stores/useAsk'
 import { canRetryCurrent, openDeletePanel, openPanel, retryCurrent } from '../stores/useLibrary'
 // Agent 对话（会自己调工具查库）：状态在 stores/useAgent，页面只传 scope
@@ -723,7 +603,6 @@ import {
   agentConfigOpen,
   agentError,
   agentMessages,
-  agentConfig,
   loadConfig as loadAgentConfig,
   resetAgentThread,
   sendAgentStream,
@@ -732,32 +611,14 @@ import {
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 
 // 问答页签的两种模式：`agent` = 会调工具的助手（默认），`direct` = 只读这一篇的老问答
-const askMode = ref('direct')
 const agentScope = computed(() => ({ task_id: currentTask.value && currentTask.value.id }))
 const agentInput = ref('')
-// 有可用模型就默认用助手（配了 key 的人不会想再点一下）；没有就留在老问答
-const hasModelConfig = computed(() => {
-  const cfg = agentConfig.value
-  return Boolean(cfg && (cfg.key_set || cfg.server_default))
-})
-watch(hasModelConfig, (ready) => {
-  if (ready) askMode.value = 'agent'
-}, { immediate: true })
 
 function submitFromComposer() {
-  if (askMode.value === 'agent') {
-    const text = agentInput.value.trim()
-    if (!text || agentBusy.value) return
-    sendAgentStream(text, agentScope.value)
-    agentInput.value = ''
-    return
-  }
-  submitAsk()
-}
-
-function switchAskMode(mode) {
-  askMode.value = mode
-  if (mode === 'agent') loadAgentConfig()
+  const text = agentInput.value.trim()
+  if (!text || agentBusy.value) return
+  sendAgentStream(text, agentScope.value)
+  agentInput.value = ''
 }
 
 // 埋点 2（块曝光 N34）：形态 §5 假设 1 的**分母**（修改率 = 被改块数 / 被曝光块数）

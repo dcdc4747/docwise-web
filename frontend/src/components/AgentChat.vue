@@ -3,9 +3,16 @@
   <div class="agent-pane">
     <!-- 顶部：模型 + 强度 + 设置 -->
     <div class="agent-bar">
-      <span class="agent-model" :class="{ warn: !modelReady }">
-        {{ modelLabel }}
-      </span>
+      <!-- pill 本身就是入口：不然用户根本不知道模型能换（上一版只藏在 ⚙️ 里） -->
+      <button
+        class="agent-model"
+        :class="{ warn: !modelReady }"
+        type="button"
+        :title="modelReady ? '点这里换模型 / 厂商 / 强度' : '还没配模型，点这里配'"
+        @click="toggleConfig()"
+      >
+        {{ modelLabel }} <span class="agent-model-hint">换</span>
+      </button>
       <span class="agent-tier">{{ tierLabel }}</span>
       <button class="agent-gear" type="button" title="模型设置" @click="toggleConfig()">
         ⚙️
@@ -25,8 +32,15 @@
         <input v-model="form.baseUrl" type="text" placeholder="https://api.deepseek.com/v1" />
       </label>
       <label>
-        <span>模型名</span>
-        <input v-model="form.model" type="text" placeholder="deepseek-chat" />
+        <span>模型</span>
+        <select :value="form.model" @change="pickModel($event.target.value)">
+          <option v-for="m in modelOptions" :key="m" :value="m">{{ m }}</option>
+          <option value="__custom">自定义…</option>
+        </select>
+      </label>
+      <label v-if="customModel">
+        <span>手填模型名</span>
+        <input v-model="form.model" type="text" placeholder="例如 deepseek-reasoner" />
       </label>
       <label>
         <span>强度</span>
@@ -60,10 +74,20 @@
 
     <!-- 对话流 -->
     <div class="agent-flow">
-      <p v-if="!turns.length" class="agent-empty">
-        问它一句试试：<b>「我库里有哪些讲手性的文献？」</b>
-        ——它会自己去查，不是只看这一篇。
-      </p>
+      <div v-if="!turns.length" class="agent-empty">
+        <p>问它一句试试——它会自己去查库，不是只看这一篇：</p>
+        <div class="agent-quick">
+          <button
+            v-for="q in QUICK_PROMPTS"
+            :key="q"
+            type="button"
+            :disabled="busy"
+            @click="$emit('quick', q)"
+          >
+            {{ q }}
+          </button>
+        </div>
+      </div>
 
       <div v-for="(turn, i) in turns" :key="i" class="agent-turn" :class="turn.role">
         <div v-if="turn.role === 'user'" class="agent-bubble user">{{ turn.text }}</div>
@@ -82,6 +106,8 @@
                 </li>
               </ul>
             </div>
+            <!-- ⭐ 合规：模型生成的内容要标注（标注跟着内容走，不为省事丢掉） -->
+            <div class="ai-badge-row"><AiBadge kind="answer" /></div>
             <!-- 回答：`**加粗**` 转 <strong>，不用 v-html（模板里渲染文本更安全） -->
             <div class="agent-bubble answer">
               <template v-for="(seg, k) in segments(turn.text)" :key="k">
@@ -116,6 +142,8 @@
  */
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 
+import AiBadge from './AiBadge.vue'
+
 import {
   agentBusy,
   agentConfig,
@@ -134,6 +162,14 @@ import {
 const props = defineProps({
   scope: { type: Object, default: () => ({}) },
 })
+const emit = defineEmits(['quick'])
+
+// 空态那三条：覆盖"跨库找文献 / 读这篇 / 换说法"
+const QUICK_PROMPTS = [
+  '我库里有哪些讲手性的文献？',
+  '这篇的结论有多可靠？',
+  '把这篇的要点列出三条',
+]
 
 const turns = computed(() => agentMessages.value)
 const busy = agentBusy
@@ -145,6 +181,7 @@ const saving = ref(false)
 const traceOpen = reactive({})
 
 const form = reactive({ baseUrl: '', model: '', tier: 'standard', apiKey: '' })
+const customModel = ref(false)
 
 const providers = computed(() => (config.value && config.value.providers) || [])
 const currentProvider = computed(() => {
@@ -154,6 +191,33 @@ const currentProvider = computed(() => {
   return hit ? hit.id : 'local'
 })
 const keyHint = computed(() => (config.value && config.value.key_hint) || '')
+
+/** 当前厂商在各档位下的预设模型（去重）——"能选模型"要看得见，而不是只让用户手打。 */
+const modelOptions = computed(() => {
+  const all = (config.value && config.value.tier_models) || {}
+  const providerModels = all[currentProvider.value] || {}
+  const seen = new Set()
+  for (const model of Object.values(providerModels)) {
+    if (model) seen.add(model)
+  }
+  // 当前已保存的模型也要在列表里（否则下拉显示不出来）
+  if (form.model) seen.add(form.model)
+  return [...seen]
+})
+
+// 下拉默认选中第一项：否则 <select :value="" 会显示空白，看着像"没有模型可选"
+watch(modelOptions, (options) => {
+  if (!form.model && options.length) form.model = options[0]
+}, { immediate: true })
+
+function pickModel(value) {
+  if (value === '__custom') {
+    customModel.value = true
+    return
+  }
+  customModel.value = false
+  form.model = value
+}
 const modelReady = computed(() => Boolean(config.value && (config.value.key_set || config.value.server_default)))
 const modelLabel = computed(() => {
   if (!config.value) return '未配置模型'
@@ -177,6 +241,7 @@ function syncForm() {
 watch(config, syncForm, { immediate: true })
 
 function pickProvider(id) {
+  customModel.value = false
   const hit = providers.value.find((p) => p.id === id)
   if (!hit) return
   form.baseUrl = hit.base_url
