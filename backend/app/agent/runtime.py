@@ -254,6 +254,7 @@ async def stream_scene(
         PartDeltaEvent,
         RetryPromptPart,
         TextPartDelta,
+        ThinkingPartDelta,
     )
     from pydantic_ai.usage import UsageLimits
 
@@ -301,7 +302,10 @@ async def stream_scene(
                     }
                 elif isinstance(event, PartDeltaEvent):
                     delta = event.delta
-                    if isinstance(delta, TextPartDelta) and delta.content_delta:
+                    # 思考片段（reasoner 类模型）：单独一种事件，前端只在"过程"里显示
+                    if isinstance(delta, ThinkingPartDelta) and delta.content_delta:
+                        yield {"type": "thinking", "text": delta.content_delta}
+                    elif isinstance(delta, TextPartDelta) and delta.content_delta:
                         yield {"type": "delta", "text": delta.content_delta}
                 elif isinstance(event, AgentRunResultEvent):
                     result = event.result

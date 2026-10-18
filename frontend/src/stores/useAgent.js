@@ -108,11 +108,14 @@ export async function sendAgent(question, scope = {}) {
   const turn = reactive({
     role: 'assistant',
     text: '',
+    thinking: '',
     steps: [],
     sources: [],
     dropped: [],
     usage: null,
     error: '',
+    // `done=false`：还在生成（过程可见）；`true`：过程收起、只留正文
+    done: false,
   })
   state.messages.push(turn)
   state.busy = true
@@ -127,6 +130,7 @@ export async function sendAgent(question, scope = {}) {
       turn.error = body.detail || `没答出来（HTTP ${res.status}）`
       return
     }
+    turn.done = true
     turn.text = body.answer || ''
     turn.steps = body.steps || []
     turn.sources = body.sources || []
@@ -162,11 +166,14 @@ export async function sendAgentStream(question, scope = {}) {
   const turn = reactive({
     role: 'assistant',
     text: '',
+    thinking: '',
     steps: [],
     sources: [],
     dropped: [],
     usage: null,
     error: '',
+    // `done=false`：还在生成（过程可见）；`true`：过程收起、只留正文
+    done: false,
   })
   state.messages.push(turn)
   state.busy = true
@@ -227,9 +234,13 @@ function applyEvent(turn, event) {
       ok: event.ok !== false,
       excerpt: event.excerpt || '',
     })
+  } else if (event.type === 'thinking') {
+    // 思考片段：只进"过程"，不进正文
+    turn.thinking += event.text || ''
   } else if (event.type === 'delta') {
     turn.text += event.text || ''
   } else if (event.type === 'final') {
+    turn.done = true
     // 以 final 为准（模型可能边流边改口，最终答案才算数）
     if (event.answer) turn.text = event.answer
     turn.sources = event.sources || []

@@ -63,6 +63,49 @@ describe('AgentChat（读懂侧）', () => {
     expect(wrapper.find('.agent-empty').text()).toContain('我库里有哪些讲手性的文献')
   })
 
+
+  it('过程只在生成期间显示：完成后收起成一行，点开才看', async () => {
+    const wrapper = mount(AgentChat, { props: { scope: {} } })
+    await flushPromises()
+    const turn = {
+      role: 'assistant',
+      text: '库里有 2 篇',
+      thinking: '先想一下要查什么…',
+      steps: [
+        { kind: 'tool_call', name: 'search_library', args: { query: '手性' } },
+        { kind: 'tool_result', name: 'search_library', ok: true, excerpt: 'p0_b3' },
+      ],
+      sources: ['p0_b3'],
+      dropped: [],
+      usage: { tool_calls: 1 },
+      error: '',
+      done: false,
+    }
+    agentMessages.value.push(turn)
+    await flushPromises()
+
+    // 生成中：过程（思考 + 工具）可见
+    expect(wrapper.find('.agent-process').exists()).toBe(true)
+    expect(wrapper.find('.agent-thinking').text()).toContain('先想一下')
+    // 收尾前没有"过程 N 步"那行按钮
+    expect(wrapper.find('.agent-trace-head').exists()).toBe(false)
+
+    // 收尾：过程收起，只剩正文 + 一行可展开的入口。
+    // ⚠️ 要**替换整条**而不是改原始对象：本地拿到的 	urn 不是代理，
+    // 直接改它不会触发重渲染（真实路径里是 store 内部改的，所以没这问题）。
+    agentMessages.value.splice(0, 1, { ...turn, done: true })
+    await flushPromises()
+    expect(wrapper.find('.agent-process').exists()).toBe(false)
+    // 模板里插值之间会有换行，比对前先压空白
+    const headText = wrapper.find('.agent-trace-head').text().replace(/\s+/g, ' ')
+    expect(headText).toContain('过程 2 步')
+    expect(wrapper.find('.agent-bubble.answer').text()).toContain('库里有 2 篇')
+
+    // 点开能重新看到过程
+    await wrapper.find('.agent-trace-head').trigger('click')
+    expect(wrapper.find('.agent-process').exists()).toBe(true)
+  })
+
   it('轨迹只算工具调用：`final_result` 那条被剔掉', () => {
     const turn = {
       steps: [

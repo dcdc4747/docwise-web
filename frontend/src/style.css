@@ -3475,6 +3475,24 @@ svg.ic-inl {
   .dw .page { max-width: 100%; padding: 20px 16px; }
 }
 
+.dw .agent-process {
+  border-left: 2px solid var(--line);
+  padding: 4px 0 4px 10px;
+  display: grid;
+  gap: 6px;
+  font-size: var(--fs-micro);
+  color: var(--muted);
+}
+/* 思考片段：斜体 + 更淡，和正文一眼分得开（它不该被当成答案读） */
+.dw .agent-thinking {
+  white-space: pre-wrap;
+  font-style: italic;
+  color: #94a3b8;
+  max-height: 132px;
+  overflow: hidden;
+  mask-image: linear-gradient(#000 70%, transparent);
+}
+
 /* ============================================================================
    [R9] 字体栈与渲染开关（2026-10-16）—— 全站字体只在这里定
    ============================================================================

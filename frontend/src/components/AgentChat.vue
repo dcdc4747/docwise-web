@@ -94,11 +94,13 @@
         <template v-else>
           <div v-if="turn.error" class="agent-bubble err">{{ turn.error }}</div>
           <template v-else>
-            <div v-if="toolSteps(turn).length" class="agent-trace">
-              <button class="agent-trace-head" type="button" @click="toggleTrace(i)">
-                🛠 它查了 {{ toolCallCount(turn) }} 次 {{ traceOpen[i] ? '▾' : '▸' }}
-              </button>
-              <ul v-if="traceOpen[i]" class="agent-trace-list">
+            <!-- 生成中：过程（思考 + 工具调用）**实时可见** -->
+            <div
+              v-if="!turn.done && (toolSteps(turn).length || turn.thinking)"
+              class="agent-process"
+            >
+              <div v-if="turn.thinking" class="agent-thinking">{{ thinkingTail(turn) }}</div>
+              <ul v-if="toolSteps(turn).length" class="agent-trace-list">
                 <li v-for="(step, j) in toolSteps(turn)" :key="j" :class="{ bad: step.ok === false }">
                   <b>{{ step.kind === 'tool_call' ? '调' : step.ok === false ? '失败' : '返回' }}</b>
                   <code>{{ step.name }}</code>
@@ -106,6 +108,7 @@
                 </li>
               </ul>
             </div>
+
             <!-- ⭐ 合规：模型生成的内容要标注（标注跟着内容走，不为省事丢掉） -->
             <div class="ai-badge-row"><AiBadge kind="answer" /></div>
             <!-- 回答：`**加粗**` 转 <strong>，不用 v-html（模板里渲染文本更安全） -->
@@ -115,6 +118,26 @@
                 <template v-else>{{ seg.text }}</template>
               </template>
             </div>
+            <!-- 收尾后：过程收起成一行（默认不看，需要才展开） -->
+            <button
+              v-if="turn.done && (toolSteps(turn).length || turn.thinking)"
+              class="agent-trace-head"
+              type="button"
+              @click="toggleTrace(i)"
+            >
+              过程 {{ toolSteps(turn).length }} 步 · {{ traceOpen[i] ? '收起 ▴' : '展开 ▾' }}
+            </button>
+            <div v-if="turn.done && traceOpen[i]" class="agent-process">
+              <div v-if="turn.thinking" class="agent-thinking">{{ turn.thinking }}</div>
+              <ul class="agent-trace-list">
+                <li v-for="(step, j) in toolSteps(turn)" :key="j" :class="{ bad: step.ok === false }">
+                  <b>{{ step.kind === 'tool_call' ? '调' : step.ok === false ? '失败' : '返回' }}</b>
+                  <code>{{ step.name }}</code>
+                  <span class="agent-trace-detail">{{ detailOf(step) }}</span>
+                </li>
+              </ul>
+            </div>
+
             <div v-if="turn.sources.length || turn.dropped.length" class="agent-src">
               <span v-if="turn.sources.length">出处 {{ turn.sources.length }} 处</span>
               <span v-if="turn.dropped.length" class="agent-src-drop">
@@ -269,6 +292,11 @@ const pendingText = computed(() => {
   if (calls.length > done) return `正在查：${calls[calls.length - 1].name}…`
   return `正在整理（已查 ${done} 次）…`
 })
+
+function thinkingTail(turn) {
+  const text = String(turn.thinking || '').trim()
+  return text.length > 240 ? `…${text.slice(-240)}` : text
+}
 
 function toggleTrace(i) {
   traceOpen[i] = !traceOpen[i]
