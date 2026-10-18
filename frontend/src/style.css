@@ -3992,6 +3992,30 @@ svg.ic-inl {
   padding: 1px 5px;
 }
 
+
+/* ---- 写作页：助手栏里的 agent 面板也要"输入框贴底"（2026-10-19） ----
+   `.wr-helper-body` 原来是 display:block，`.wr-chat` 只有内容高，
+   于是 `.agent-composer` 悬在面板中间（用户截图报的"对话框顶上去了"）。 */
+.dw .wr-helper-body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.dw .wr-helper-body > .wr-chat {
+  flex: 1 1 auto;
+  display: flex;
+  min-height: 0;
+}
+.dw .wr-helper-body > .wr-chat > .agent-pane {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+}
+/* 非 agent 的三个页签（提纲/引用/过程）照旧可滚，不被 flex 挤变形 */
+.dw .wr-helper-body > div:not(.wr-chat) {
+  min-height: 0;
+}
+
 /* ============================================================================
    [R9] 字体栈与渲染开关（2026-10-16）—— 全站字体只在这里定
    ============================================================================
