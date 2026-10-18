@@ -3924,6 +3924,51 @@ svg.ic-inl {
 }
 .dw .agent-error button:hover { background: #fee2e2; }
 
+/* 改写建议卡：原句划掉、改后高亮、才有一个「采用」 */
+.dw .agent-revisions { display: grid; gap: 8px; }
+.dw .agent-rev {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: #fbfdff;
+  display: grid;
+  gap: 6px;
+}
+.dw .agent-rev-orig {
+  font-size: var(--fs-meta);
+  color: #9aa1ad;
+  text-decoration: line-through;
+  text-decoration-color: #d5dbe6;
+  line-height: 1.7;
+}
+.dw .agent-rev-new {
+  font-size: var(--fs-meta);
+  color: var(--ink);
+  line-height: 1.7;
+  border-left: 3px solid var(--accent);
+  padding-left: 8px;
+}
+.dw .agent-rev-foot { display: flex; align-items: center; gap: 8px; }
+.dw .agent-rev-reason { font-size: var(--fs-micro); color: var(--muted); flex: 1 1 auto; }
+.dw .agent-rev-foot button {
+  border: 1px solid var(--accent-line, #c7d2fe);
+  background: #fff;
+  color: var(--accent);
+  border-radius: 999px;
+  padding: 3px 12px;
+  font: inherit;
+  font-size: var(--fs-micro);
+  cursor: pointer;
+}
+.dw .agent-rev-foot button:hover { background: var(--accent-soft, #eef2ff); }
+.dw .agent-notes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: var(--fs-micro);
+  color: #b45309;
+}
+
 /* ============================================================================
    [R9] 字体栈与渲染开关（2026-10-16）—— 全站字体只在这里定
    ============================================================================

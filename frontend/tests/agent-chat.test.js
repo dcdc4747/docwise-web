@@ -171,6 +171,38 @@ describe('AgentChat（读懂侧）', () => {
     expect(err.find('button').text()).toBe('重试')
   })
 
+
+  it('改写建议卡：原句划掉、改后高亮，点「采用」把这条建议抛给页面', async () => {
+    const wrapper = mount(AgentChat, { props: { scope: { draft_id: 3 } } })
+    await flushPromises()
+    agentMessages.value.push({
+      role: 'assistant',
+      text: '这句可以更贴学科用语。',
+      steps: [],
+      sources: [],
+      dropped: [],
+      done: true,
+      revisions: [
+        {
+          original: '手性可以分成时间与空间两部分。',
+          revised: '手性可分解为时间与空间两个维度。',
+          reason: '更贴学科用语',
+        },
+      ],
+      notes: ['剔掉 1 条对不上原文的建议'],
+    })
+    await flushPromises()
+
+    expect(wrapper.find('.agent-rev-orig').text()).toContain('时间与空间两部分')
+    expect(wrapper.find('.agent-rev-new').text()).toContain('两个维度')
+    expect(wrapper.find('.agent-notes').text()).toContain('剔掉 1 条')
+
+    await wrapper.find('.agent-rev-foot button').trigger('click')
+    const emitted = wrapper.emitted('apply-revision')
+    expect(emitted).toBeTruthy()
+    expect(emitted[0][0].revised).toContain('两个维度')
+  })
+
   it('轨迹只算工具调用：`final_result` 那条被剔掉', () => {
     const turn = {
       steps: [

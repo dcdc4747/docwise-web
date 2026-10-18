@@ -75,5 +75,9 @@ class Scene:
     default_tier: str = "standard"
     # 场景自己决定"要带哪些上下文"（当前文献摘要、草稿片段…）；返回空串就是不带
     build_context: Callable[[ToolContext], str] | None = None
+    # 收尾校验钩子：拿到模型输出，剔除"编出来的东西"
+    # （如写作建议里对不上原文的 original）。
+    # 返回 (保留的输出, 剔掉的说明列表)。**默认不做**，由场景自己决定要校验什么。
+    verify: Callable[[ToolContext, Any], tuple[Any, list[str]]] | None = None
     # planned = 口子留着、还没实现（前端据此显示"即将开放"）
     status: str = "ready"

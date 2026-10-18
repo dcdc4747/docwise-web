@@ -105,6 +105,21 @@
               </ul>
             </div>
 
+            <!-- 写作侧：可采用的替换建议（点了才写进稿子） -->
+            <div v-if="turn.revisions && turn.revisions.length" class="agent-revisions">
+              <div v-for="(rev, k) in turn.revisions" :key="k" class="agent-rev">
+                <div class="agent-rev-orig">{{ rev.original }}</div>
+                <div class="agent-rev-new">{{ rev.revised }}</div>
+                <div class="agent-rev-foot">
+                  <span class="agent-rev-reason">{{ rev.reason }}</span>
+                  <button type="button" @click="$emit('apply-revision', rev)">采用</button>
+                </div>
+              </div>
+            </div>
+            <div v-if="turn.notes && turn.notes.length" class="agent-notes">
+              <span v-for="(note, k) in turn.notes" :key="k">{{ note }}</span>
+            </div>
+
             <!-- 元信息：只写算得出来的事实（模型 / 用时 / 步数） -->
             <div v-if="turn.done" class="agent-meta">
               <span v-if="turn.model || modelLabel">{{ turn.model || modelLabel }}</span>
@@ -208,6 +223,7 @@ import {
   agentError,
   agentMessages,
   agentSaveNote,
+  agentSceneId,
   loadConfig,
   loadScenes,
   openSettings,
@@ -223,7 +239,7 @@ const props = defineProps({
   // 场景：读懂 = read_ask（默认），写作 = write_compose
   scene: { type: String, default: 'read_ask' },
 })
-const emit = defineEmits(['quick'])
+const emit = defineEmits(['quick', 'apply-revision'])
 
 // 空态那三条：覆盖"跨库找文献 / 读这篇 / 换说法"
 const QUICK_PROMPTS = [
@@ -237,6 +253,7 @@ const busy = agentBusy
 const error = agentError
 const config = agentConfig
 const saveNote = agentSaveNote
+const sceneId = agentSceneId
 const saving = ref(false)
 const traceOpen = reactive({})
 
@@ -410,6 +427,9 @@ function segments(text) {
 
 onMounted(async () => {
   await Promise.all([loadScenes(), loadConfig()])
+  // ⚠️ 必须**在 loadScenes 之后**切场景：反过来会被默认场景顶掉，
+  // 写作页就会拿 read_ask 的 scene 去问（连 output 类型都是错的）。
+  if (props.scene && props.scene !== sceneId.value) setScene(props.scene)
 })
 
 </script>

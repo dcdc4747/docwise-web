@@ -358,7 +358,7 @@ def test_writing_pack_refuses_other_users_draft() -> None:
         other_id = other.id
 
     ctx = ToolContext(db=None, user_id=TEST_USER_ID, scene_id="write_compose", scope={})
-    got = writing.read_draft(ctx, other_id)
+    got = writing.read_draft(ctx, {"draft_id": other_id})
     assert "找不到" in str(got.data)
 
     with SessionLocal() as session:
@@ -390,7 +390,7 @@ def test_writing_pack_searches_materials_by_keyword() -> None:
         hit_id, miss_id = hit.id, miss.id
 
     ctx = ToolContext(db=None, user_id=TEST_USER_ID, scene_id="write_compose", scope={})
-    got = writing.search_materials(ctx, query="手性")
+    got = writing.search_materials(ctx, {"query": "手性"})
     assert len(got.data) == 1
     assert got.data[0]["source"] == "chem.pdf"
     assert got.data[0]["page"] == 3
@@ -398,4 +398,51 @@ def test_writing_pack_searches_materials_by_keyword() -> None:
     with SessionLocal() as session:
         for material_id in (hit_id, miss_id):
             session.delete(session.get(Material, material_id))
+        session.commit()
+
+
+# ============================================================ ⑦ 改写建议校验
+def test_verify_revisions_drops_unmatched() -> None:
+    """对不上原文的建议必须被剔掉——否则用户点「采用」会把稿子改坏。"""
+    from app.agent.contracts import ToolContext
+    from app.agent.outputs import Revision, WriteAnswer
+    from app.agent.scenes.write_compose import verify_revisions
+    from app.db import SessionLocal
+    from app.models import Draft
+
+    with SessionLocal() as session:
+        draft = Draft(
+            user_id=TEST_USER_ID,
+            title="校验用的稿",
+            body_md="手性可以分成时间与空间两部分。这是第二句。",
+        )
+        session.add(draft)
+        session.commit()
+        session.refresh(draft)
+        draft_id = draft.id
+
+    ctx = ToolContext(
+        db=None,
+        user_id=TEST_USER_ID,
+        scene_id="write_compose",
+        scope={"draft_id": draft_id},
+    )
+    output = WriteAnswer(
+        answer="给了两条建议",
+        revisions=[
+            Revision(
+                original="手性可以分成时间与空间两部分。",
+                revised="手性可分解为时间与空间两个维度。",
+                reason="更贴学科用语",
+            ),
+            Revision(original="这句稿子里根本没有", revised="随便改", reason="编的"),
+        ],
+    )
+    kept, notes = verify_revisions(ctx, output)
+    assert len(kept.revisions) == 1
+    assert kept.revisions[0].original.startswith("手性可以分成")
+    assert any("剔掉 1 条" in n for n in notes)
+
+    with SessionLocal() as session:
+        session.delete(session.get(Draft, draft_id))
         session.commit()

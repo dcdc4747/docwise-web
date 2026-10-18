@@ -13,7 +13,7 @@ from ...models import Draft, Material
 from ..contracts import Pack, ToolResult, ToolSpec
 
 
-def list_drafts(ctx) -> ToolResult:
+def list_drafts(ctx, args: dict | None = None) -> ToolResult:
     """列出我的草稿（id + 标题 + 字数），用来确定"在给哪一篇提建议"。"""
     db = SessionLocal()
     try:
@@ -34,9 +34,11 @@ def list_drafts(ctx) -> ToolResult:
     return ToolResult(data=items, note=f"{len(items)} 篇")
 
 
-def read_draft(ctx, draft_id: int | None = None) -> ToolResult:
+def read_draft(ctx, args: dict | None = None) -> ToolResult:
     """读一篇草稿的正文（默认读 scope 里正在编辑的那篇）。"""
-    target = draft_id or (ctx.scope or {}).get("draft_id")
+    payload = args or {}
+    raw_id = payload.get("draft_id")
+    target = raw_id or (ctx.scope or {}).get("draft_id")
     if not target:
         return ToolResult(data="没有指定草稿", note="需要 draft_id")
     db = SessionLocal()
@@ -63,9 +65,11 @@ def read_draft(ctx, draft_id: int | None = None) -> ToolResult:
         db.close()
 
 
-def search_materials(ctx, query: str = "", limit: int = 5) -> ToolResult:
+def search_materials(ctx, args: dict | None = None) -> ToolResult:
     """在我的素材卡里找（快照文本，删了源文献也还在）。"""
-    limit = max(1, min(int(limit or 5), 10))
+    payload = args or {}
+    query = str(payload.get("query") or "")
+    limit = max(1, min(int(payload.get("limit") or 5), 10))
     db = SessionLocal()
     try:
         stmt = (

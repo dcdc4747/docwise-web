@@ -116,6 +116,10 @@ export async function sendAgent(question, scope = {}) {
     sources: [],
     dropped: [],
     usage: null,
+    // 写作侧：可采用的替换建议 + 服务端校验说明
+    revisions: [],
+    notes: [],
+    
     error: '',
     // `done=false`：还在生成（过程可见）；`true`：过程收起、只留正文
     done: false,
@@ -261,6 +265,8 @@ function applyEvent(turn, event) {
     if (event.answer) turn.text = event.answer
     turn.sources = event.sources || []
     turn.dropped = event.dropped_sources || []
+    turn.revisions = event.revisions || []
+    turn.notes = event.notes || []
     turn.usage = event.usage || null
     if (event.steps && event.steps.length) turn.steps = event.steps
   } else if (event.type === 'error') {
@@ -283,3 +289,6 @@ export function retryTurn(turn, scope = {}) {
   if (index >= 0) state.messages.splice(index, 1)
   if (question) return sendAgentStream(question, scope)
 }
+
+/** 当前场景 id（组件用来判断要不要切）。 */
+export const agentSceneId = computed(() => state.sceneId)

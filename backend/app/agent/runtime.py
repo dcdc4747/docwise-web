@@ -237,6 +237,18 @@ async def run_scene(
     }
 
 
+def _run_verify(scene: Scene, ctx: ToolContext, output):
+    """跑场景的收尾校验（没挂钩子就原样返回）。返回 (output, notes)。"""
+    hook = getattr(scene, "verify", None)
+    if hook is None:
+        return output, []
+    try:
+        return hook(ctx, output)
+    except Exception as exc:  # noqa: BLE001 —— 校验不该把整轮弄挂
+        logger.warning("场景 %s 收尾校验失败：%s", scene.id, exc)
+        return output, ["收尾校验没跑成，建议未核对"]
+
+
 async def stream_scene(
     scene: Scene,
     question: str,
@@ -313,8 +325,16 @@ async def stream_scene(
                         yield {"type": "delta", "text": delta.content_delta}
                 elif isinstance(event, AgentRunResultEvent):
                     result = event.result
-                    output = result.output
+                    output, verify_notes = _run_verify(scene, ctx, result.output)
                     sources = list(getattr(output, "source_block_ids", []) or [])
+                    revisions = [
+                        {
+                            "original": getattr(item, "original", ""),
+                            "revised": getattr(item, "revised", ""),
+                            "reason": getattr(item, "reason", ""),
+                        }
+                        for item in (getattr(output, "revisions", []) or [])
+                    ]
                     steps = _steps_of(result.all_messages())
                     seen: set[str] = set()
                     for step in steps:
@@ -328,6 +348,8 @@ async def stream_scene(
                     yield {
                         "type": "final",
                         "model": cfg.model,
+                        "revisions": revisions,
+                        "notes": verify_notes,
                         "answer": getattr(output, "answer", "") or "",
                         "sources": [sid for sid in sources if sid in seen],
                         "dropped_sources": [sid for sid in sources if sid not in seen],

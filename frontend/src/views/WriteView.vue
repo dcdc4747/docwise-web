@@ -250,6 +250,7 @@
             <AgentChat
               scene="write_compose"
               :scope="{ draft_id: currentDraft ? currentDraft.id : null }"
+              @apply-revision="applyRevision"
             />
           </div>
 
@@ -629,6 +630,25 @@ const HELPER_TABS = [
   { key: 'cites', label: '引用' },
   { key: 'log', label: '过程' },
 ]
+
+/**
+ * 采用一条改写建议：**逐字**在正文里找原句，找到才替换。
+ *
+ * 找不到就如实说（可能稿子已经改过了），绝不"模糊替换"——
+ * 改错一句比不改更糟。
+ */
+function applyRevision(rev) {
+  const original = String(rev && rev.original ? rev.original : '')
+  const revised = String(rev && rev.revised ? rev.revised : '')
+  if (!original || !body.value) return
+  if (!body.value.includes(original)) {
+    logEvent('改写建议没采用：稿子里找不到那句原文（可能已经改过了）')
+    return
+  }
+  body.value = body.value.replace(original, revised)
+  saveState.value = 'dirty'
+  logEvent('采用了一条改写建议')
+}
 
 const bodyEl = ref(null)
 const fileEl = ref(null)
