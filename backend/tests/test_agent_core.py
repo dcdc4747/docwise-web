@@ -736,3 +736,56 @@ def test_verify_revisions_ignores_line_ending_difference() -> None:
     with SessionLocal() as session:
         session.delete(session.get(Draft, draft_id))
         session.commit()
+
+
+def test_verified_block_ids_reads_full_tool_output() -> None:
+    """出处校验要读到**完整**工具结果，不能只看截断的 excerpt。
+
+    实测背景（task 41 问「这篇有几张图」）：`list_figures` 返回 8 条图注，
+    但流式事件的 excerpt 只有 400 字（甚至为 None），
+    后两条的 `p7_b99` / `p7_b100` 因此被当成"编造出处"剔掉。
+    """
+    from pydantic_ai.messages import ModelRequest, ModelResponse, ToolReturnPart
+
+    from app.agent.runtime import _verified_block_ids
+
+    # 工具返回很多块号：把它们都塞进一条 ToolReturnPart
+    long_body = [{"block_id": f"p7_b{i}", "text": "x" * 50} for i in range(90, 110)]
+    messages = [
+        ModelRequest(parts=[]),
+        ModelResponse(
+            parts=[
+                ToolReturnPart(
+                    tool_name="list_figures",
+                    content=long_body,
+                    tool_call_id="c1",
+                )
+            ]
+        ),
+    ]
+
+    ids = _verified_block_ids(messages)
+    # 后面的（第 99、100 条）也必须被认出来——它们离头部很远
+    assert "p7_b99" in ids
+    assert "p7_b100" in ids
+    assert len(ids) == 20
+
+
+def test_verified_block_ids_ignores_failed_retry() -> None:
+    """重试提示（RetryPromptPart）里出现的块号不算"工具返回过"。"""
+    from pydantic_ai.messages import ModelResponse, RetryPromptPart
+
+    from app.agent.runtime import _verified_block_ids
+
+    messages = [
+        ModelResponse(
+            parts=[
+                RetryPromptPart(
+                    content="参数不对，p0_b1 不存在",
+                    tool_name="read_blocks",
+                    tool_call_id="c1",
+                )
+            ]
+        )
+    ]
+    assert _verified_block_ids(messages) == set()

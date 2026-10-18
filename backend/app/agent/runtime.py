@@ -140,6 +140,24 @@ def build_agent(scene: Scene, cfg: LLMConfig, model: Any = None):
     )
 
 
+def _verified_block_ids(messages) -> set[str]:
+    """工具**真返回过**的块号集合（用完整内容，不用截断的 excerpt）。
+
+    ⚠️ 为什么不用流里的事件：`FunctionToolResultEvent.content` 可能为 None
+    （实测 SSE 的 excerpt 全是 "None"）；消息历史里的 `ToolReturnPart` 才是完整结果。
+    """
+    from pydantic_ai.messages import RetryPromptPart, ToolReturnPart
+
+    ids: set[str] = set()
+    for message in messages:
+        for part in message.parts:
+            if isinstance(part, ToolReturnPart):
+                ids.update(_BLOCK_ID_RE.findall(str(part.content)))
+            elif isinstance(part, RetryPromptPart):
+                continue  # 失败重试不算"返回过"
+    return ids
+
+
 def _steps_of(messages) -> list[dict]:
     """从历史里还原"人话轨迹"（前端「它查了什么」用它）。"""
     from pydantic_ai.messages import RetryPromptPart, ToolCallPart, ToolReturnPart
@@ -310,11 +328,12 @@ async def stream_scene(
                     if str(name).endswith("final_result"):
                         continue
                     failed = isinstance(event.part, RetryPromptPart)
+                    full_text = str(event.content)
                     yield {
                         "type": "tool_result",
                         "name": name,
                         "ok": not failed,
-                        "excerpt": str(event.content)[:400],
+                        "excerpt": full_text[:400],
                     }
                 elif isinstance(event, PartDeltaEvent):
                     delta = event.delta
@@ -336,14 +355,8 @@ async def stream_scene(
                         for item in (getattr(output, "revisions", []) or [])
                     ]
                     steps = _steps_of(result.all_messages())
-                    seen: set[str] = set()
-                    for step in steps:
-                        if step["kind"] == "tool_result" and step.get("ok"):
-                            seen.update(
-                                _BLOCK_ID_RE.findall(
-                                    str(step.get("excerpt", ""))
-                                )
-                            )
+                    # 从消息历史里取**完整**工具结果来校验出处
+                    seen = _verified_block_ids(result.all_messages())
                     usage = result.usage
                     yield {
                         "type": "final",
