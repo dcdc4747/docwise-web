@@ -154,3 +154,41 @@ def test_summarize_gaps_without_hits() -> None:
     assert text == "未发现疑似该引未引的句子"
     # 0 条时不许编成「有 0 句」
     assert "0" not in text
+
+
+# ============================================================ 自指豁免（句中）
+def test_own_data_with_numbers_is_not_reported() -> None:
+    """方法段写「共纳入 120 例（n=120）」是自己的工作，不该被当"该引未引"。
+
+    用户实测后拍板：这种句子数字开头、句首没有自指词，旧规则挡不住，
+    校对的提示会变成噪声。
+    """
+    body = "共纳入 120 例（n=120），年龄 45±12 岁。"
+    assert find_citation_gaps(body) == []
+
+
+def test_own_survey_with_percent_is_not_reported() -> None:
+    body = "我们调查了 47% 的用户，回收有效问卷 300 份。"
+    assert find_citation_gaps(body) == []
+
+
+def test_self_ref_in_middle_suppresses_whole_sentence() -> None:
+    """句中自指 → 整句不报（这是**有意的漏报**，写进用例免得被当 bug 修掉）。"""
+    body = "已有研究表明该指标有效，我们据此改进了评分口径。"
+    assert find_citation_gaps(body) == []
+
+
+def test_other_people_work_still_reported() -> None:
+    """没有自指的"研究表明"仍然要报——豁免不能把功能吃掉。"""
+    gaps = find_citation_gaps("研究表明该方法在长文本上更稳。")
+    assert len(gaps) == 1
+    assert "引述" in gaps[0]["reason"]
+
+
+def test_collected_data_phrases_are_exempt() -> None:
+    for sentence in (
+        "共收集样本 500 份。",
+        "共招募受试者 30 名。",
+        "笔者对 12 家企业做了访谈。",
+    ):
+        assert find_citation_gaps(sentence) == [], sentence
