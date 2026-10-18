@@ -324,6 +324,50 @@
           </div>
 
           <!-- 过程：只记本次会话真做过的事 -->
+          <div v-else-if="helperTab === 'log'">
+            </div>
+
+          <!-- 版本历史：AI 代写之后的安全网（列表不带正文，点开才读） -->
+          <div v-else-if="helperTab === 'versions'" class="wr-versions">
+            <div class="wr-colhead">
+              <span>版本 · {{ versions.length }}</span>
+              <span class="spacer" />
+              <button class="btn ghost sm" :disabled="versionsLoading" @click="loadVersions()">
+                {{ versionsLoading ? '读取中…' : '刷新' }}
+              </button>
+            </div>
+            <HonestNote v-if="versionsError" :text="`版本取不到：${versionsError}`" />
+            <p v-if="!versionsLoading && !versions.length" class="wr-muted">
+              还没有版本——保存过一次正文之后，这里会记下每一版（保留最近 50 版）。
+            </p>
+            <ul v-else class="wr-verlist">
+              <li v-for="item in versions" :key="item.id">
+                <div class="wr-vermeta">
+                  <b>{{ versionSourceLabel(item.source) }}</b>
+                  <span class="wr-muted">
+                    {{ formatStamp(item.created_at) }} · {{ item.chars }} 字
+                  </span>
+                </div>
+                <div class="wr-verops">
+                  <button class="btn ghost sm" @click="previewVersion(item)">查看</button>
+                  <button class="btn sm" @click="applyVersion(item)">回滚</button>
+                </div>
+              </li>
+            </ul>
+            <div v-if="versionPreview" class="wr-verpreview">
+              <div class="wr-colhead">
+                <span>
+                  {{ versionSourceLabel(versionPreview.source) }} ·
+                  {{ formatStamp(versionPreview.created_at) }}
+                </span>
+                <span class="spacer" />
+                <button class="btn ghost sm" @click="versionPreview = null">收起</button>
+              </div>
+              <pre class="wr-verbody">{{ versionPreviewText }}</pre>
+            </div>
+          </div>
+
+          <!-- 兜底：理论上到不了（页签都显式列了） -->
           <div v-else>
             <ol v-if="sessionLog.length" class="wr-log">
               <li v-for="(item, i) in sessionLog" :key="i">
@@ -335,8 +379,8 @@
               text="本次会话还没有动作记录（保存正文、插入引文会记在这里）。"
             />
             <p class="wr-muted">
-              跨会话的版本历史本期不做——草稿只存当前稿（契约 §5），
-              所以这里只记「本次会话做过什么」，不假装有历史。
+              这里只记「本次会话做过什么」；要跨会话回滚，看旁边的「版本」页签
+              （保存过的每一版都在那儿，保留最近 50 版）。
             </p>
           </div>
             <div class="wr-matpane">
@@ -639,6 +683,12 @@ import {
   runCheck,
   sessionLog,
   title,
+  versions,
+  versionsLoading,
+  versionsError,
+  loadVersions,
+  readVersion,
+  restoreVersion,
   toggleCheck,
 } from '../stores/useWrite'
 // 素材卡的写入路径（M2）：移除 + 客户端 5 秒撤销窗口
@@ -682,6 +732,8 @@ const HELPER_TABS = [
   { key: 'outline', label: '提纲' },
   { key: 'cites', label: '引用' },
   { key: 'log', label: '过程' },
+  // AI 能直接改稿之后，版本是唯一能回到「动手之前」的入口
+  { key: 'versions', label: '版本' },
 ]
 
 /**
@@ -1094,6 +1146,8 @@ const fileEl = ref(null)
  * 用户切过来就是为看它的，不该再点一下才出。
  */
 async function pickHelper(key) {
+  // 进「版本」页签就拉一次（不预加载：大多数写作会话用不到它）
+  if (key === 'versions') void loadVersions()
   helperTab.value = key
   if (key === 'cites') await loadBibliography()
 }
@@ -1563,6 +1617,52 @@ async function insertMaterial(material) {
   // 引文标记已经写进 body（`insertCitation` 改的是 Markdown），编辑器会跟着同步；
   // 这里只把它聚焦，光标交给编辑器自己（`result.caret` 是 Markdown 坐标，硬套选区会错位）
   editorEl.value?.focus()
+}
+
+/**
+ * 版本面板的三件事：看 / 回滚 / 来源标签。
+ *
+ * 看与回滚**分开**：点一条只预览正文；回滚是另一个按钮——
+ * 把「点开」当「应用」会让一次误点直接改掉稿子。
+ */
+const versionPreview = ref(null)
+
+/**
+ * 预览用的纯文本：`body_html` 去标签。
+ * 直接显示 `body_md` 会把 `<span style="font-size: 22px">` 这种内联标签当正文露出来
+ * （2026-10-19 实测就是这么显示的，很丑）。
+ */
+const versionPreviewText = computed(() => {
+  const html = String(versionPreview.value?.body_html || '')
+  if (html) {
+    return html
+      .replace(/<\/p>|<br\s*\/?>/g, '\n')
+      .replace(/<[^>]+>/g, '')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim()
+  }
+  return String(versionPreview.value?.body_md || '').trim()
+})
+
+function versionSourceLabel(source) {
+  if (source === 'ai') return 'AI 写入'
+  if (source === 'restore') return '回滚前留档'
+  return '手动保存'
+}
+
+async function previewVersion(item) {
+  const detail = await readVersion(item.id)
+  if (detail) versionPreview.value = detail
+}
+
+async function applyVersion(item) {
+  const ok = await restoreVersion(item.id)
+  if (!ok) {
+    showToast(`回滚没成：${versionsError.value || '原因不明'}`)
+    return
+  }
+  versionPreview.value = null
+  showToast(`已回滚到 ${formatStamp(item.created_at)} 那一版`)
 }
 
 // ============================================================ 引用区动作

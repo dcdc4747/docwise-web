@@ -723,3 +723,68 @@ export function disposeWrite() {
     saveTimer = null
   }
 }
+
+// ============================================================ 版本历史（2026-10-19）
+
+/**
+ * 为什么需要：2026-10-19 起 **AI 可以直接往正文里写**，且写入是自动落地的。
+ * 20 秒撤销只兜"刚写完那一下"，隔天想回到"AI 动手之前"就得靠版本。
+ */
+export const versions = ref([])
+export const versionsLoading = ref(false)
+export const versionsError = ref('')
+
+export async function loadVersions() {
+  const draftId = currentDraftId.value
+  if (!draftId) {
+    versions.value = []
+    return []
+  }
+  versionsLoading.value = true
+  versionsError.value = ''
+  try {
+    const data = await apiJson(`/api/drafts/${draftId}/versions?limit=20`)
+    versions.value = Array.isArray(data?.items) ? data.items : []
+    return versions.value
+  } catch (err) {
+    versionsError.value = err?.message || '版本列表取不到'
+    return []
+  } finally {
+    versionsLoading.value = false
+  }
+}
+
+/** 看某一版（只读回显，**不自动应用**——拿"点开"当"应用"会让误点直接改稿）。 */
+export async function readVersion(versionId) {
+  if (!currentDraftId.value) return null
+  try {
+    return await apiJson(`/api/drafts/${currentDraftId.value}/versions/${versionId}`)
+  } catch (err) {
+    versionsError.value = err?.message || '这一版取不到'
+    return null
+  }
+}
+
+/** 回滚到某一版：后端会先把当前正文存一版（source=restore），这里把结果写回本地。 */
+export async function restoreVersion(versionId) {
+  if (!currentDraftId.value) return false
+  try {
+    const draft = await apiJson(
+      `/api/drafts/${currentDraftId.value}/versions/${versionId}/restore`,
+      { method: 'POST' },
+    )
+    mergeDraftMeta(draft)
+    title.value = draft.title || title.value
+    body.value = draft.body_md || ''
+    bodyHtml.value = draft.body_html || mdToHtml(draft.body_md || '')
+    dirty = false
+    saveState.value = 'saved'
+    savedAt.value = clockNow()
+    logEvent(`回滚到版本 #${versionId}`)
+    await loadVersions()
+    return true
+  } catch (err) {
+    versionsError.value = err?.message || '回滚失败'
+    return false
+  }
+}

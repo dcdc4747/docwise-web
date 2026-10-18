@@ -257,8 +257,8 @@ describe('写作页：三栏骨架与红线', () => {
     expect(wrapper.find('.wr-materials').exists()).toBe(false)
     expect(wrapper.find('.wr-doc').exists()).toBe(true)
     expect(wrapper.find('.wr-helper').exists()).toBe(true)
-    // 每栏各有自己的头（稿件标题 / 五个页签）。2026-10-18 加了「对话」（写作 agent 挂在这里），
-    // 2026-10-19 又把「素材」从独立一栏搬进来，成为第一个页签。
+    // 每栏各有自己的头（稿件标题 / 六个页签）。2026-10-18 加了「对话」（写作 agent 挂在这里），
+    // 2026-10-19 把「素材」从独立一栏搬进来，并加了「版本」（AI 代写的安全网）。
     expect(wrapper.find('.wr-matpane .wr-colhead').text()).toContain('素材')
     expect(wrapper.findAll('.wr-helper .tabs button').map((b) => b.text())).toEqual([
       '素材',
@@ -266,6 +266,7 @@ describe('写作页：三栏骨架与红线', () => {
       '提纲',
       '引用',
       '过程',
+      '版本',
     ])
 
     const text = wrapper.text()
