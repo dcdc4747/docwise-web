@@ -5,12 +5,14 @@
 - 编号断档、条目字段：`app/check/engine.py` 的 `run_check`（纯函数、不碰库）；
 - 术语比对：同一份引擎的 R6（被引文献术语表 → 译名分歧）。
 
-本文件只补两处引擎没覆盖的：
+本文件只补三处引擎没覆盖的：
 
 1. **空引用措辞**（"相关研究表明"…）：引擎 R1 要先判出引用制式才跑，
    一份还没插过任何引文的草稿会整族跳过；这里按句正则兜底。
 2. **同一术语的原文与译名在正文里混用**：引擎 R6 只比不同文献的中文译名，
    不比 "chiral / 手性" 这种原文-译名同现。
+3. **术语一致率的数字**：调用 `metrics` 的纯函数，只多回一项
+   `term_rate`，不改上面任何一条判据。
 
 只读契约：只 SELECT；不写库、不改稿、不落 `CheckRun`。
 ⚠️ 不许 import pydantic_ai（结构用例钉着）。
@@ -28,7 +30,9 @@ from ...check.engine import split_sentences
 from ...check.rules import AUTHOR_YEAR_RE, NUMERIC_RE
 from ...db import SessionLocal
 from ...models import Citation, Draft, Material, TaskUnderstanding
+from ..citation_gaps import find_citation_gaps, summarize_gaps
 from ..contracts import Pack, ToolResult, ToolSpec
+from ..metrics import format_term_report, term_consistency
 
 # 单次最多回多少条：多了会挤掉模型的上下文，但统计仍按全量算
 _MAX_FINDINGS = 60
@@ -223,6 +227,53 @@ def _terms_of(session, user_id: int, draft_id: int) -> list[dict]:
     return out
 
 
+# 分母为 0 时的统一说法：不写 100%，也不让整次调用失败
+_TERM_RATE_UNKNOWN = "术语一致率无法计算（正文里没有出现术语）"
+
+
+def _rate_terms(terms: list[dict]) -> list[dict]:
+    """把 `_terms_of` 的 `{term, cn}` 摊成 metrics 要的 `{term, zh, aliases}`。
+
+    同一术语可能来自不同文献、带着不同译名：先到的译名当规范写法，
+    其余当别名。**一条术语只交一次**，否则分母会把同一概念重复计数。
+    """
+    grouped: dict[str, list[str]] = {}
+    for item in terms:
+        term = str(item.get("term") or "").strip()
+        cn = str(item.get("cn") or "").strip()
+        if not term or not cn:
+            continue
+        variants = grouped.setdefault(term, [])
+        if cn not in variants:
+            variants.append(cn)
+    return [
+        {"term": term, "zh": variants[0], "aliases": variants[1:]}
+        for term, variants in grouped.items()
+    ]
+
+
+def _term_rate(body: str, terms: list[dict]) -> dict:
+    """算术语一致率，回 `{rate, total, ok, note}`。
+
+    分母由 `metrics` 定义：**正文里至少出现过一次的词条数**，
+    不是术语表条数——没谈到的术语不算错，也不算进分母。
+    分母为 0（术语表为空 / 正文为空 / 一个词条都没出现）时
+    `rate` 回 `None`，`note` 如实说无法计算，绝不拿 100% 充数。
+    """
+    measured = term_consistency(body, _rate_terms(terms))
+    rate = measured.get("rate")
+    total = int(measured.get("total") or 0)
+    ok = int(measured.get("ok") or 0)
+    if not isinstance(rate, (int, float)) or total <= 0:
+        return {"rate": None, "total": 0, "ok": 0, "note": _TERM_RATE_UNKNOWN}
+    return {
+        "rate": float(rate),
+        "total": total,
+        "ok": ok,
+        "note": format_term_report(measured),
+    }
+
+
 def _count(text: str, word: str) -> int:
     """数一个词在正文里出现几次；英文按词边界，中文按子串。"""
     if not word:
@@ -381,6 +432,17 @@ def run_check(ctx, args: dict | None = None) -> ToolResult:
     - **术语不一致**：被引文献的 `terms_json` 里同一术语的中文译名在正文中
       并用了不止一种，或原文与译名同现。
 
+    返回值（键名固定，别改名）：
+
+    - `draft_id` / `title` / `findings` / `summary` / `terms_note` /
+      `truncated` / `note`：原有字段，口径未变；
+    - `term_rate`：新增的**数字**，形如 `{"rate", "total", "ok", "note"}`。
+      `total` 是分母（正文里至少出现过一次的词条数），`ok` 是其中
+      只用规范写法的条数；同一术语的多条译名里先到的当规范写法、
+      其余当别名。`note` 形如「术语一致率 75%（3/4）；…」。
+      术语表为空、正文为空或分母为 0 时 `rate` 为 `None`，`note`
+      说"无法计算"，**不用 100% 冒充**，也不让整次调用失败。
+
     查不了就明说（`terms_note`），不瞎猜。
     """
     scope = getattr(ctx, "scope", None)
@@ -416,6 +478,11 @@ def run_check(ctx, args: dict | None = None) -> ToolResult:
             terms_note = "草稿还没有引用，没找到可对照的术语表"
     else:
         terms_note = f"对照了 {len({item['term'] for item in terms})} 条术语"
+
+    # 只加一项数字：分母为 0 时回到 None，不影响下面任何判据
+    term_rate = _term_rate(body, terms)
+    # 该引未引：规则判定（高精度优先），判不出来就不报
+    gaps = find_citation_gaps(body) if body.strip() else []
 
     findings: list[dict] = []
     if body.strip():
@@ -465,6 +532,9 @@ def run_check(ctx, args: dict | None = None) -> ToolResult:
         "findings": kept,
         "summary": {"total": total, "by_kind": by_kind},
         "terms_note": terms_note,
+        "term_rate": term_rate,
+        "citation_gaps": gaps,
+        "citation_gaps_note": summarize_gaps(gaps),
         "truncated": truncated,
         "note": human,
     }

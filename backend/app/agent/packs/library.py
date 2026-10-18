@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from ...services import search as search_service
 from ..contracts import Pack, ToolContext, ToolResult, ToolSpec
+from ._budget import budget_for
 
 _MAX_ROWS = 10
 
@@ -44,17 +45,33 @@ def _read_blocks(ctx: ToolContext, args: dict) -> ToolResult:
     if not rows:
         return ToolResult(data=[], note="这篇里没有这些段落（或不是你的文献）")
     budget = 4000
+    read_budget = budget_for(ctx, "read_blocks")
     out = []
+    skipped: list[str] = []
     for row in rows:
         text = row["text"]
         if budget - len(text) <= 0:
             break
+        # 读段预算：同一段第二次不再取内容（省钱、省上下文），并如实告诉模型
+        allowed, why = read_budget.allow(row["block_id"], len(text))
+        if not allowed:
+            skipped.append(row["block_id"])
+            continue
         out.append({"block_id": row["block_id"], "text": text[:budget]})
+        read_budget.record(row["block_id"], len(text))
         budget -= len(text)
-    note = ""
+
+    notes: list[str] = []
     if len(out) != len(rows):
-        note = f"只返回了 {len(out)}/{len(rows)} 段（长度限制）"
-    return ToolResult(data=out, note=note)
+        notes.append(f"只返回了 {len(out)}/{len(rows)} 段（长度限制）")
+    if skipped:
+        notes.append(f"这 {len(skipped)} 段已经读过了：{why}")
+    if not out:
+        return ToolResult(
+            data=[],
+            note="这次要读的段都已经读过了，用前面的内容回答；确实需要重读请说明原因。",
+        )
+    return ToolResult(data=out, note="；".join(notes))
 
 
 PACK = Pack(

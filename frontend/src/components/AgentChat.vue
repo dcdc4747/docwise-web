@@ -243,7 +243,17 @@
               </div>
             </div>
             <div v-if="turn.notes && turn.notes.length" class="agent-notes">
-              <span v-for="(note, k) in turn.notes" :key="k">{{ note }}</span>
+              <!-- 指标：带数字/百分比的先亮出来（可信度看这个） -->
+              <span
+                v-for="(note, k) in classifiedNotes(turn).metrics"
+                :key="'m' + k"
+                class="agent-note-metric"
+              >{{ note }}</span>
+              <span
+                v-for="(note, k) in classifiedNotes(turn).warns"
+                :key="'w' + k"
+                class="agent-note-warn"
+              >{{ note }}</span>
             </div>
 
             <!-- 元信息：只写算得出来的事实（模型 / 用时 / 步数） -->
@@ -719,6 +729,27 @@ onUnmounted(() => {
   if (tickerTimer) clearInterval(tickerTimer)
 })
 
+/**
+ * 把 `final.notes` 分成两类：
+ * - **指标**（带百分比 / 分数 / 数量）：`出处可定位率 75%（3/4）`、`术语一致率 100%（3/3）`；
+ * - **提醒**（其余）：`有 2 个出处编号格式不对，已剔除`、`正文里提到了块号但没登记`。
+ *
+ * 判据用正则而不是关键词表：以后子 agent 新写的 note 只要带数字就会自动进"指标"这一排。
+ */
+const METRIC_RE = /\d+\s*%|\d+\s*\/\s*\d+|率|共\s*\d+\s*(?:处|条|个)/
+
+function classifiedNotes(turn) {
+  const metrics = []
+  const warns = []
+  for (const note of turn.notes || []) {
+    const text = String(note || '').trim()
+    if (!text) continue
+    if (METRIC_RE.test(text)) metrics.push(text)
+    else warns.push(text)
+  }
+  return { metrics, warns }
+}
+
 function toolSteps(turn) {
   return toolStepsOf(turn)
 }
@@ -1036,6 +1067,23 @@ onMounted(async () => {
   这里不引阴影、不加大色块：状态只用左侧一道细色条 + 小字标签。
 -->
 <style scoped>
+.agent-note-metric {
+  display: inline-block;
+  margin: 2px 6px 2px 0;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: #eef4ff;
+  color: #1d4ed8;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.agent-note-warn {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
 .agent-live {
   margin-top: 6px;
   font-size: 12px;
