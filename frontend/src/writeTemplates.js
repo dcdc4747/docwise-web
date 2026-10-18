@@ -164,8 +164,9 @@ export function buildSkeleton(id, { title } = {}) {
     .trim()
   if (headline) lines.push(`# ${headline}`, '')
   for (const section of template.sections) {
+    // ⚠️ 只写标题，**不写提示**：2026-10-19 用户明确否掉了把提示刻进正文
+    //    （"感觉写了一堆文字刻上去而已"）。提示由界面在骨架栏里逐条列出。
     lines.push(`## ${section.heading}`)
-    lines.push(`<!-- 写作提示：${section.hint} -->`)
     lines.push('')
   }
   return `${lines.join('\n').replace(/\n+$/, '')}\n`

@@ -7,6 +7,10 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+// TipTap/ProseMirror 需要真实 DOM 量测，happy-dom 里跑不了；单测里换成轻量替身。
+vi.mock('../src/components/WriteEditor.vue', () => import('./helpers/WriteEditorStub.js'))
+
+
 vi.mock('../src/auth', () => ({
   authFetch: vi.fn(async () => ({
     ok: true,

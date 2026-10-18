@@ -236,14 +236,13 @@
             </span>
           </div>
 
-          <textarea
+          <WriteEditor
             v-if="mode === 'edit'"
-            ref="bodyEl"
+            ref="editorEl"
             v-model="body"
-            class="wr-editor"
-            placeholder="正文由你来写……（用 # 写标题；从素材卡插入的引文就是 [1] 这样的编号）"
-            aria-label="稿件正文"
-            @keydown="onEditorKeydown"
+            :typography="typography"
+            @update:typography="saveTypography"
+            @save="saveWithFeedback"
           />
 
           <div v-else class="wr-preview">
@@ -595,6 +594,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 
 import AgentChat from '../components/AgentChat.vue'
 import AssistPane from '../components/AssistPane.vue'
+import WriteEditor from '../components/WriteEditor.vue'
 import CiteChip from '../components/CiteChip.vue'
 import EmptyState from '../components/EmptyState.vue'
 import HonestNote from '../components/HonestNote.vue'
@@ -1034,7 +1034,36 @@ function resetWidths() {
   localStorage.setItem(HELPER_KEY, '340')
 }
 
-const bodyEl = ref(null)
+/**
+ * 正文编辑器（TipTap）的实例 ref。
+ * 旧代码里那些"设选区"的动作都收敛到它暴露的几个方法上（focusEnd / focusHeading / caretOffset）。
+ */
+const editorEl = ref(null)
+
+/** 文档级版式（字号/行距/段距/缩进）：Markdown 存不下逐字样式，所以按"这篇稿的版式"记在本机。 */
+const TYPO_KEY = 'docwise_write_typo'
+function readTypography() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(TYPO_KEY) || '{}')
+    return {
+      fontSize: Number(raw.fontSize) || 16,
+      lineHeight: Number(raw.lineHeight) || 1.8,
+      paraSpacing: Number.isFinite(Number(raw.paraSpacing)) ? Number(raw.paraSpacing) : 10,
+      indent: Boolean(raw.indent),
+    }
+  } catch {
+    return { fontSize: 16, lineHeight: 1.8, paraSpacing: 10, indent: false }
+  }
+}
+const typography = ref(readTypography())
+function saveTypography(next) {
+  typography.value = { ...typography.value, ...(next || {}) }
+  try {
+    localStorage.setItem(TYPO_KEY, JSON.stringify(typography.value))
+  } catch {
+    /* 存不了也不影响编辑 */
+  }
+}
 const fileEl = ref(null)
 
 /**
@@ -1304,7 +1333,7 @@ async function create(payload) {
     pane.value = 'doc'
     mode.value = 'edit'
     await nextTick()
-    bodyEl.value?.focus()
+    editorEl.value?.focus()
     return draft
   } catch (err) {
     showToast(`建不了稿：${err?.message || '原因不明'}`)
@@ -1449,11 +1478,8 @@ function writeSkeleton() {
   )
   mode.value = 'edit'
   void nextTick(() => {
-    const el = bodyEl.value
-    if (!el) return
-    el.focus()
     // 光标落到末尾：骨架刚写在最后，接着往下写就是正文第一句
-    el.setSelectionRange(el.value.length, el.value.length)
+    editorEl.value?.focusEnd()
   })
 }
 
@@ -1489,13 +1515,16 @@ async function writeWithoutReading() {
   pane.value = 'doc'
   mode.value = 'edit'
   await nextTick()
-  bodyEl.value?.focus()
+  editorEl.value?.focus()
 }
 
 async function insertMaterial(material) {
   // 插在光标处；预览态下没有光标，就落到正文末尾
+  // 光标处的 Markdown 偏移（编辑器给不出就落到文末）
   const caret =
-    mode.value === 'edit' && bodyEl.value ? bodyEl.value.selectionStart : body.value.length
+    mode.value === 'edit' && editorEl.value
+      ? editorEl.value.caretOffset() ?? body.value.length
+      : body.value.length
   let result = null
   try {
     result = await insertCitation(material, caret)
@@ -1508,10 +1537,9 @@ async function insertMaterial(material) {
   helperTab.value = 'cites'
   mode.value = 'edit'
   await nextTick()
-  if (bodyEl.value) {
-    bodyEl.value.focus()
-    bodyEl.value.setSelectionRange(result.caret, result.caret)
-  }
+  // 引文标记已经写进 body（`insertCitation` 改的是 Markdown），编辑器会跟着同步；
+  // 这里只把它聚焦，光标交给编辑器自己（`result.caret` 是 Markdown 坐标，硬套选区会错位）
+  editorEl.value?.focus()
 }
 
 // ============================================================ 引用区动作
@@ -1558,11 +1586,9 @@ async function focusOutline(item) {
   mode.value = 'edit'
   pane.value = 'doc'
   await nextTick()
-  const el = bodyEl.value
-  if (!el) return
-  el.focus()
-  // 把光标放到那一行开头：浏览器会把它滚进视野，不用自己算像素
-  el.setSelectionRange(item.offset, item.offset)
+  // 提纲条目 → 第几个标题（编辑器按标题节点定位，比 Markdown 偏移更稳）
+  const headingsBefore = outline.value.filter((it) => it.offset < item.offset).length
+  editorEl.value?.focusHeading(headingsBefore)
 }
 
 function onEditorKeydown(event) {
