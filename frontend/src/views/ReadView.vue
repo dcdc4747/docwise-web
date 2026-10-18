@@ -81,7 +81,7 @@
     <template v-else-if="noteLineText">{{ noteLineText }}</template>
   </div>
 
-  <div class="reader-body">
+  <div class="reader-body" :style="readerBodyStyle">
     <!-- 左栏 · 段落精读（自己的 DOM，出处锚点才成立） -->
     <div
       v-if="!isNarrow && docMode === 'paragraph'"
@@ -430,6 +430,20 @@
       </div>
     </div>
 
+    <!-- 桌面：正文与助手之间的**可拖拽分隔条**（手机走抽屉，不需要） -->
+    <div
+      v-if="!isNarrow"
+      class="splitter"
+      :class="{ dragging: splitterDragging }"
+      role="separator"
+      aria-orientation="vertical"
+      title="拖动调整正文 / 助手宽度（双击复位）"
+      @pointerdown="startSplitterDrag"
+      @dblclick="resetSplitter"
+    >
+      <i />
+    </div>
+
     <!-- 助手区：桌面 = 右栏；手机 = 底部抽屉三档。**同一份 DOM**，只有容器类名不同 -->
     <div :class="assistClass">
       <template v-if="isNarrow">
@@ -613,6 +627,60 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 // 问答页签的两种模式：`agent` = 会调工具的助手（默认），`direct` = 只读这一篇的老问答
 const agentScope = computed(() => ({ task_id: currentTask.value && currentTask.value.id }))
 const agentInput = ref('')
+
+// ============================================================ 正文 / 助手 可拖拽
+// 宽度存 localStorage：用户调过一次，下次进阅读页还是那个比例（换文献也该保持）。
+const ASSIST_W_KEY = 'docwise_assist_w'
+const SPLITTER_MIN = 300
+const SPLITTER_MAX = 760
+const splitterDragging = ref(false)
+const assistWidth = ref(readAssistWidth())
+
+function readAssistWidth() {
+  const saved = Number(localStorage.getItem(ASSIST_W_KEY) || 0)
+  return saved >= SPLITTER_MIN && saved <= SPLITTER_MAX ? saved : 340
+}
+
+const readerBodyStyle = computed(() => ({
+  // 用 CSS 变量传给 `.assist`，避免直接写死 flex-basis
+  '--assist-w': `${assistWidth.value}px`,
+}))
+
+function clampAssistWidth(px) {
+  // 上限还要跟视口走：窄屏上不允许把正文挤到 320 以下
+  const viewportMax = Math.max(SPLITTER_MIN, window.innerWidth - 640)
+  return Math.min(Math.max(px, SPLITTER_MIN), Math.min(SPLITTER_MAX, viewportMax))
+}
+
+function startSplitterDrag(event) {
+  if (!event || event.button !== 0) return
+  splitterDragging.value = true
+  const startX = event.clientX
+  const startW = assistWidth.value
+  const onMove = (moveEvent) => {
+    // 往左拖 = 助手变宽（分隔条在右边）
+    assistWidth.value = clampAssistWidth(startW + (startX - moveEvent.clientX))
+  }
+  const onUp = () => {
+    splitterDragging.value = false
+    localStorage.setItem(ASSIST_W_KEY, String(assistWidth.value))
+    window.removeEventListener('pointermove', onMove)
+    window.removeEventListener('pointerup', onUp)
+    document.body.style.cursor = ''
+    document.body.style.userSelect = ''
+  }
+  window.addEventListener('pointermove', onMove)
+  window.addEventListener('pointerup', onUp)
+  // 拖拽时别选到正文文字、也别显示 I 形光标
+  document.body.style.cursor = 'col-resize'
+  document.body.style.userSelect = 'none'
+}
+
+function resetSplitter() {
+  assistWidth.value = 340
+  localStorage.setItem(ASSIST_W_KEY, '340')
+}
+
 
 function submitFromComposer() {
   const text = agentInput.value.trim()

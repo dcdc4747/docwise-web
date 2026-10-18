@@ -3386,6 +3386,96 @@ svg.ic-inl {
 .dw .agent-usage { font-size: var(--fs-micro); color: var(--muted); }
 
 /* ============================================================================
+   [RW] 阅读区：铺满 + 细滚条 + 可拖拽分隔条（2026-10-18）
+   ============================================================================
+   三个问题（用户截图对比后提的）：
+   1. 正文被锁在 760px，1440 屏上两边大片空白 —— 用户原话"让文章铺满阅读区"；
+   2. 正文与助手之间的滚动条又粗又抢眼，穿在画面中间；
+   3. 正文/助手的宽度是写死的 340px，读长文与写稿时需要的主次不同。
+
+   做法：正文宽度上限抬到 1080（窄屏仍自适应）、滚条收细且只在悬停时显形、
+   中间加一条可拖拽分隔条（宽度存 localStorage，双击复位）。
+   ⚠️ 位置要求：必须在 `[R9]` 之前（#162 的用例断言 R9 是最后一段卡片样式）。 */
+
+.dw .page {
+  width: 100%;
+  max-width: 1080px;
+  padding: 32px 40px;
+}
+
+/* 正文滚条：细 + 透明轨道，只在悬停时显形（不悬停时几乎看不见） */
+.dw .doc-pane {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  padding: 18px 22px;
+}
+.dw .doc-pane:hover {
+  scrollbar-color: #c3ccda transparent;
+}
+.dw .doc-pane::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.dw .doc-pane::-webkit-scrollbar-track {
+  background: transparent;
+}
+.dw .doc-pane::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 999px;
+}
+.dw .doc-pane:hover::-webkit-scrollbar-thumb {
+  background: #c3ccda;
+}
+
+/* 助手宽度由 CSS 变量给（默认 340），拖分隔条时实时变 */
+.dw .assist {
+  flex: 0 0 var(--assist-w, 340px);
+}
+
+/* 分隔条：6px 宽的抓手，平时几乎不可见，悬停/拖拽时亮起来 */
+.dw .splitter {
+  flex: 0 0 6px;
+  position: relative;
+  cursor: col-resize;
+  background: transparent;
+  z-index: 2;
+  touch-action: none;
+}
+.dw .splitter::before {
+  content: '';
+  position: absolute;
+  inset: 0 2px;
+  background: transparent;
+  border-radius: 999px;
+  transition: background 120ms ease;
+}
+.dw .splitter:hover::before,
+.dw .splitter.dragging::before {
+  background: var(--accent);
+  opacity: 0.55;
+}
+.dw .splitter i {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 3px;
+  height: 34px;
+  margin: -17px 0 0 -1.5px;
+  border-radius: 999px;
+  background: var(--line);
+}
+.dw .splitter:hover i,
+.dw .splitter.dragging i {
+  background: #fff;
+}
+
+/* 手机/窄屏：走底部抽屉，没有分隔条，正文恢复满宽 */
+@media (max-width: 1023px) {
+  .dw .splitter { display: none; }
+  .dw .page { max-width: 100%; padding: 20px 16px; }
+}
+
+/* ============================================================================
    [R9] 字体栈与渲染开关（2026-10-16）—— 全站字体只在这里定
    ============================================================================
    为什么单独放**文件最后**、而不是并进上面 `.dw` 的 token 段：契约 §4.3 第 5 条
