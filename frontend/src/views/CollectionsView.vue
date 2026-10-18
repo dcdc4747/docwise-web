@@ -29,20 +29,54 @@
         :placeholder="editing === 'new' ? '新集合的名字，例如：毕业论文' : '改个名字'"
         autofocus
       />
+      <select
+        v-if="editing === 'new'"
+        v-model="draftParent"
+        class="kn-input kn-select"
+        title="放在哪个集合下面（默认顶层）"
+      >
+        <option value="">放在顶层</option>
+        <option v-for="target in parentOptionsFor(null)" :key="target.id" :value="String(target.id)">
+          {{ target.indent }}{{ target.name }}
+        </option>
+      </select>
       <button type="submit" class="btn primary sm" :disabled="busy || !draftName.trim()">
         {{ editing === 'new' ? '建' : '保存' }}
       </button>
       <button type="button" class="btn ghost sm" @click="cancelEditor">取消</button>
     </form>
 
-    <ul v-if="collections.length" class="kn-list">
-      <li v-for="item in collections" :key="item.id" class="card kn-row">
+    <ul v-if="treeRows.length" class="kn-list">
+      <li
+        v-for="item in treeRows"
+        :key="item.id"
+        class="card kn-row"
+        :style="{ marginLeft: `${Math.min(item.depth, 6) * 18}px` }"
+      >
         <button type="button" class="kn-row-main" @click="openCollection(item)">
+          <span v-if="item.depth" class="kn-branch" aria-hidden="true">↳</span>
           <span class="kn-name">{{ item.name }}</span>
-          <span class="kn-num">{{ item.count ?? 0 }} 篇</span>
+          <span class="kn-num">
+            {{ item.count ?? 0 }} 篇<template v-if="showDeep(item)"
+              >（含子 {{ item.deepCount }} 篇）</template
+            >
+          </span>
         </button>
         <div class="kn-row-ops">
           <button type="button" class="btn ghost sm" @click="startRename(item)">改名</button>
+          <!-- 移父级（N3 的 `parent_id`）：不许移到自己或自己的子集合，所以选项里先排除 -->
+          <select
+            class="kn-move"
+            :value="String(item.parentId ?? '')"
+            :disabled="busy"
+            title="把整个集合移到别的集合下面（也可以移回顶层）"
+            @change="moveTo(item, $event.target.value)"
+          >
+            <option value="">移到顶层</option>
+            <option v-for="target in parentOptionsFor(item)" :key="target.id" :value="String(target.id)">
+              {{ target.indent }}{{ target.name }}
+            </option>
+          </select>
           <template v-if="confirmingId === item.id">
             <button type="button" class="btn danger sm" :disabled="busy" @click="remove(item)">
               确认删除
@@ -66,7 +100,7 @@
       <span class="kn-hint">还没放进任何集合的文献。删除集合不会删文献——它们会回到这里。</span>
     </div>
 
-    <div v-if="!collections.length && !loading" class="kn-empty">
+    <div v-if="!treeRows.length && !loading" class="kn-empty">
       还没有集合。点右上角「＋ 新建集合」，然后用「历史记录」卡片上的「归集」把文献放进来。
     </div>
 
@@ -145,6 +179,8 @@ const toast = ref('')
 /** `'new'` = 正在建；数字 = 正在改那条的 id；`null` = 没在编辑 */
 const editing = ref(null)
 const draftName = ref('')
+/** 新建时选的父集合（'' = 顶层） */
+const draftParent = ref('')
 const confirmingId = ref(null)
 const unfiledCount = ref(null)
 
@@ -170,11 +206,105 @@ async function load() {
   loading.value = false
 }
 
+// ---------------------------------------------------------------- 树（parent_id）
+//
+// ⚠️ 后端早就支持嵌套（`parent_id`、防环、同父去重、删除时子集合上提到父级），
+// 前端以前只平铺——这里把它画成树。
+// 硬约束：父级选项里**不能出现自己和自己的后代**（后端会 400，界面别让人点到）。
+
+/** 扁平 → 树（DFS 展开成带 depth 的行；父级不存在的挂到顶层，不丢行）。 */
+const treeRows = computed(() => {
+  const byParent = new Map()
+  for (const item of collections.value) {
+    const key = item.parentId ?? null
+    if (!byParent.has(key)) byParent.set(key, [])
+    byParent.get(key).push(item)
+  }
+  const rows = []
+  const seen = new Set()
+  const walk = (parentId, depth) => {
+    for (const item of byParent.get(parentId) || []) {
+      if (seen.has(item.id)) continue // 数据里有环也不许无限递归
+      seen.add(item.id)
+      rows.push({ ...item, depth })
+      walk(item.id, depth + 1)
+    }
+  }
+  walk(null, 0)
+  // 父级不在列表里的（数据异常）也要显示，否则"消失了"比"位置怪"更糟
+  for (const item of collections.value) {
+    if (!seen.has(item.id)) rows.push({ ...item, depth: 0 })
+  }
+  return rows
+})
+
+/** 含子集合的篇数比直接成员多时才需要额外说明（否则两个数一样，写了是噪音）。 */
+function showDeep(item) {
+  return (item.deepCount ?? 0) > (item.count ?? 0)
+}
+
+/** 某集合的所有后代 id（移动时要把它们从选项里排除，否则后端 400）。 */
+function descendantIdsOf(id) {
+  const children = new Map()
+  for (const item of collections.value) {
+    const key = item.parentId ?? null
+    if (!children.has(key)) children.set(key, [])
+    children.get(key).push(item)
+  }
+  const out = new Set()
+  const walk = (parentId) => {
+    for (const item of children.get(parentId) || []) {
+      if (out.has(item.id)) continue
+      out.add(item.id)
+      walk(item.id)
+    }
+  }
+  walk(id)
+  return out
+}
+
+/** 父级选项（缩进显示层级）；传了 item 就排除它自己和它的后代。 */
+function parentOptionsFor(item) {
+  const banned = item ? new Set([item.id, ...descendantIdsOf(item.id)]) : new Set()
+  return treeRows.value
+    .filter((row) => !banned.has(row.id))
+    .map((row) => ({
+      id: row.id,
+      name: row.name,
+      indent: '　'.repeat(row.depth),
+    }))
+}
+
+/** 移动（N3 的 `parent_id`；传空 = 移到顶层）。 */
+async function moveTo(item, rawParent) {
+  const parentId = rawParent === '' ? null : Number(rawParent)
+  if ((item.parentId ?? null) === parentId) return
+  busy.value = true
+  error.value = ''
+  try {
+    await apiJson(`/api/collections/${item.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ parent_id: parentId }),
+    })
+    toast.value = parentId
+      ? `已把「${item.name}」移到「${collections.value.find((c) => c.id === parentId)?.name || '上级'}」下面`
+      : `已把「${item.name}」移到顶层`
+    await load()
+  } catch (err) {
+    error.value = `没移成（${messageOf(err, '网络或服务异常')}）`
+    await load() // 失败要把下拉弹回真实父级，别停在用户选的那项
+  } finally {
+    busy.value = false
+  }
+}
+
 onMounted(load)
 
 function startCreate() {
   editing.value = 'new'
   draftName.value = ''
+  draftParent.value = ''
   error.value = ''
 }
 
@@ -199,7 +329,10 @@ async function submitEditor() {
       await apiJson('/api/collections', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({
+          name,
+          parent_id: draftParent.value === '' ? null : Number(draftParent.value),
+        }),
       })
       toast.value = `已建集合「${name}」`
     } else {

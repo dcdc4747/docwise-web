@@ -70,13 +70,14 @@ afterEach(() => {
 })
 
 describe('字段映射（照接口，不照文档猜）', () => {
-  it('集合：`doc_count` → `count`，`parent_id` → `parentId`', () => {
-    expect(mapCollection({ id: 1, name: '化学组', parent_id: null, doc_count: 3 })).toEqual({
-      id: 1,
-      name: '化学组',
-      parentId: null,
-      count: 3,
-    })
+  it('集合：`doc_count`→`count`、`doc_count_deep`→`deepCount`、`parent_id`→`parentId`', () => {
+    // ⚠️ 2026-10-18：多了 deepCount（含子集合的总数）。两个数**不许混**——
+    //    count 只数直接成员，deepCount 才是含子集合（后端两个都给）。
+    expect(
+      mapCollection({ id: 1, name: '化学组', parent_id: null, doc_count: 3, doc_count_deep: 5 }),
+    ).toEqual({ id: 1, name: '化学组', parentId: null, count: 3, deepCount: 5 })
+    // 后端没给 deep 时是 null（不编成 0）
+    expect(mapCollection({ id: 2, name: '空集合', doc_count: 0 }).deepCount).toBeNull()
   })
 
   it('标签：`doc_count` → `count`，保住 kind', () => {
