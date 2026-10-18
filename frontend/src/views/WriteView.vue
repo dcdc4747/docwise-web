@@ -143,7 +143,8 @@
             <button class="btn ghost sm" @click="cancelTemplatePick">取消</button>
             <span class="spacer" />
             <span class="wr-muted wr-tplbar-tip">
-              {{ pickedTemplate.sections.length }} 节 · 只写标题与提示，正文你来填
+              {{ pickedTemplate.sections.length }} 节 · 只写标题，正文你来填
+              <template v-if="pickedTemplate.style">· 参考文献：{{ pickedTemplate.style }}</template>
             </span>
           </div>
 

@@ -142,17 +142,48 @@ afterEach(() => {
 })
 
 describe('模板数据：三个模板都在', () => {
-  it('id 就是草稿上存的三个标识（老的两个没改名），name 是中文场景名', () => {
+  it('五个体例，id 稳定（tpl-journal / tpl-thesis 两个老 id 没改名）', () => {
     expect(WRITE_TEMPLATES.map((item) => item.id)).toEqual([
       'tpl-journal',
+      'tpl-en-journal',
+      'tpl-ieee',
       'tpl-thesis',
       'tpl-report',
     ])
     expect(WRITE_TEMPLATES.map((item) => item.name)).toEqual([
-      '期刊论文',
-      '学位论文',
+      '中文期刊论文',
+      '英文期刊论文',
+      'IEEE 会议论文',
+      '学位论文（中文）',
       '研究报告',
     ])
+  })
+
+  it('每个体例都标了参考文献样式（投稿时要用）', () => {
+    for (const template of WRITE_TEMPLATES) {
+      expect(template.style, `${template.id} 没有 style`).toBeTruthy()
+    }
+  })
+
+  it('体例要点对得上真实规范（这几条是被用户质疑后核过的）', () => {
+    const ieee = templateById('tpl-ieee')
+    expect(ieee.sections.map((s) => s.heading)).toContain('Index Terms')
+    expect(ieee.sections.map((s) => s.heading)).toContain('Acknowledgment')
+    // IEEE 节号是罗马数字大写
+    expect(ieee.sections.some((s) => s.heading.startsWith('I. '))).toBe(true)
+
+    const cn = templateById('tpl-journal')
+    const cnHeads = cn.sections.map((s) => s.heading)
+    expect(cnHeads).toContain('中图分类号')
+    expect(cnHeads).toContain('英文摘要与关键词')
+    // 题名不是一节（旧版把它当小节，是错的）
+    expect(cnHeads).not.toContain('题名')
+
+    const thesis = templateById('tpl-thesis')
+    const thHeads = thesis.sections.map((s) => s.heading)
+    for (const head of ['中文摘要', 'Abstract', '目录', '致谢', '附录']) {
+      expect(thHeads, `学位论文缺 ${head}`).toContain(head)
+    }
   })
 
   it('每个模板的 sections 非空，heading 与 hint 都不是空串', () => {
@@ -176,7 +207,7 @@ describe('模板数据：三个模板都在', () => {
   })
 
   it('templateById：认识就给整份，不认识返回 null（不编一个空模板）', () => {
-    expect(templateById('tpl-thesis').name).toBe('学位论文')
+    expect(templateById('tpl-thesis').name).toBe('学位论文（中文）')
     expect(templateById('tpl-report').sections.length).toBeGreaterThan(0)
     expect(templateById('tpl-nope')).toBeNull()
     expect(templateById(undefined)).toBeNull()
@@ -187,7 +218,7 @@ describe('buildSkeleton：只给结构，不给正文', () => {
   it('每个 section 都输出 ## 标题，**不往正文里塞提示文字**', () => {
     const skeleton = buildSkeleton('tpl-journal')
     const headings = skeleton.split('\n').filter((line) => line.startsWith('## '))
-    expect(headings).toHaveLength(9)
+    expect(headings).toHaveLength(10)
     // 2026-10-19 用户否掉了把写作提示刻进正文（"写了一堆文字刻上去"）
     expect(skeleton).not.toContain('<!--')
     expect(skeleton).not.toContain('写作提示：')
@@ -211,7 +242,7 @@ describe('写作页：选模板 → 提示条 → 写入骨架', () => {
 
     const bar = wrapper.find('.wr-tplbar')
     expect(bar.exists()).toBe(true)
-    expect(bar.text()).toContain('模板：期刊论文')
+    expect(bar.text()).toContain('模板：中文期刊论文')
     expect(bar.text()).toContain('写入骨架')
     expect(bar.text()).toContain('取消')
     wrapper.unmount()
@@ -231,8 +262,8 @@ describe('写作页：选模板 → 提示条 → 写入骨架', () => {
     for (const section of templateById('tpl-journal').sections) {
       expect(text, `正文里缺「${section.heading}」`).toContain(`## ${section.heading}`)
     }
-    // "未命名草稿"是占位名：不许被当成 # 一级标题写进正文
-    expect(text.startsWith('## 题名')).toBe(true)
+    // 骨架从第一节开始（题名不是正文小节）
+    expect(text.startsWith('## 中文摘要')).toBe(true)
     // 标脏（存不存由用户按「保存」决定，这里不偷偷存库）
     expect(saveState.value).toBe('dirty')
     // 给了一次撤销（全站同一个提示条）
@@ -258,7 +289,7 @@ describe('写作页：选模板 → 提示条 → 写入骨架', () => {
     await flushPromises()
 
     const text = wrapper.find('.wr-editor').element.value
-    expect(text.startsWith('先写的这一句。\n\n## 题名')).toBe(true)
+    expect(text.startsWith('先写的这一句。\n\n## 中文摘要')).toBe(true)
     wrapper.unmount()
   })
 
@@ -274,7 +305,7 @@ describe('写作页：选模板 → 提示条 → 写入骨架', () => {
 
     await barButton(wrapper, '写入骨架').trigger('click')
     await flushPromises()
-    expect(wrapper.find('.wr-editor').element.value).toContain('## 题名')
+    expect(wrapper.find('.wr-editor').element.value).toContain('## 中文摘要')
 
     runToastUndo()
     await flushPromises()
