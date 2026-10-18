@@ -3,8 +3,41 @@
   <div class="agent-pane">
     <!-- 顶部：模型 + 强度 + 设置 -->
 
+    <!-- ⭐ 对话 / 轨迹：轨迹单独一页，消息流才干净（长对话尤其明显） -->
+    <div v-if="turns.length" class="agent-views">
+      <button
+        type="button"
+        :class="{ on: viewMode === 'chat' }"
+        @click="viewMode = 'chat'"
+      >
+        对话
+      </button>
+      <button
+        type="button"
+        :class="{ on: viewMode === 'trace' }"
+        @click="viewMode = 'trace'"
+      >
+        轨迹 · {{ totalSteps }}
+      </button>
+    </div>
+
+    <!-- 轨迹页：把这一串对话里所有工具调用按顺序列出来 -->
+    <div v-if="viewMode === 'trace'" class="agent-trace-view">
+      <div v-for="(item, idx) in allSteps" :key="idx" class="agent-trace-item">
+        <div class="agent-trace-q">Q{{ item.turnIndex }} · {{ item.question }}</div>
+        <ul class="agent-trace-list">
+          <li v-for="(step, j) in item.steps" :key="j" :class="{ bad: step.ok === false }">
+            <b>{{ step.kind === 'tool_call' ? '调' : step.ok === false ? '失败' : '返回' }}</b>
+            <code>{{ step.name }}</code>
+            <span class="agent-trace-detail">{{ detailOf(step) }}</span>
+          </li>
+        </ul>
+      </div>
+      <p v-if="!allSteps.length" class="agent-empty">这轮还没调过工具。</p>
+    </div>
+
     <!-- 对话流 -->
-    <div class="agent-flow">
+    <div v-if="viewMode === 'chat'" class="agent-flow">
       <div v-if="!turns.length" class="agent-empty">
         <p>问它一句试试——它会自己去查库，不是只看这一篇：</p>
         <div class="agent-quick">
@@ -145,7 +178,7 @@
         <textarea
           v-model="input"
           rows="1"
-          placeholder="问它：库里有什么、这段在讲什么…"
+          placeholder="问它点什么…"
           :disabled="busy"
           @keydown.enter.exact.prevent="submit"
         />
@@ -227,6 +260,25 @@ function submit() {
   input.value = ''
 }
 const customModel = ref(false)
+const viewMode = ref('chat')
+
+/** 轨迹页：把每一轮的工具调用摊平，按轮次分组（Q1/Q2…） */
+const allSteps = computed(() =>
+  turns.value
+    .map((turn, index) => ({
+      turnIndex: index + 1,
+      question:
+        index > 0 && turns.value[index - 1].role === 'user'
+          ? turns.value[index - 1].text
+          : '',
+      steps: toolSteps(turn),
+    }))
+    .filter((item) => item.steps.length),
+)
+
+const totalSteps = computed(() =>
+  allSteps.value.reduce((sum, item) => sum + item.steps.length, 0),
+)
 
 const providers = computed(() => (config.value && config.value.providers) || [])
 const currentProvider = computed(() => {

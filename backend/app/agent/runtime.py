@@ -34,12 +34,16 @@ _PY_TYPES = {
     "object": dict,
 }
 
-# 循环上限：6 步左右（request_limit 含收尾那次，所以 +1）
 # 块号：`p0_b3` / `p12_b40`（跨任务会重名，所以只在"工具真返回过"的集合里认）
 _BLOCK_ID_RE = re.compile(r"\bp\d+_b\d+\b")
 
-_REQUEST_LIMIT = 7
-_TOOL_CALL_LIMIT = 12
+# 单轮预算。⚠️ 2026-10-18 按用户要求**大幅放宽**：
+# 目前不对外开放、只有本人在用，卡太紧会把正常问题打断
+# （"这篇结论有多可靠"实测要查 20 次工具）。
+# 但仍保留**硬上限**：没有上限时模型可能在一轮里无限查下去（真的会发生），
+# 所以这是"防失控"，不是"防成本"。撞到上限会给人话（见 `_human_error`）。
+_REQUEST_LIMIT = 40
+_TOOL_CALL_LIMIT = 60
 
 
 @dataclass
@@ -334,4 +338,28 @@ async def stream_scene(
                     }
     except Exception as exc:  # noqa: BLE001 —— 流式失败要**说人话**，不是静默断流
         logger.warning("流式跑场景 %s 失败：%s", scene.id, exc)
-        yield {"type": "error", "message": f"{type(exc).__name__}: {exc}"}
+        yield {"type": "error", "message": _human_error(exc)}
+
+
+def _human_error(exc: Exception) -> str:
+    """把底层异常翻成用户能懂的一句话（不暴露库名与英文术语）。
+
+    为什么单独一个函数：页面上直接印 `UsageLimitExceeded` + 文档链接，
+    既看不懂又像崩溃；而"查得太多"其实是正常的预算保护。
+    """
+    name = type(exc).__name__
+    text = str(exc)
+    if "UsageLimit" in name or "request_limit" in text or "tool_calls_limit" in text:
+        return (
+            "这次查得有点多，超出单轮预算了。"
+            "可以把问题问得更具体一点（比如只问某一节），或者再试一次。"
+        )
+    if "RateLimit" in name or "429" in text:
+        return "模型服务限流了，等一会再试。"
+    if "Timeout" in name or "timeout" in text.lower():
+        return "模型响应超时了，等一下再试。"
+    if "Authentication" in name or "401" in text or "API key" in text:
+        return "模型密钥不对或已失效：点输入框右边的模型名重新填一下。"
+    if "Connection" in name or "Connect" in text:
+        return "连不上模型服务：检查网络或接口地址。"
+    return f"这轮没跑完（{text[:120]}）。可以再试一次。"

@@ -3508,7 +3508,7 @@ svg.ic-inl {
 }
 .dw .agent-composer-row textarea {
   flex: 1 1 auto;
-  min-height: 46px;
+  min-height: 52px;
   line-height: 1.5;
   max-height: 120px;
   resize: none;
@@ -3538,6 +3538,84 @@ svg.ic-inl {
 .dw .agent-model-btn:hover { border-color: var(--accent); color: var(--accent); }
 .dw .agent-model-btn.warn { background: #fef3c7; border-color: #fde68a; color: #92400e; }
 .dw .agent-send { flex: 0 0 auto; }
+
+/* 面板撑满：消息区自己滚、输入框吸底（不然输入框会跟着内容往上跑） */
+.dw .agent-pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+.dw .agent-flow {
+  flex: 1 1 auto;
+  overflow: auto;
+  padding-right: 2px;
+}
+.dw .agent-trace-view {
+  flex: 1 1 auto;
+  overflow: auto;
+}
+
+/* 对话 / 轨迹 分段（对齐主流 agent 工具的"轨迹单独一页"） */
+.dw .agent-views {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+.dw .agent-views button {
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--fs-micro);
+  color: var(--muted);
+  padding: 6px 2px;
+  margin-right: 12px;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+}
+.dw .agent-views button.on {
+  color: var(--ink);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+
+.dw .agent-trace-view { display: grid; gap: 14px; overflow: auto; }
+.dw .agent-trace-q { font-size: var(--fs-micro); color: var(--muted); margin-bottom: 4px; }
+.dw .agent-trace-item .agent-trace-list { margin: 0; }
+
+/* ⭐ 消息铺满：去掉气泡底色与限宽，读起来像文档（DS Harness 那种密度） */
+.dw .agent-bubble {
+  background: none;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  font-size: var(--fs-meta);
+  line-height: 1.85;
+}
+.dw .agent-bubble.user {
+  align-self: stretch;
+  max-width: 100%;
+  color: var(--ink);
+  font-weight: 600;
+  padding-left: 10px;
+  border-left: 3px solid var(--accent);
+  margin-bottom: 2px;
+}
+.dw .agent-bubble.answer {
+  background: none;
+  border: 0;
+}
+.dw .agent-bubble.err {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+}
+.dw .agent-bubble.pending {
+  color: var(--muted);
+  font-size: var(--fs-micro);
+}
+.dw .agent-turn { gap: 8px; }
 
 /* ============================================================================
    [R9] 字体栈与渲染开关（2026-10-16）—— 全站字体只在这里定
