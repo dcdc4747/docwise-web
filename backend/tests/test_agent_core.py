@@ -789,3 +789,55 @@ def test_verified_block_ids_ignores_failed_retry() -> None:
         )
     ]
     assert _verified_block_ids(messages) == set()
+
+
+def test_get_understanding_survives_list_shaped_terms() -> None:
+    """术语表是**数组**时也要能返回（截图里的崩溃点）。"""
+    import json as _json
+
+    from app.agent.contracts import ToolContext
+    from app.agent.packs import tasks as tasks_pack
+    from app.db import SessionLocal
+    from app.models import Task, TaskUnderstanding
+
+    with SessionLocal() as session:
+        task = Task(user_id=TEST_USER_ID, filename="术语数组.pdf", status="completed")
+        session.add(task)
+        session.commit()
+        session.refresh(task)
+        session.add(
+            TaskUnderstanding(
+                task_id=task.id,
+                guide_json=_json.dumps(
+                    {
+                        "research_question": {
+                            "text": "研究手性",
+                            "source_block_ids": ["p0_b1"],
+                        }
+                    },
+                    ensure_ascii=False,
+                ),
+                # ⚠️ 数组形状：这正是线上让工具崩掉的形状
+                terms_json=_json.dumps(
+                    [
+                        {"term": "chirality", "cn": "手性"},
+                        {"term": "wavepacket", "cn": "波包"},
+                    ],
+                    ensure_ascii=False,
+                ),
+                status="ready",
+            )
+        )
+        session.commit()
+        task_id = task.id
+
+    ctx = ToolContext(db=None, user_id=TEST_USER_ID, scene_id="read_ask", scope={})
+    got = tasks_pack.get_understanding(ctx, {"task_id": task_id})
+    assert isinstance(got.data, dict), got.data
+    assert got.data["terms_count"] == 2
+    assert got.data["guide"]["research_question"]["text"] == "研究手性"
+
+    with SessionLocal() as session:
+        session.query(TaskUnderstanding).filter_by(task_id=task_id).delete()
+        session.delete(session.get(Task, task_id))
+        session.commit()

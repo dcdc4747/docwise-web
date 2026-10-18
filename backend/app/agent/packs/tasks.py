@@ -15,6 +15,25 @@ from ...models import Task, TaskUnderstanding
 from ..contracts import Pack, ToolResult, ToolSpec
 
 
+def _count_terms(terms_raw: str | None) -> int:
+    """数术语条数。**两种形状都认**（实测见过数组，别再假设是 dict）。
+
+    - 数组：`[{"term": "...", "cn": "..."}]`（引擎/LLM 现在写的就是这个）
+    - 字典：`{"terms": [...]}`（早期形状，留着兼容）
+    """
+    if not terms_raw:
+        return 0
+    try:
+        parsed = json.loads(terms_raw)
+    except (TypeError, ValueError):
+        return 0
+    if isinstance(parsed, dict):
+        parsed = parsed.get("terms") or []
+    if isinstance(parsed, list):
+        return len([item for item in parsed if isinstance(item, dict)])
+    return 0
+
+
 def list_tasks(ctx, args: dict | None = None) -> ToolResult:
     """列出我的文献（id / 文件名 / 状态 / 语言对 / 档位）。"""
     payload = args or {}
@@ -82,13 +101,7 @@ def get_understanding(ctx, args: dict | None = None) -> ToolResult:
             guide = json.loads(guide_raw)
         except (TypeError, ValueError):
             guide = None
-    terms_count = 0
-    if terms_raw:
-        try:
-            parsed = json.loads(terms_raw)
-            terms_count = len(parsed.get("terms", parsed)) if parsed else 0
-        except (TypeError, ValueError):
-            terms_count = 0
+    terms_count = _count_terms(terms_raw)
 
     if not guide:
         return ToolResult(
