@@ -38,14 +38,34 @@ def test_scenes_endpoint_lists_ready_scenes() -> None:
     assert items["write_compose"]["status"] == "ready"
     # 写作场景要同时带两类工具：写作（草稿/素材）+ 查库（找依据）
     # 写作场景带四类工具：写作（草稿/素材）+ 查库（找依据）+ 术语 + 引文
+    # 写作：读稿 + 找依据 + 术语 + 引文 + 自查 + 排版 + 素材（写作闭环需要的全套）
     assert set(items["write_compose"]["packs"]) == {
         "writing",
         "library",
         "terms",
         "cite",
+        "check",
+        "biblio",
+        "materials",
     }
-    # 读懂侧也要能查术语表、能定位文献（"那篇讲手性的" → task_id）
-    assert set(items["read_ask"]["packs"]) == {"library", "terms", "tasks"}
+    # 读懂：定位文献 + 读段 + 术语 + 进度/重译 + 偏好
+    assert set(items["read_ask"]["packs"]) == {
+        "library",
+        "terms",
+        "tasks",
+        "translate",
+        "memory",
+    }
+    # ⭐ 工具清单要能被前端/用户核对；同时钉住"别无限堆工具"的上限
+    assert "search_library" in items["read_ask"]["tools"]
+    assert "read_draft" in items["write_compose"]["tools"]
+    assert "run_check" in items["write_compose"]["tools"]
+    assert 8 <= len(items["read_ask"]["tools"]) <= 12
+    assert 10 <= len(items["write_compose"]["tools"]) <= 16
+    # ⭐ 工具清单要能被前端/用户核对（文档与接口必须一一对应）
+    assert "search_library" in items["read_ask"]["tools"]
+    assert "read_draft" in items["write_compose"]["tools"]
+    assert len(items["write_compose"]["tools"]) >= 8
 
 
 # ============================================================ ② 密钥只写不读
@@ -559,3 +579,52 @@ def test_cite_pack_lists_citations_without_writing_anything() -> None:
         assert count == 0, "读工具不许写库"
         session.delete(session.get(Draft, draft_id))
         session.commit()
+
+
+# ============================================================ ⑨ 工具箱契约（框架级）
+def test_every_pack_obeys_the_tool_contract() -> None:
+    """所有包一起过一遍契约：名字唯一、schema 是 object、handler 签名对。"""
+    import inspect
+
+    from app.agent import registry
+
+    pack_names: list[str] = []
+    tool_names: list[str] = []
+    for pack in registry.packs().values():
+        pack_names.append(pack.name)
+        for spec in pack.tools:
+            tool_names.append(spec.name)
+
+            # ① 名字与描述不能空（模型靠 description 选工具）
+            assert spec.name, f"{pack.name} 里有工具没名字"
+            assert spec.description.strip(), f"{spec.name} 没有 description"
+
+            # ② 参数必须是 object 型 JSON Schema
+            assert spec.parameters.get("type") == "object", (
+                f"{spec.name} 的 parameters 不是 object schema"
+            )
+
+            # ③ handler 必须是 (ctx, args) 两个参数（runtime 就是这么调的）
+            params = list(inspect.signature(spec.handler).parameters)
+            assert len(params) == 2, (
+                f"{spec.name} 的 handler 必须是 (ctx, args)，现在是 {params}"
+            )
+
+    # ④ 包名、工具名都要唯一
+    assert len(pack_names) == len(set(pack_names)), f"包名重复：{pack_names}"
+    assert len(tool_names) == len(set(tool_names)), (
+        f"工具名重复：{[n for n in tool_names if tool_names.count(n) > 1]}"
+    )
+
+
+def test_packs_and_scenes_never_import_the_engine() -> None:
+    """结构红线：`packs/`、`scenes/` 只认我们的 ABI，不认引擎。"""
+    import re
+
+    pattern = re.compile(r"^\s*(from|import)\s+pydantic_ai\b", re.M)
+    offenders = []
+    for folder in ("packs", "scenes"):
+        for path in (AGENT_DIR / folder).glob("*.py"):
+            if pattern.search(path.read_text(encoding="utf-8")):
+                offenders.append(str(path))
+    assert not offenders, f"这些文件直接 import 了引擎：{offenders}"

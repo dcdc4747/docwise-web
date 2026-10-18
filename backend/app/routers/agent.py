@@ -54,6 +54,8 @@ def list_scenes() -> dict:
                 "status": scene.status,
                 "default_tier": scene.default_tier,
                 "packs": list(scene.packs),
+                # ⭐ 工具清单：能力边界是可核对的事实（用户问"它到底能干什么"）
+                "tools": [spec.name for spec in registry.tools_of(scene)],
             }
             for scene in registry.scenes().values()
         ]

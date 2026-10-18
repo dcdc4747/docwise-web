@@ -10,6 +10,7 @@ import { computed, reactive, ref, watch } from 'vue'
 
 import {
   agentConfig,
+  agentScenes,
   agentSaveNote,
   agentSettingsOpen,
   openSettings,
@@ -25,6 +26,7 @@ const saving = ref(false)
 const form = reactive({ baseUrl: '', model: '', tier: 'standard', apiKey: '' })
 const customModel = ref(false)
 
+const scenes = agentScenes
 const providers = computed(() => (config.value && config.value.providers) || [])
 const keyHint = computed(() => (config.value && config.value.key_hint) || '')
 const currentProvider = computed(() => {
@@ -105,6 +107,13 @@ async function save() {
         >
           模型
         </button>
+        <button
+          type="button"
+          :class="{ on: section === 'ability' }"
+          @click="section = 'ability'"
+        >
+          能力
+        </button>
         <button type="button" disabled title="还没做">通用设置</button>
         <button type="button" disabled title="还没做">插件</button>
       </aside>
@@ -115,8 +124,34 @@ async function save() {
           <button type="button" title="关闭" @click="openSettings(false)">×</button>
         </header>
 
-        <p class="agent-modal-hint">填入各厂商的 API 密钥即可使用其模型；密钥只写不读。</p>
+        <p v-if="section === 'model'" class="agent-modal-hint">
+          填入各厂商的 API 密钥即可使用其模型；密钥只写不读。
+        </p>
 
+        <!-- 能力：每个场景能用哪些工具（来自 /api/agent/scenes 的 tools） -->
+        <div v-if="section === 'ability'" class="agent-ability">
+          <p class="agent-modal-hint">
+            下面是各场景**当前真正挂上的工具**（不是规划）。清单与
+            <code class="agent-inline-code">docs/agent工具箱_20261018.md</code> 一一对应。
+          </p>
+          <div v-for="scene in scenes" :key="scene.id" class="agent-ability-block">
+            <div class="agent-ability-head">
+              <b>{{ scene.title }}</b>
+              <span class="agent-ability-count">{{ (scene.tools || []).length }} 个工具</span>
+            </div>
+            <div class="agent-ability-chips">
+              <span v-for="name in scene.tools || []" :key="name" class="agent-ability-chip">
+                {{ name }}
+              </span>
+              <span v-if="!(scene.tools || []).length" class="agent-modal-hint">
+                这个场景还没挂工具
+              </span>
+            </div>
+          </div>
+          <p v-if="!scenes.length" class="agent-modal-hint">场景还没加载到。</p>
+        </div>
+
+        <template v-if="section === 'model'">
         <label>
           <span>厂商</span>
           <select :value="currentProvider" @change="pickProvider($event.target.value)">
@@ -161,6 +196,7 @@ async function save() {
             保存
           </button>
         </div>
+        </template>
       </div>
     </div>
   </div>

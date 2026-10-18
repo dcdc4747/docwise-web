@@ -3969,6 +3969,29 @@ svg.ic-inl {
   color: #b45309;
 }
 
+/* 设置 · 能力：场景 → 工具清单（可核对，不是文案） */
+.dw .agent-ability { display: grid; gap: 14px; }
+.dw .agent-ability-block { display: grid; gap: 6px; }
+.dw .agent-ability-head { display: flex; align-items: baseline; gap: 8px; }
+.dw .agent-ability-count { font-size: var(--fs-micro); color: var(--muted); }
+.dw .agent-ability-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.dw .agent-ability-chip {
+  font-size: var(--fs-micro);
+  color: var(--ink);
+  background: #f1f5f9;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 2px 9px;
+  font-family: var(--mono, ui-monospace, monospace);
+}
+.dw .agent-inline-code {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: var(--fs-micro);
+  background: #f1f5f9;
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
 /* ============================================================================
    [R9] 字体栈与渲染开关（2026-10-16）—— 全站字体只在这里定
    ============================================================================
