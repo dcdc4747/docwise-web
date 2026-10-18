@@ -3726,6 +3726,141 @@ svg.ic-inl {
 }
 .dw .agent-turn { gap: 8px; }
 
+/* 模型列表（只选模型）：贴着输入框往上弹 */
+.dw .agent-composer { position: relative; }
+.dw .agent-models {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 30;
+  max-height: 58vh;
+  overflow: auto;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.14);
+  padding: 6px;
+  display: grid;
+  gap: 2px;
+}
+.dw .agent-models-head {
+  font-size: var(--fs-micro);
+  color: var(--muted);
+  padding: 6px 8px 4px;
+}
+.dw .agent-models-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border: 0;
+  background: none;
+  border-radius: 8px;
+  padding: 8px;
+  font: inherit;
+  font-size: var(--fs-meta);
+  color: var(--ink);
+  cursor: pointer;
+  text-align: left;
+}
+.dw .agent-models-item:hover { background: #f1f5f9; }
+.dw .agent-models-item.on { background: var(--accent-soft, #eef2ff); color: var(--accent); }
+.dw .agent-models-name { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dw .agent-models-provider { font-size: var(--fs-micro); color: var(--muted); }
+.dw .agent-models-check { color: var(--accent); }
+.dw .agent-models-more {
+  margin-top: 4px;
+  border: 0;
+  border-top: 1px solid var(--line);
+  background: none;
+  padding: 8px;
+  font: inherit;
+  font-size: var(--fs-micro);
+  color: var(--muted);
+  cursor: pointer;
+  text-align: left;
+}
+.dw .agent-models-more:hover { color: var(--accent); }
+
+/* 设置弹窗：左侧分区 + 右侧内容（自定义配置都收在这） */
+.dw .agent-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgba(15, 23, 42, 0.35);
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+.dw .agent-modal-card {
+  width: min(760px, 100%);
+  max-height: 84vh;
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 24px 64px rgba(15, 23, 42, 0.28);
+  display: flex;
+  overflow: hidden;
+}
+.dw .agent-modal-nav {
+  flex: 0 0 168px;
+  border-right: 1px solid var(--line);
+  padding: 14px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: #fbfdff;
+}
+.dw .agent-modal-title { font-size: var(--fs-meta); font-weight: 600; padding: 4px 8px 10px; }
+.dw .agent-modal-nav button {
+  border: 0;
+  background: none;
+  border-radius: 8px;
+  padding: 8px;
+  font: inherit;
+  font-size: var(--fs-meta);
+  color: var(--muted);
+  text-align: left;
+  cursor: pointer;
+}
+.dw .agent-modal-nav button.on { background: #eef2ff; color: var(--accent); font-weight: 600; }
+.dw .agent-modal-nav button:disabled { opacity: 0.45; cursor: not-allowed; }
+.dw .agent-modal-body {
+  flex: 1 1 auto;
+  padding: 16px 20px;
+  overflow: auto;
+  display: grid;
+  gap: 8px;
+  align-content: start;
+}
+.dw .agent-modal-body header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.dw .agent-modal-body header button {
+  border: 0;
+  background: none;
+  font-size: 18px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.dw .agent-modal-hint { font-size: var(--fs-micro); color: var(--muted); margin: 0 0 6px; }
+.dw .agent-modal-body label { display: grid; gap: 4px; margin-bottom: 8px; }
+.dw .agent-modal-body label > span { font-size: var(--fs-micro); color: var(--muted); }
+.dw .agent-modal-body input,
+.dw .agent-modal-body select {
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 8px 10px;
+  font: inherit;
+  font-size: var(--fs-meta);
+  background: #fff;
+  color: var(--ink);
+}
+.dw .agent-modal-ops { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
+
 /* ============================================================================
    [R9] 字体栈与渲染开关（2026-10-16）—— 全站字体只在这里定
    ============================================================================

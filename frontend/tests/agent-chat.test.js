@@ -44,21 +44,15 @@ describe('AgentChat（读懂侧）', () => {
     expect(modelBtn.classes()).toContain('warn')
   })
 
-  it('点输入行里的模型按钮能打开设置：有厂商下拉、强度、密钥输入（密钥不回显）', async () => {
+  it('点输入行里的模型按钮 → **只弹模型列表**（自定义配置在设置里）', async () => {
     const wrapper = mount(AgentChat, { props: { scope: {} } })
     await flushPromises()
-    expect(wrapper.find('.agent-config').exists()).toBe(false)
+    expect(wrapper.find('.agent-models').exists()).toBe(false)
     await wrapper.find('.agent-model-btn').trigger('click')
-    expect(wrapper.find('.agent-config').exists()).toBe(true)
-    const labels = wrapper.findAll('.agent-config label > span').map((n) => n.text())
-    expect(labels).toContain('厂商')
-    expect(labels).toContain('强度')
-    expect(labels).toContain('API Key')
-    const keyInput = wrapper
-      .findAll('.agent-config input')
-      .find((node) => node.attributes('type') === 'password')
-    expect(keyInput, '没找到密钥输入框').toBeTruthy()
-    expect(keyInput.attributes('type')).toBe('password')
+    expect(wrapper.find('.agent-models').exists()).toBe(true)
+    expect(wrapper.find('.agent-models-more').text()).toContain('更多设置')
+    // ⚠️ 这里**不该**出现接口地址 / API Key 这些字段——它们属于设置弹窗
+    expect(wrapper.find('.agent-models input[type=password]').exists()).toBe(false)
   })
 
   it('空态给一句能照做的示例问题', async () => {

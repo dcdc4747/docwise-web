@@ -37,6 +37,7 @@ import AppStatusBar from './components/AppStatusBar.vue'
 import AppTabbar from './components/AppTabbar.vue'
 import LoginView from './components/LoginView.vue'
 import TaskPanels from './components/TaskPanels.vue'
+import AgentSettings from './components/AgentSettings.vue'
 import { buildHash, currentRoute, navigate, onRouteChange } from './router'
 import { initAsk, lastQuestion } from './stores/useAsk'
 import { loadPrefs } from './stores/usePrefs'
@@ -828,5 +829,8 @@ function handleUnauthorized() {
         <button v-if="toast.undoLabel" @click="runToastUndo">{{ toast.undoLabel }}</button>
       </div>
     </div>
+
+    <!-- 设置弹窗：自定义配置都在这（输入框旁边只负责选模型） -->
+    <AgentSettings />
   </n-config-provider>
 </template>

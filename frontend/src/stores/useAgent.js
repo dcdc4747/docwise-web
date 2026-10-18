@@ -21,6 +21,9 @@ const state = reactive({
   busy: false,
   error: '',
   configOpen: false,
+  // 设置弹窗：自定义类配置（接口地址 / API Key / 强度 / 厂商）都收在这里，
+  // 输入框旁边只负责「选模型」——两件事不混在一个按钮里。
+  settingsOpen: false,
   saving: false,
   saveNote: '',
 })
@@ -251,3 +254,11 @@ function applyEvent(turn, event) {
     turn.error = event.message || '模型调用失败'
   }
 }
+
+/** 打开/关闭设置弹窗（模型列表底部的「更多设置…」走它）。 */
+export function openSettings(open = true) {
+  state.settingsOpen = open
+  if (open) loadConfig()
+}
+
+export const agentSettingsOpen = computed(() => state.settingsOpen)

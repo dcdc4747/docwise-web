@@ -122,61 +122,26 @@
     <!-- ⭐ 输入框那一行：模型选择在这里（和 DS Harness 一样，不占消息区顶部） -->
     <div v-if="viewMode === 'chat'" class="agent-composer">
       <!-- 设置面板 -->
-      <div v-if="configOpen" class="agent-config">
-        <div class="agent-config-head">
-          <b>模型设置</b>
-          <button type="button" title="关闭" @click="toggleConfig()">×</button>
-        </div>
-        <label>
-          <span>厂商</span>
-          <select :value="currentProvider" @change="pickProvider($event.target.value)">
-            <option v-for="p in providers" :key="p.id" :value="p.id">{{ p.name }}</option>
-          </select>
-        </label>
-        <label>
-          <span>接口地址</span>
-          <input v-model="form.baseUrl" type="text" placeholder="https://api.deepseek.com/v1" />
-        </label>
-        <label>
-          <span>模型</span>
-          <select :value="form.model" @change="pickModel($event.target.value)">
-            <option v-for="m in modelOptions" :key="m" :value="m">{{ m }}</option>
-            <option value="__custom">自定义…</option>
-          </select>
-        </label>
-        <label v-if="customModel">
-          <span>手填模型名</span>
-          <input v-model="form.model" type="text" placeholder="例如 deepseek-reasoner" />
-        </label>
-        <label>
-          <span>强度</span>
-          <select v-model="form.tier">
-            <option value="fast">快（便宜，适合多轮查库）</option>
-            <option value="standard">标准</option>
-            <option value="strong">强（贵，复杂推理）</option>
-          </select>
-        </label>
-        <label>
-          <span>API Key</span>
-          <input
-            v-model="form.apiKey"
-            type="password"
-            :placeholder="keyHint || '留空 = 不动已保存的密钥'"
-          />
-        </label>
-        <div class="agent-config-ops">
-          <span class="agent-note">{{ saveNote }}</span>
-          <button class="btn primary sm" type="button" :disabled="saving" @click="save">
-            保存
-          </button>
-        </div>
-        <p class="agent-hint">
-          密钥只写不读：保存后这里不会回显，页面上只显示末四位。
-          <template v-if="!config || !config.server_default">
-            没配就直接用不了——先填一个，或者让管理员在服务端配默认。
-          </template>
-        </p>
+      <!-- ⭐ 只选模型：一个列表，点一下换；自定义配置在「设置」里 -->
+      <div v-if="modelOpen" class="agent-models">
+        <div class="agent-models-head">选择模型</div>
+        <button
+          v-for="item in modelChoices"
+          :key="item.provider + ':' + item.model"
+          type="button"
+          class="agent-models-item"
+          :class="{ on: item.active }"
+          @click="chooseModel(item)"
+        >
+          <span class="agent-models-name">{{ item.model }}</span>
+          <span class="agent-models-provider">{{ item.providerName }}</span>
+          <span v-if="item.active" class="agent-models-check">✓</span>
+        </button>
+        <button class="agent-models-more" type="button" @click="openSettingsFromPicker()">
+          更多设置（接口地址 / API Key / 强度）
+        </button>
       </div>
+
 
       <textarea
         ref="inputEl"
@@ -193,9 +158,9 @@
           :class="{ warn: !modelReady }"
           type="button"
           :title="modelReady ? '点这里换模型 / 厂商 / 强度' : '还没配模型，点这里配'"
-          @click="toggleConfig()"
+          @click="toggleModels()"
         >
-          {{ modelReady ? `${modelLabel} · ${tierLabel}` : '未配置模型' }}
+          {{ modelReady ? modelLabel : '未配置模型' }}
           <span class="agent-model-hint">▾</span>
         </button>
         <span class="agent-kbd-hint">Enter 发送 · Shift+Enter 换行</span>
@@ -230,15 +195,14 @@ import AiBadge from './AiBadge.vue'
 import {
   agentBusy,
   agentConfig,
-  agentConfigOpen,
   agentError,
   agentMessages,
   agentSaveNote,
   loadConfig,
   loadScenes,
+  openSettings,
   saveAgentConfig,
   sendAgentStream,
-  toggleConfig,
   toolStepsOf,
 } from '../stores/useAgent'
 
@@ -258,12 +222,10 @@ const turns = computed(() => agentMessages.value)
 const busy = agentBusy
 const error = agentError
 const config = agentConfig
-const configOpen = agentConfigOpen
 const saveNote = agentSaveNote
 const saving = ref(false)
 const traceOpen = reactive({})
 
-const form = reactive({ baseUrl: '', model: '', tier: 'standard', apiKey: '' })
 const input = ref('')
 
 // 输入框自动长高：一行起步，最多 6 行再滚（避免出现原生滚动条与上下箭头）
@@ -284,7 +246,6 @@ function submit() {
   input.value = ''
   nextTick(autoGrow)
 }
-const customModel = ref(false)
 const viewMode = ref('chat')
 
 /** 轨迹页：把每一轮的工具调用摊平，按轮次分组（Q1/Q2…） */
@@ -307,79 +268,81 @@ const totalSteps = computed(() =>
 
 const providers = computed(() => (config.value && config.value.providers) || [])
 const currentProvider = computed(() => {
-  const base = form.baseUrl
-  if (!base) return 'deepseek'
-  const hit = providers.value.find((p) => p.base_url === base)
-  return hit ? hit.id : 'local'
+  const hit = providers.value.find((p) => p.base_url === (config.value || {}).base_url)
+  return hit ? hit.id : 'deepseek'
 })
-const keyHint = computed(() => (config.value && config.value.key_hint) || '')
 
-/** 当前厂商在各档位下的预设模型（去重）——"能选模型"要看得见，而不是只让用户手打。 */
-const modelOptions = computed(() => {
-  const all = (config.value && config.value.tier_models) || {}
-  const providerModels = all[currentProvider.value] || {}
+/**
+ * 模型列表：按厂商摊平，**只读后端给的预设**（不提供自定义输入——
+ * 自定义属于「设置」，挤在输入框旁边就会变成一坨表单）。
+ */
+const modelChoices = computed(() => {
+  const cfg = config.value || {}
+  const tierModels = cfg.tier_models || {}
+  const out = []
   const seen = new Set()
-  for (const model of Object.values(providerModels)) {
-    if (model) seen.add(model)
+  for (const provider of providers.value) {
+    for (const model of Object.values(tierModels[provider.id] || {})) {
+      if (!model) continue
+      const key = `${provider.id}:${model}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      out.push({
+        provider: provider.id,
+        providerName: provider.name,
+        model,
+        baseUrl: provider.base_url,
+        active: cfg.model === model,
+      })
+    }
   }
-  // 当前已保存的模型也要在列表里（否则下拉显示不出来）
-  if (form.model) seen.add(form.model)
-  return [...seen]
+  // 当前模型若不在预设里（如服务端默认），也要能看见"现在用的是哪个"
+  if (cfg.model && !out.some((item) => item.model === cfg.model)) {
+    out.unshift({
+      provider: currentProvider.value,
+      providerName: '当前',
+      model: cfg.model,
+      baseUrl: cfg.base_url || '',
+      active: true,
+    })
+  }
+  return out
 })
 
-// 下拉默认选中第一项：否则 <select :value="" 会显示空白，看着像"没有模型可选"
-watch(modelOptions, (options) => {
-  if (!form.model && options.length) form.model = options[0]
-}, { immediate: true })
+const modelOpen = ref(false)
 
-function pickModel(value) {
-  if (value === '__custom') {
-    customModel.value = true
-    return
-  }
-  customModel.value = false
-  form.model = value
+function toggleModels() {
+  modelOpen.value = !modelOpen.value
 }
+
+async function chooseModel(item) {
+  modelOpen.value = false
+  await saveAgentConfig({
+    baseUrl: item.baseUrl || (config.value || {}).base_url || '',
+    model: item.model,
+    tier: (config.value || {}).tier || 'standard',
+    apiKey: '',
+  })
+}
+
+function openSettingsFromPicker() {
+  modelOpen.value = false
+  openSettings(true)
+}
+
 const modelReady = computed(() => Boolean(config.value && (config.value.key_set || config.value.server_default)))
 const modelLabel = computed(() => {
   if (!config.value) return '未配置模型'
   if (!modelReady.value) return '未配置模型'
-  const model = config.value.model || form.model || '默认模型'
+  const model = config.value.model || '默认模型'
   return model
 })
 const tierLabel = computed(() => {
-  const tier = (config.value && config.value.tier) || form.tier || 'standard'
+  const tier = (config.value && config.value.tier) || 'standard'
   return { fast: '快', standard: '标准', strong: '强' }[tier] || tier
 })
 
-function syncForm() {
-  const cfg = config.value || {}
-  form.baseUrl = cfg.base_url || ''
-  form.model = cfg.model || ''
-  form.tier = cfg.tier || 'standard'
-  form.apiKey = ''
-}
 
-watch(config, syncForm, { immediate: true })
-
-function pickProvider(id) {
-  customModel.value = false
-  const hit = providers.value.find((p) => p.id === id)
-  if (!hit) return
-  form.baseUrl = hit.base_url
-  const tierModels = (config.value && config.value.tier_models) || {}
-  const guess = (tierModels[id] || {})[form.tier]
-  if (guess) form.model = guess
-}
-
-async function save() {
-  saving.value = true
-  try {
-    await saveAgentConfig({ ...form })
-  } finally {
-    saving.value = false
-  }
-}
 
 const pendingText = computed(() => {
   // 最后一条助手消息里已经有工具调用了，就把"正在干什么"说出来
