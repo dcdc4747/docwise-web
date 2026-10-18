@@ -385,6 +385,7 @@ function buildEditor() {
       },
     },
     onUpdate: ({ editor: instance }) => {
+      docVersion.value += 1
       syncing = true
       emit('update:modelValue', instance.getHTML())
       syncHeading()
@@ -394,6 +395,7 @@ function buildEditor() {
       })
     },
     onSelectionUpdate: () => {
+      docVersion.value += 1
         syncHeading()
         syncFontSize()
         syncFontFamily()
@@ -459,7 +461,20 @@ function setFontFamily(family) {
 }
 
 /** 是否在表格里（决定"表格操作"那排按钮显不显示） */
-const inTable = computed(() => Boolean(editor.value?.isActive('table')))
+/**
+ * 编辑器「事务版本号」：任何编辑/选区变化都自增。
+ *
+ * 为什么需要：`inTable` 读的是编辑器**内部**状态，而 `editor` 是个 ref，
+ * 内部变化不会让 computed 重算 → 插完表格后「＋行/删表」那排按钮不出现
+ * （真浏览器实测抓到的）。读一下这个计数器就能跟着刷新。
+ */
+const docVersion = ref(0)
+
+/** 是否在表格里（决定表格操作那排按钮显不显示） */
+const inTable = computed(() => {
+  void docVersion.value
+  return Boolean(editor.value?.isActive('table'))
+})
 
 const imageInput = ref(null)
 

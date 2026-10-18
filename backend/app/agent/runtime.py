@@ -154,6 +154,10 @@ def build_agent(scene: Scene, cfg: LLMConfig, model: Any = None):
     )
 
 
+#: 工具结果给前端的摘要长度上限。原为 300/400，矩阵这类结构化结果会被切掉一半。
+_EXCERPT_MAX = 1200
+
+
 def _verified_block_ids(messages) -> set[str]:
     """工具**真返回过**的块号集合（用完整内容，不用截断的 excerpt）。
 
@@ -194,7 +198,7 @@ def _steps_of(messages) -> list[dict]:
                         "kind": "tool_result",
                         "name": part.tool_name,
                         "ok": True,
-                        "excerpt": body[:300],
+                        "excerpt": body[:_EXCERPT_MAX],
                     }
                 )
             elif isinstance(part, RetryPromptPart):
@@ -203,7 +207,7 @@ def _steps_of(messages) -> list[dict]:
                         "kind": "tool_result",
                         "name": getattr(part, "tool_name", "") or "",
                         "ok": False,
-                        "excerpt": str(part.content)[:300],
+                        "excerpt": str(part.content)[:_EXCERPT_MAX],
                     }
                 )
     return steps
@@ -445,7 +449,7 @@ async def stream_scene(
                         "type": "tool_result",
                         "name": name,
                         "ok": not failed,
-                        "excerpt": full_text[:400],
+                        "excerpt": full_text[:_EXCERPT_MAX],
                     }
                 elif isinstance(event, PartDeltaEvent):
                     delta = event.delta

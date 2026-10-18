@@ -56,6 +56,10 @@
                 class="agent-result-line"
               >{{ line }}</span>
             </div>
+            <!-- 矩阵结果：直接摆成表（解析不出 / 空表就一行都不多渲染） -->
+            <div v-if="matrixOf(step)" class="agent-matrix">
+              <MatrixTable :data="matrixOf(step)" />
+            </div>
           </li>
         </ul>
       </div>
@@ -124,6 +128,10 @@
                       class="agent-result-line"
                     >{{ line }}</span>
                   </div>
+                  <!-- 矩阵结果：直接摆成表（解析不出 / 空表就一行都不多渲染） -->
+                  <div v-if="matrixOf(step)" class="agent-matrix">
+                    <MatrixTable :data="matrixOf(step)" />
+                  </div>
                 </li>
               </TransitionGroup>
               <div class="agent-live">{{ liveLine(turn) }}</div>
@@ -169,6 +177,10 @@
                       :key="'line-' + l"
                       class="agent-result-line"
                     >{{ line }}</span>
+                  </div>
+                  <!-- 矩阵结果：直接摆成表（解析不出 / 空表就一行都不多渲染） -->
+                  <div v-if="matrixOf(step)" class="agent-matrix">
+                    <MatrixTable :data="matrixOf(step)" />
                   </div>
                 </li>
               </ul>
@@ -398,8 +410,9 @@
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 
 import AiBadge from './AiBadge.vue'
+import MatrixTable from './MatrixTable.vue'
 
-import { summarizeToolResult } from '../agentResult'
+import { parseMatrix, summarizeToolResult } from '../agentResult'
 
 import {
   agentBusy,
@@ -1082,6 +1095,35 @@ function resultCard(step) {
   return card.lines.length || card.chips.length ? card : null
 }
 
+/** 工具名像不像矩阵（与 `summarizeToolResult` 里那条同口径）。 */
+const MATRIX_TOOL = /matrix/i
+
+/**
+ * 矩阵结果缓存：模板里 `v-if` 与 `:data` 会各调一次，不缓存就每帧解析两遍
+ * （流式输出时每帧都在重渲染，几百字的扫描也不该做两次）。
+ * 键是 step 对象本身；excerpt 在创建时写定，之后不会变。
+ */
+const matrixCache = new WeakMap()
+
+/**
+ * 这一步要不要渲染成表格：`tool_result` + 工具名像 matrix + **解析成功且真有一行**。
+ *
+ * 解析失败（截断）与 `rows: []` 都返回 `null`——那一行保持原样：
+ * 半张表会让人以为"只匹配到这几篇"，空表会被读成"这些文献都没有导读"，
+ * 两种误读都比不显示更糟。
+ */
+function matrixOf(step) {
+  if (!step || step.kind !== 'tool_result' || !MATRIX_TOOL.test(String(step.name || ''))) {
+    return null
+  }
+  const cacheable = typeof step === 'object' && step !== null
+  if (cacheable && matrixCache.has(step)) return matrixCache.get(step)
+  const data = parseMatrix(step.excerpt)
+  const hit = data && data.rows.length ? data : null
+  if (cacheable) matrixCache.set(step, hit)
+  return hit
+}
+
 /** `**加粗**` → 片段数组（不引第三方 markdown，也不 v-html）。 */
 function segments(text) {
   const out = []
@@ -1194,6 +1236,18 @@ onMounted(async () => {
   color: var(--muted);
   font-size: 12px;
   line-height: 1.6;
+}
+
+/*
+ * 矩阵结果：表格可能又宽又长，塞进对话流会把整页撑开。
+ * 卡片固定最多 320px 高、超出在卡片里滚（横向滚动由 MatrixTable 自己的 `.mx-scroll` 管，
+ * 这里只管纵向；两边都设 `overflow` 时外层纵向滚、内层横向滚，不会互相抢）。
+ */
+.agent-matrix {
+  margin: 6px 0 2px;
+  max-height: 320px;
+  overflow: auto;
+  overscroll-behavior: contain;
 }
 
 .agent-live {

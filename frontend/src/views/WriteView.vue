@@ -135,6 +135,17 @@
             </div>
           </div>
 
+          <!-- ⭐ AI 改版式的痕迹条（2026-10-19）：AI 能直接改字号 / 字体 / 行距 / 缩进，
+               改完得让用户看得见"这里被 AI 动过"，并且能一键退回。
+               ⚠️ 段号**不编**：前端拿不到 `apply_style` 的 `changed_blocks`（见 `onDraftChangedByAi`），
+               组件照实显示"若干处"；等哪天真拿到了，只改传进来的 `blocks` 即可。 -->
+          <FormatChangeNote
+            v-if="aiFormatNotes.length"
+            :changes="aiFormatNotes"
+            @undo="undoAiFormatChange"
+            @dismiss="dismissAiFormatChange"
+          />
+
           <!-- ⭐ 模板骨架提示条（2026-10-19 取消"不代写"红线）：选中模板后**不立刻落字**，
                先在这里问一次——「写入骨架」才真写（只写章节标题 + 写作提示，可撤销）。 -->
           <div v-if="pickedTemplate" class="wr-tplbar">
@@ -632,6 +643,7 @@ import WriteEditor from '../components/WriteEditor.vue'
 import { htmlToMd, mdToHtml } from '../writeRich'
 import CiteChip from '../components/CiteChip.vue'
 import EmptyState from '../components/EmptyState.vue'
+import FormatChangeNote from '../components/FormatChangeNote.vue'
 import HonestNote from '../components/HonestNote.vue'
 import { authFetch } from '../auth'
 import { navigate } from '../router'
@@ -1271,6 +1283,78 @@ const saveText = computed(() => {
 // ============================================================ 取数
 
 /**
+ * AI 改版式留下的痕迹（2026-10-19）。
+ *
+ * ⚠️ **段号一律留空**：`apply_style` 的返回值（`changed_blocks`）到不了前端——
+ * `AgentChat` 只把 `draft-changed` 这一个布尔事件递过来，没有块号。
+ * 所以这里**不猜、不编**具体段号，`blocks: []` 交给组件照实显示"若干处"；
+ * 等哪天事件带上块号，把 `blocks` 填上即可，组件与文案都不用动。
+ *
+ * 每条 = `{ draftId, versionId: null, blocks: [], summary }`；同一篇只留**最近一次**，
+ * 因为「撤销这次改动」对应的是最近一版 `source="ai"` 的快照（后端改之前存的那一版）。
+ */
+const aiFormatChanges = ref([])
+
+/** 只显示**当前这篇**的提示：切到别的稿子时，旧稿的提示条不该挂在新稿上面。 */
+const aiFormatNotes = computed(() =>
+  aiFormatChanges.value.filter((item) => item.draftId === currentDraft.value?.id),
+)
+
+/** 丢掉某一篇的改版式提示（撤销成功 / 点「知道了」都走这里）。 */
+function dropAiFormatChange(draftId) {
+  aiFormatChanges.value = aiFormatChanges.value.filter((item) => item.draftId !== draftId)
+}
+
+/**
+ * 点「知道了」：只把这条收掉，**不碰稿子**（和「撤销」是两件事）。
+ */
+function dismissAiFormatChange(changes) {
+  const draftId = (changes || [])[0]?.draftId
+  if (draftId) dropAiFormatChange(draftId)
+}
+
+/**
+ * 点「撤销这次改动」：回到 AI 改版式**之前**那一版。
+ *
+ * 版本从哪来：`apply_style` 是**先存一版 `source="ai"` 的快照再改**（后端 format 包装里写死的），
+ * 所以版本列表里最新那条 `source === 'ai'` 就是"改版式之前"的样子。
+ * ⚠️ 找不到就**如实说回不去**，绝不随手拿最新一版冒充——那可能是改完之后的保存。
+ */
+async function undoAiFormatChange(changes) {
+  const change = (changes || [])[0] || aiFormatNotes.value[0]
+  const draftId = change?.draftId
+  if (!draftId || draftId !== currentDraft.value?.id) {
+    showToast('先切回刚才那篇稿子，再撤销这次改版式')
+    return
+  }
+  // 回滚会把正文换成服务端那一版；手里没存上的字先送出去，别让撤销顺手把它们抹掉。
+  if (saveState.value === 'dirty') {
+    const saved = await saveNow()
+    if (!saved) {
+      showToast(`没存上手里的字，先不撤销：${saveError.value || '原因不明'}`)
+      return
+    }
+  }
+  const list = await loadVersions()
+  if (versionsError.value) {
+    showToast(`版本列表取不到：${versionsError.value}`)
+    return
+  }
+  const target = (Array.isArray(list) ? list : []).find((item) => item.source === 'ai')
+  if (!target) {
+    showToast('没找到改版式之前的版本快照——这一篇回不去')
+    return
+  }
+  const ok = await restoreVersion(target.id)
+  if (!ok) {
+    showToast(`回滚没成：${versionsError.value || '原因不明'}`)
+    return
+  }
+  dropAiFormatChange(draftId)
+  showToast('已回滚到改版式之前')
+}
+
+/**
  * AI 改了版式（服务端改库）→ 重拉这一篇。
  *
  * 为什么需要：排版工具不像 `ops` 那样把文本交回前端落地；
@@ -1280,9 +1364,17 @@ const saveText = computed(() => {
  */
 async function onDraftChangedByAi() {
   const ok = await reloadCurrentDraft()
+  const draftId = currentDraft.value?.id ?? null
+  if (draftId) {
+    // 同一篇只留最近一次：更早的提示攒着，撤销按钮就会指到更早那一版快照上（说一套做一套）。
+    aiFormatChanges.value = [
+      ...aiFormatChanges.value.filter((item) => item.draftId !== draftId),
+      { draftId, versionId: null, blocks: [], summary: 'AI 改了版式' },
+    ]
+  }
   showToast(
     ok
-      ? 'AI 已改版式——不满意可从「版本」页签回滚'
+      ? 'AI 已改版式——不满意可点上方提示条「撤销这次改动」，或从「版本」页签回滚'
       : 'AI 改了版式，但当前有未保存的字；先保存，再看这一页',
   )
 }
