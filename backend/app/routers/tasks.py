@@ -190,6 +190,9 @@ def _serialize_task(
         "tags": tags or [],
         # 诚实性：这批字是文字层抽的还是 OCR 认的（扫描件要在界面上说清楚）
         "text_source": task.text_source,
+        # 回收站（2026-10-18）：非空 = 已删除（软删）。
+        # 回收站列表靠它显示"什么时候删的"。
+        "deleted_at": iso_utc(task.deleted_at),
     }
     if blocks is not None:
         data["error_message"] = task.error_message
@@ -250,6 +253,7 @@ def list_tasks(
     tag_bracket: Annotated[list[str] | None, Query(alias="tag[]")] = None,
     smart_id: Annotated[int | None, Query()] = None,
     unfiled: Annotated[bool, Query()] = False,
+    trashed: Annotated[bool, Query()] = False,
 ):
     """当前登录用户自己的任务（最多 50 条，新的在前）。
 
@@ -268,14 +272,27 @@ def list_tasks(
       **每个标签都要命中（AND）**；
     - `smart_id`：套那条智能集合的 `query` 规则
       （**规则即数据**；三种 `op` 见 `_match_condition`）；
-    - `unfiled`：**只回没进任何集合的**（左栏「未归类」那一档）。
+    - `unfiled`：**只回没进任何集合的**（左栏「未归类」那一档）；
+    - `trashed`：**只看回收站**（`deleted_at` 非空的，按删除时间新→旧）。
+      不传＝正常列表（不含回收站）；两个世界互斥。
       与 `collection_id` 同时传没有意义（"既在 X 集合里又没进任何集合"）→ 照实回空。
 
     多条参数之间是 **AND**（交集）。
     ⚠️ **查不到的 `smart_id` 返回空数组**，不报错——契约没为它定义错误，
     而"这条规则下没有我要的文献"本来就是合法结果（与前端 mock 同一条口径）。
     """
-    stmt = select(Task).where(Task.user_id == user.id, Task.archived_at.is_(None))
+    # ⭐ 回收站与正常列表**互斥**（2026-10-18）：
+    # 正常列表既不含归档（策展藏起来的）也不含已删除（回收站里的）。
+    if trashed:
+        stmt = select(Task).where(
+            Task.user_id == user.id, Task.deleted_at.is_not(None)
+        )
+    else:
+        stmt = select(Task).where(
+            Task.user_id == user.id,
+            Task.archived_at.is_(None),
+            Task.deleted_at.is_(None),
+        )
     if reading_status:
         stmt = stmt.where(Task.reading_status == reading_status)
     if collection_id is not None:
@@ -317,6 +334,10 @@ def list_tasks(
         context = _rule_context(db, [task.id for task in rows])
         rows = [task for task in rows if _matches_smart_rule(task, rule.query, context)]
 
+    if trashed:
+        rows.sort(
+            key=lambda task: (task.deleted_at or utc_now(), task.id), reverse=True
+        )
     page = rows[:50]
     memberships: dict[int, list[int]] = {}
     tag_names: dict[int, list[str]] = {}
@@ -490,14 +511,64 @@ def delete_task(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[User, Depends(get_current_user)],
 ):
-    """删除任务：先叫停正在跑的翻译，再删库（含子表）与磁盘产物。
+    """**删除 = 进回收站**（软删）：文件、子表、素材卡关联都留着，能恢复。
 
-    先删库后删文件：worker 停下来时发现任务已不存在，会顺手再清一次输出目录
-    （子进程被 kill 的瞬间可能刚写了点东西）。
+    ⭐ 2026-10-18 改的：以前这里连磁盘产物一起真删，**手滑一次就没了**。
+    现在只有「彻底删除」（`DELETE /api/tasks/{id}/purge`）才真删。
+    正在跑的任务会先叫停（否则 worker 还在写，恢复出来是个半成品）。
     """
     task = load_owned_task(db, user, task_id)
     worker = getattr(request.app.state, "worker", None)
     was_running = bool(worker is not None and worker.request_cancel(task_id))
+
+    task.deleted_at = utc_now()
+    db.commit()
+    logger.info(
+        "移入回收站：task_id=%s filename=%s（运行中=%s）",
+        task_id,
+        task.filename,
+        was_running,
+    )
+    return {
+        "deleted": task_id,
+        "was_running": was_running,
+        "trashed": True,
+        "restorable": True,
+    }
+
+
+@router.post("/{task_id}/restore")
+def restore_task(
+    task_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_user)],
+):
+    """从回收站恢复（清 `deleted_at`）。不在回收站里也算成功（幂等）。"""
+    task = load_owned_task(db, user, task_id)
+    was_trashed = task.deleted_at is not None
+    if was_trashed:
+        task.deleted_at = None
+        db.commit()
+    logger.info("从回收站恢复：task_id=%s（原来在回收站=%s）", task_id, was_trashed)
+    return {"restored": task_id, "was_trashed": was_trashed}
+
+
+@router.delete("/{task_id}/purge")
+def purge_task(
+    task_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_user)],
+):
+    """**彻底删除**（不可恢复）：子表 + 磁盘产物一起清。
+
+    ⚠️ 只允许对**回收站里的**任务做（`deleted_at` 非空）；不在回收站 → 400，
+    免得有人拿这个端点绕过"先删除、再彻底删除"的两步确认。
+    """
+    task = load_owned_task(db, user, task_id)
+    if task.deleted_at is None:
+        raise HTTPException(
+            status_code=400, detail="先移入回收站，再彻底删除（两步确认）"
+        )
 
     paths = {
         "original_path": task.original_path,
@@ -505,7 +576,7 @@ def delete_task(
         "dual_path": task.dual_translated_path,
     }
     filename = task.filename
-    # ⭐ 素材卡是**快照**：源文献被删后卡要活着，只把 `task_id` 脱开（置 null），
+    # ⭐ 素材卡是**快照**：源文献被彻底删掉后卡要活着，只把 `task_id` 脱开（置 null），
     # **绝不级联删卡**——这是 M2 的验收判据（契约 §2.4：删掉源任务后素材卡仍显示
     # `source_name` / `page` / `text_quote`）。SQLite 外键没开级联，不显式脱开就会
     # 留一个指向已删任务的悬空值，界面上"回跳原文"会变成死链。
@@ -515,10 +586,8 @@ def delete_task(
     db.commit()
 
     storage.remove_task_files(task_id, **paths)
-    logger.info(
-        "删除任务：task_id=%s filename=%s（运行中=%s）", task_id, filename, was_running
-    )
-    return {"deleted": task_id, "was_running": was_running}
+    logger.info("彻底删除：task_id=%s filename=%s", task_id, filename)
+    return {"purged": task_id, "irreversible": True}
 
 
 @router.post("/{task_id}/retry")

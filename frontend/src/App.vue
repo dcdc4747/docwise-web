@@ -87,6 +87,7 @@ import MaterialsView from './views/MaterialsView.vue'
 import ReadHomeView from './views/ReadHomeView.vue'
 import CollectionsView from './views/CollectionsView.vue'
 import TagsView from './views/TagsView.vue'
+import TrashView from './views/TrashView.vue'
 import ReadView from './views/ReadView.vue'
 import WriteView from './views/WriteView.vue'
 import { NConfigProvider, NSpin, zhCN, dateZhCN } from 'naive-ui'
@@ -236,6 +237,13 @@ async function syncFromRoute() {
     return
   }
 
+  // 回收站（`#/trash`）：自己取数（`?trashed=1`），这里只切屏。
+  // ⚠️ 教训写在下面那段注释里：**只加路由不加分支 → 地址变了、屏没变**。
+  if (route.name === 'trash') {
+    if (view.value !== 'trash') view.value = 'trash'
+    return
+  }
+
   if (route.name === 'library') {
     if (view.value !== 'library') view.value = 'library'
     return
@@ -371,6 +379,7 @@ const RAIL_TARGETS = {
   'lib-unfiled': { go: { name: 'library' }, filter: { unfiled: 1 } },
   // ⭐ 素材库（E2）：真跳 `#/materials`（吃 N13 的 `?collection_id?` / `&tag?`）
   'lib-materials': { go: { name: 'materials' } },
+  'lib-trash': { go: { name: 'trash' } },
   // ⚠️「草稿」「引用」**不再放在历史记录这一组**：它们是写作资产，入口在「写作」页里
   //    （草稿在左上角下拉、引文在「引用」页签）——放这儿点了只能弹一句"还没做"，最伤。
   // ⭐ 记忆页（M7）：真跳 `#/memory`（N35–N39，自己的表、不是台账）
@@ -389,6 +398,7 @@ const NAV_OF_ROUTE = {
   library: 'lib-all',
   collections: 'lib-collections',
   tags: 'lib-tags',
+  trash: 'lib-trash',
 }
 
 /** 点左栏一项：**先动状态，地址跟着状态走**（与 `backToLibrary` 同一个规矩）。 */
@@ -418,6 +428,7 @@ function onRailSelect(key) {
     materials: 'materials',
     collections: 'collections',
     tags: 'tags',
+  trash: 'trash',
     me: 'me',
     process: 'process',
     memory: 'memory',
@@ -769,6 +780,12 @@ function handleUnauthorized() {
           <!-- ==================== 标签（#/tags 整页 · N6） ==================== -->
           <section v-else-if="view === 'tags'" class="screen-kn">
             <TagsView />
+          </section>
+
+          <!-- ==================== 回收站（#/trash · N44/N45 的入口） ====================
+               删除先落这里，不是直接没了。 -->
+          <section v-else-if="view === 'trash'" class="screen-kn">
+            <TrashView />
           </section>
 
           <!-- ==================== L2 阅读工作区 ==================== -->

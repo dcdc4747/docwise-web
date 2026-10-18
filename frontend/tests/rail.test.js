@@ -58,14 +58,17 @@ afterEach(() => {
 })
 
 describe('AppRail 左栏形状（R4 判据①）', () => {
-  it('上段 3 个动作 + 下段 6 项 + 底部 2 条，全部是能点的按钮', () => {
+  it('上段 3 个动作 + 下段 7 项 + 底部 2 条，全部是能点的按钮', () => {
     const wrapper = mount(AppRail)
     const items = wrapper.findAll('button.rail-item')
 
-    // 3（读懂/写作/校对）+ 6（全部文献/集合/标签/待读/未归类/素材）+ 2（记忆/处理过程）
+    // 3（读懂/写作/校对）+ 7（全部文献/集合/标签/待读/未归类/素材/回收站）
+    // + 2（记忆/处理过程）
+    // ⚠️ 2026-10-18：加「回收站」——删除改成软删之后，得有个地方去恢复它。
+    // ⚠️ 2026-10-18：起草→写作、收口→校对（那两个词只有我们懂）。
     // ⚠️ 2026-10-17：草稿/引用从这一组**拿掉**了（它们是写作资产，入口在「写作」页），
     //    换来「未归类」——点了只弹"还没做"的入口，比没有这个入口更伤。
-    expect(items).toHaveLength(11)
+    expect(items).toHaveLength(12)
     for (const item of items) {
       // 必须是真按钮：`<div @click>` 键盘用户按不动
       expect(item.element.tagName).toBe('BUTTON')
@@ -74,8 +77,16 @@ describe('AppRail 左栏形状（R4 判据①）', () => {
 
     const labels = items.map((i) => i.find('.rail-lbl').text())
     expect(labels.slice(0, 3)).toEqual(['读懂', '写作', '校对'])
-    expect(labels.slice(3, 9)).toEqual(['全部文献', '集合', '标签', '待读', '未归类', '素材'])
-    expect(labels.slice(9)).toEqual(['记忆', '处理过程'])
+    expect(labels.slice(3, 10)).toEqual([
+      '全部文献',
+      '集合',
+      '标签',
+      '待读',
+      '未归类',
+      '素材',
+      '回收站',
+    ])
+    expect(labels.slice(10)).toEqual(['记忆', '处理过程'])
   })
 
   it('两段的段标题是「做什么」与「历史记录」（上段动词、下段名词）', () => {

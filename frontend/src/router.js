@@ -22,6 +22,7 @@ export const ROUTES = {
   materials: '/materials',
   collections: '/collections',
   tags: '/tags',
+  trash: '/trash',
   memory: '/memory',
   process: '/process',
   me: '/me',
