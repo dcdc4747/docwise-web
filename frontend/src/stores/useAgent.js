@@ -119,6 +119,11 @@ export async function sendAgent(question, scope = {}) {
     error: '',
     // `done=false`：还在生成（过程可见）；`true`：过程收起、只留正文
     done: false,
+    // 元信息与重试用：原问题、发起时间、用时、用的哪个模型
+    question: text,
+    startedAt: Date.now(),
+    elapsedMs: 0,
+    model: '',
   })
   state.messages.push(turn)
   state.busy = true
@@ -134,6 +139,7 @@ export async function sendAgent(question, scope = {}) {
       return
     }
     turn.done = true
+    turn.elapsedMs = Date.now() - (turn.startedAt || Date.now())
     turn.text = body.answer || ''
     turn.steps = body.steps || []
     turn.sources = body.sources || []
@@ -177,6 +183,11 @@ export async function sendAgentStream(question, scope = {}) {
     error: '',
     // `done=false`：还在生成（过程可见）；`true`：过程收起、只留正文
     done: false,
+    // 元信息与重试用：原问题、发起时间、用时、用的哪个模型
+    question: text,
+    startedAt: Date.now(),
+    elapsedMs: 0,
+    model: '',
   })
   state.messages.push(turn)
   state.busy = true
@@ -244,6 +255,8 @@ function applyEvent(turn, event) {
     turn.text += event.text || ''
   } else if (event.type === 'final') {
     turn.done = true
+    turn.model = event.model || (state.config && state.config.model) || ''
+    turn.elapsedMs = Date.now() - (turn.startedAt || Date.now())
     // 以 final 为准（模型可能边流边改口，最终答案才算数）
     if (event.answer) turn.text = event.answer
     turn.sources = event.sources || []
@@ -262,3 +275,11 @@ export function openSettings(open = true) {
 }
 
 export const agentSettingsOpen = computed(() => state.settingsOpen)
+
+/** 重试一条失败的回答：把那条撤掉，用原问题再问一次。 */
+export function retryTurn(turn, scope = {}) {
+  const index = state.messages.indexOf(turn)
+  const question = turn && turn.question
+  if (index >= 0) state.messages.splice(index, 1)
+  if (question) return sendAgentStream(question, scope)
+}

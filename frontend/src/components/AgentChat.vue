@@ -56,7 +56,10 @@
       <div v-for="(turn, i) in turns" :key="i" class="agent-turn" :class="turn.role">
         <div v-if="turn.role === 'user'" class="agent-bubble user">{{ turn.text }}</div>
         <template v-else>
-          <div v-if="turn.error" class="agent-bubble err">{{ turn.error }}</div>
+          <div v-if="turn.error" class="agent-error">
+            <span>{{ turn.error }}</span>
+            <button type="button" :disabled="busy" @click="retry(turn)">重试</button>
+          </div>
           <template v-else>
             <!-- 生成中：过程（思考 + 工具调用）**实时可见** -->
             <div
@@ -100,6 +103,13 @@
                   <span class="agent-trace-detail">{{ detailOf(step) }}</span>
                 </li>
               </ul>
+            </div>
+
+            <!-- 元信息：只写算得出来的事实（模型 / 用时 / 步数） -->
+            <div v-if="turn.done" class="agent-meta">
+              <span v-if="turn.model || modelLabel">{{ turn.model || modelLabel }}</span>
+              <span v-if="turn.elapsedMs">{{ (turn.elapsedMs / 1000).toFixed(1) }}s</span>
+              <span v-if="toolSteps(turn).length">{{ toolSteps(turn).length }} 步</span>
             </div>
 
             <div v-if="turn.sources.length || turn.dropped.length" class="agent-src">
@@ -202,6 +212,7 @@ import {
   loadScenes,
   openSettings,
   saveAgentConfig,
+  retryTurn,
   sendAgentStream,
   toolStepsOf,
 } from '../stores/useAgent'
@@ -358,6 +369,11 @@ const pendingText = computed(() => {
 function thinkingTail(turn) {
   const text = String(turn.thinking || '').trim()
   return text.length > 240 ? `…${text.slice(-240)}` : text
+}
+
+function retry(turn) {
+  // 用页面给的 scope 重问（撤掉失败那条由 store 负责）
+  retryTurn(turn, props.scope)
 }
 
 function toggleTrace(i) {

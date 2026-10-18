@@ -327,6 +327,7 @@ async def stream_scene(
                     usage = result.usage
                     yield {
                         "type": "final",
+                        "model": cfg.model,
                         "answer": getattr(output, "answer", "") or "",
                         "sources": [sid for sid in sources if sid in seen],
                         "dropped_sources": [sid for sid in sources if sid not in seen],

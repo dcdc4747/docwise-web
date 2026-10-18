@@ -129,6 +129,48 @@ describe('AgentChat（读懂侧）', () => {
     expect(wrapper.find('.agent-trace-view').exists()).toBe(true)
   })
 
+
+  it('回答带元信息行（模型 / 用时 / 步数），失败时给「重试」', async () => {
+    const wrapper = mount(AgentChat, { props: { scope: { task_id: 46 } } })
+    await flushPromises()
+    agentMessages.value.push({ role: 'user', text: '这篇讲了什么' })
+    agentMessages.value.push({
+      role: 'assistant',
+      text: '讲了稀疏线性系统',
+      steps: [
+        { kind: 'tool_call', name: 'read_blocks', args: {} },
+        { kind: 'tool_result', name: 'read_blocks', ok: true, excerpt: '' },
+      ],
+      sources: [],
+      dropped: [],
+      done: true,
+      elapsedMs: 8600,
+      model: 'deepseek-chat',
+      question: '这篇讲了什么',
+    })
+    agentMessages.value.push({
+      role: 'assistant',
+      text: '',
+      steps: [],
+      sources: [],
+      dropped: [],
+      done: true,
+      error: '模型服务限流了，等一会再试。',
+      question: '再问一次',
+    })
+    await flushPromises()
+
+    const meta = wrapper.find('.agent-meta').text()
+    expect(meta).toContain('deepseek-chat')
+    expect(meta).toContain('8.6s')
+    expect(meta).toContain('2 步')
+
+    const err = wrapper.find('.agent-error')
+    expect(err.exists()).toBe(true)
+    expect(err.text()).toContain('限流')
+    expect(err.find('button').text()).toBe('重试')
+  })
+
   it('轨迹只算工具调用：`final_result` 那条被剔掉', () => {
     const turn = {
       steps: [
