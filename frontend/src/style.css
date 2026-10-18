@@ -2753,6 +2753,67 @@ svg.ic-inl {
 /* 那一行说明文字（"Markdown 带筛子账；CSV 一行一条"）比正文小一档，别抢按钮的位 */
 .dw .wr-checkexport .wr-muted { font-size: var(--fs-micro); }
 
+/* ---- 卡片上的标签（N7，2026-10-18）----
+   口径：标签是**贴在手边**的东西 —— 卡片上直接加/删，不跳页。
+   ⚠️ N7 是**全量替换**，界面这里只负责把"当前 + 新"整组交给 store 层。 */
+.dw .lib-tags { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1); margin-top: var(--sp-2); }
+.dw .lib-tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--fs-micro);
+  cursor: pointer;
+}
+.dw .lib-tag-chip:hover { border-color: var(--danger); color: var(--danger); }
+.dw .lib-tag-chip:disabled { opacity: 0.6; cursor: progress; }
+.dw .lib-tag-x { color: var(--muted); font-size: var(--fs-micro); }
+.dw .lib-tag-chip:hover .lib-tag-x { color: var(--danger); }
+.dw .lib-tag-input {
+  width: 132px;
+  padding: 2px 8px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  font: inherit;
+  font-size: var(--fs-micro);
+  background: var(--surface);
+}
+.dw .lib-tag-input:focus { outline: none; }
+.dw .lib-tag-add {
+  padding: 2px 8px;
+  border: 1px dashed var(--line);
+  border-radius: 999px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--fs-micro);
+  cursor: pointer;
+}
+.dw .lib-tag-add:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ============================================================================
+   [居中] 内容列居中（2026-10-18）
+   ============================================================================
+   问题：这些容器只有 `max-width`、**没有 auto 边距** → 在 1440 下整块贴在左边，
+   右边留一大片空白（用户截图报的"右边留那么大不合适"）。
+   修法：只补 `margin-inline: auto`，让左右留白相等；不改任何现有宽度与间距。
+   ⚠️ `.lib-wrap` / `.materials` / 阅读区**不在此列**——它们的宽度是由内容栏决定的，
+   加了反而会在窄屏挤出横向滚动（阅读区那条 `[E15]` 的红线）。 */
+
+.dw .me-view,
+.dw .kn,
+.dw .rh,
+.dw .mem,
+.dw .proc,
+.dw .mats {
+  margin-inline: auto;
+}
+
 /* ============================================================================
    [断点] 1024–1099px —— 阅读页右栏改抽屉（形态 §3.4 第 2 档）
    ============================================================================
@@ -2985,6 +3046,13 @@ svg.ic-inl {
 .dw .kn-h2 { margin: 0; font-size: var(--fs-h2); }
 .dw .kn-smart { margin-top: var(--sp-6); border-top: 1px dashed var(--line); padding-top: var(--sp-4); }
 .dw .kn-select { max-width: 200px; flex: none; }
+/* 树：分支符号与移到下拉（集合嵌套，2026-10-18） */
+.dw .kn-branch { color: var(--muted); margin-right: 4px; }
+/* 排序（↑↓）：与「移到」并排，窄一点，别把一行挤爆 */
+.dw .kn-order { display: inline-flex; gap: 2px; }
+.dw .kn-order-btn { min-width: 28px; padding: 2px 6px; }
+.dw .kn-order-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.dw .kn-move { max-width: 150px; padding: 3px 6px; font: inherit; font-size: var(--fs-meta); border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface); }
 .dw .lib-assign { display: flex; align-items: center; gap: var(--sp-1); margin-top: var(--sp-2); font-size: var(--fs-meta); color: var(--muted); }
 .dw .lib-assign-select { padding: 3px 6px; border: 1px solid var(--line); border-radius: var(--r-sm); font: inherit; font-size: var(--fs-meta); background: var(--surface); }
 .dw .lib-assign-select:disabled { opacity: 0.6; cursor: not-allowed; }
@@ -3016,6 +3084,24 @@ svg.ic-inl {
 .dw .wr-checkhist-list { list-style: none; margin: var(--sp-2) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-1); }
 .dw .wr-checkhist-list button { width: 100%; text-align: left; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface); padding: 6px 10px; font: inherit; font-size: var(--fs-meta); color: var(--ink); cursor: pointer; }
 .dw .wr-checkhist-list button:hover { border-color: var(--accent-line); background: var(--hover); }
+
+/* ---- 登录设备与会话（2026-10-18 修：132 行 / 表格撑破卡片 / 时间折两行）----
+   口径：设备名一行放不下就截断（悬停看全文），时间**一行**，本机单独标出来。 */
+.dw .me-sessions-sum { margin: var(--sp-2) 0 var(--sp-3); color: var(--muted); font-size: var(--fs-meta); line-height: 1.8; }
+.dw .me-table.me-sessions { width: 100%; table-layout: fixed; }
+/* 4 列：设备 40% / 登录 20% / 最近活动 20% / 操作 20%。
+   ⚠️ 时间列**必须留够**：早先 5 列 15%（≈81px）时，`10/17 22:26` 直接溢出撞到下一列，
+   截图里看是 `22:2626/10/17` 粘成一坨。 */
+.dw .me-table.me-sessions th:nth-child(1) { width: 40%; }
+.dw .me-table.me-sessions th:nth-child(2),
+.dw .me-table.me-sessions th:nth-child(3) { width: 20%; }
+.dw .me-table.me-sessions th:nth-child(4) { width: 20%; }
+.dw .me-table.me-sessions td { padding-right: var(--sp-3); }
+.dw .me-table.me-sessions td { vertical-align: middle; }
+.dw .me-dev { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dw .me-when { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.dw .me-chip-now { display: inline-block; margin-left: var(--sp-2); padding: 1px 6px; border-radius: 999px; border: 1px solid var(--accent-line); background: var(--accent-soft); color: var(--accent); font-size: var(--fs-micro); vertical-align: middle; }
+.dw .me-table.me-sessions tr.me-this { background: var(--surface-2); }
 
 /* ============================================================================
    [M7] 记忆页（2026-10-16）—— 用法偏好的"可看可改可删"

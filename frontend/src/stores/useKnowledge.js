@@ -38,13 +38,17 @@ function toCount(value) {
   return Number.isFinite(n) ? n : null
 }
 
-/** 集合一行 → 组件要的形状（`parentId` 留给以后做树，先平铺）。 */
+/** 集合一行 → 组件要的形状（`parentId` 用来画树；`deepCount` 是含子集合的总数）。 */
 export function mapCollection(row) {
   return {
     id: row?.id,
     name: String(row?.name ?? '').trim(),
     parentId: row?.parent_id ?? null,
     count: toCount(row?.doc_count),
+    // 排序号：后端按 `sort, id` 排；界面靠它做"上移 / 下移"
+    sort: Number(row?.sort ?? 0),
+    // ⚠️ 两个计数别混：`count` 只数**直接成员**，`deepCount` 才是含子集合（后端两个都给了）
+    deepCount: toCount(row?.doc_count_deep),
   }
 }
 

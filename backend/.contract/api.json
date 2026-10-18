@@ -14,7 +14,7 @@
     "真实性来源：本清单的 anchors 是由 backend/scripts/check_contract.py --print 打出来的真实路由表逐条核对的，",
     "  不是从文档抄的 —— 手抄文档正是第一版把 25 个端点写成 23 个的原因。"
   ],
-  "declared_endpoint_count": 74,
+  "declared_endpoint_count": 79,
   "anchors": [
     {
       "method": "GET",
@@ -375,6 +375,31 @@
       "method": "GET",
       "path": "/api/check",
       "note": "N43 检查历史列表：?draft_id? &limit?（上限 50）→ {items}，每条只带摘要（summary.reported/unknown + lang/citation_style/ruleset_version/created_at）；逐条明细点进去走 N23；**只列自己的**"
+    },
+    {
+      "method": "GET",
+      "path": "/api/agent/scenes",
+      "note": "N46 可用场景（自描述：id/标题/状态/默认档位/允许的工具包）；加场景不用改前端"
+    },
+    {
+      "method": "GET",
+      "path": "/api/agent/config",
+      "note": "N47 模型配置视图：base_url/模型/档位 + `key_set` 与末四位掩码；**永不回明文密钥**"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/agent/config",
+      "note": "N48 写配置。`api_key` 只写不读（不传＝不动原密钥）；没有 `DOCWISE_SECRET` 时拒绝落库（409 并说明原因）"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/agent/config",
+      "note": "N49 清配置（回落到服务端默认 .env 的 DEEPSEEK_*）"
+    },
+    {
+      "method": "POST",
+      "path": "/api/agent/chat",
+      "note": "N50 跑一次场景：模型可调工具（只读）、返回 answer/sources/steps/usage；计划中的场景 400，未配置模型 400"
     },
     {
       "method": "POST",

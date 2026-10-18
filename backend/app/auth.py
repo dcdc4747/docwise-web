@@ -93,6 +93,13 @@ def _hash_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
+def token_hash_of(token: str | None) -> str | None:
+    """令牌 → 库里存的哈希（给"标出本机"用；不暴露 `_hash_token` 的实现）。"""
+    if not token:
+        return None
+    return _hash_token(token)
+
+
 def create_session(db: Session, user: User, user_agent: str | None = None) -> str:
     """签发会话，返回**明文令牌**（只在这一刻存在于响应里，库里只存哈希）。"""
     token = secrets.token_urlsafe(32)
@@ -108,7 +115,30 @@ def create_session(db: Session, user: User, user_agent: str | None = None) -> st
         )
     )
     db.commit()
+    _cap_sessions(db, user.id)
     return token
+
+
+# 一个账号最多留几条活跃会话。
+# ⚠️ 为什么要有：每登录一次插一条、30 天不过期，实测一个账号能攒到 **132 条**
+# （页面全量列出来，一屏都放不下）。20 条足够覆盖"手机+平板+家里+实验室"，
+# 超出的按**最旧**吊销——刚登录的那条永远留着。
+MAX_SESSIONS_PER_USER = 20
+
+
+def _cap_sessions(db: Session, user_id: int) -> int:
+    """把该用户超出上限的**最旧**会话吊销（不动刚建的那条）。返回吊销条数。"""
+    rows = db.scalars(
+        select(AuthSession)
+        .where(AuthSession.user_id == user_id)
+        .order_by(AuthSession.created_at.desc(), AuthSession.id.desc())
+    ).all()
+    doomed = rows[MAX_SESSIONS_PER_USER:]
+    for row in doomed:
+        db.delete(row)
+    if doomed:
+        db.commit()
+    return len(doomed)
 
 
 def resolve_session(db: Session, token: str | None) -> User | None:
