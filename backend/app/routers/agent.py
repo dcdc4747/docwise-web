@@ -8,9 +8,11 @@ P0 先做**非流式**：一次请求把"回答 + 轨迹 + 用量"一起返回�
 
 from __future__ import annotations
 
+import json
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -163,3 +165,59 @@ async def chat(
         "model": cfg.model,
         "config_source": cfg.source,
     }
+
+
+@router.post("/chat/stream")
+async def chat_stream(
+    payload: ChatIn,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_user)],
+) -> StreamingResponse:
+    """流式版（SSE）：边跑边吐 `tool_call` / `tool_result` / `delta` / `final`。
+
+    为什么要它：非流式要等模型全部跑完（实测 8.7 秒）才有第一个字，
+    用户会以为卡住了；流式能让"它正在查什么"**实时**亮起来。
+    """
+    try:
+        scene = registry.scene_or_404(payload.scene)
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=404, detail=f"没有这个场景：{payload.scene}"
+        ) from exc
+    if scene.status != "ready":
+        raise HTTPException(
+            status_code=400,
+            detail=f"场景「{scene.title}」还没开放（status={scene.status}）",
+        )
+
+    scope = {k: v for k, v in (payload.scope or {}).items() if k in _SCOPE_KEYS}
+    cfg = config_store.resolve(db, user.id, payload.override)
+    if not cfg.api_key:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "还没配模型：去 ⚙️ 填一个"
+                "（或让管理员在 .env 里配 DEEPSEEK_API_KEY）"
+            ),
+        )
+
+    llm = runtime.LLMConfig(
+        base_url=cfg.base_url, api_key=cfg.api_key, model=cfg.model
+    )
+
+    async def _events():
+        # ⚠️ 每个事件一行 `data: {...}`（SSE 规范），`ensure_ascii=False` 保中文
+        async for event in runtime.stream_scene(
+            scene,
+            payload.question.strip(),
+            user_id=user.id,
+            scope=scope,
+            cfg=llm,
+        ):
+            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        _events(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )

@@ -102,7 +102,7 @@
         </template>
       </div>
 
-      <div v-if="busy" class="agent-bubble pending">正在查…</div>
+      <div v-if="busy" class="agent-bubble pending">{{ pendingText }}</div>
       <div v-if="error" class="agent-bubble err">{{ error }}</div>
     </div>
   </div>
@@ -126,7 +126,7 @@ import {
   loadConfig,
   loadScenes,
   saveAgentConfig,
-  sendAgent,
+  sendAgentStream,
   toggleConfig,
   toolStepsOf,
 } from '../stores/useAgent'
@@ -194,6 +194,17 @@ async function save() {
   }
 }
 
+const pendingText = computed(() => {
+  // 最后一条助手消息里已经有工具调用了，就把"正在干什么"说出来
+  const last = [...turns.value].reverse().find((t) => t.role === 'assistant')
+  const steps = last ? toolSteps(last) : []
+  if (!steps.length) return '正在想…'
+  const calls = steps.filter((s) => s.kind === 'tool_call')
+  const done = steps.filter((s) => s.kind === 'tool_result').length
+  if (calls.length > done) return `正在查：${calls[calls.length - 1].name}…`
+  return `正在整理（已查 ${done} 次）…`
+})
+
 function toggleTrace(i) {
   traceOpen[i] = !traceOpen[i]
 }
@@ -227,5 +238,5 @@ onMounted(async () => {
   await Promise.all([loadScenes(), loadConfig()])
 })
 
-defineExpose({ send: (q) => sendAgent(q, props.scope) })
+defineExpose({ send: (q) => sendAgentStream(q, props.scope) })
 </script>

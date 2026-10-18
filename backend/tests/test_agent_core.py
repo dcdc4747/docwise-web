@@ -222,3 +222,63 @@ def test_registry_discovers_plugins() -> None:
     assert "read_ask" in registry.scenes()
     names = {tool.name for tool in registry.tools_of(READ_SCENE)}
     assert "search_library" in names
+
+
+# ============================================================ ⑤ 流式（SSE）
+def test_chat_stream_emits_sse_frames(monkeypatch) -> None:
+    """事件帧：`data: {json}` 一行一帧，类型是我们自己的名字。"""
+    from app.agent import runtime
+
+    async def fake_stream(scene, question, *, user_id, scope, cfg, model=None):
+        yield {"type": "start", "scene": scene.id, "model": cfg.model}
+        yield {"type": "tool_call", "name": "search_library", "args": {"query": "手性"}}
+        yield {
+            "type": "tool_result",
+            "name": "search_library",
+            "ok": True,
+            "excerpt": "p0_b3",
+        }
+        yield {"type": "delta", "text": "库里有两篇"}
+        yield {
+            "type": "final",
+            "answer": "库里有两篇",
+            "sources": ["p0_b3"],
+            "dropped_sources": [],
+            "steps": [],
+            "usage": {"requests": 1, "tool_calls": 1},
+        }
+
+    monkeypatch.setattr(runtime, "stream_scene", fake_stream)
+    monkeypatch.setattr(settings, "deepseek_api_key", "sk-test")
+
+    resp = client.post(
+        "/api/agent/chat/stream",
+        json={"scene": "read_ask", "question": "我库里有什么"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.headers["content-type"].startswith("text/event-stream")
+
+    frames = [line for line in resp.text.splitlines() if line.startswith("data: ")]
+    assert len(frames) == 5
+    import json as _json
+
+    payloads = [_json.loads(frame[len("data: ") :]) for frame in frames]
+    assert [p["type"] for p in payloads] == [
+        "start",
+        "tool_call",
+        "tool_result",
+        "delta",
+        "final",
+    ]
+    assert payloads[1]["name"] == "search_library"
+    assert payloads[4]["sources"] == ["p0_b3"]
+
+
+def test_chat_stream_rejects_unready_scene_before_streaming() -> None:
+    """计划中的场景：**开流之前**就 400（不是流到一半才断）。"""
+    resp = client.post(
+        "/api/agent/chat/stream",
+        json={"scene": "write_compose", "question": "试试"},
+    )
+    assert resp.status_code == 400
+    assert "还没开放" in resp.json()["detail"]

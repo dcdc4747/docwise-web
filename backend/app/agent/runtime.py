@@ -231,3 +231,103 @@ async def run_scene(
         },
         "history_json": result.all_messages_json().decode("utf-8"),
     }
+
+
+async def stream_scene(
+    scene: Scene,
+    question: str,
+    *,
+    user_id: int,
+    scope: dict | None = None,
+    cfg: LLMConfig,
+    model: Any = None,
+):
+    """流式跑一次场景，逐步 `yield` 事件（见模块 docstring 的形状）。
+
+    ⚠️ 事件的**类型名**是我们自己的（`tool_call`/`tool_result`/`delta`/`final`），
+    前端不依赖 pydantic-ai 的类型——换引擎时前端不用改。
+    """
+    from pydantic_ai import AgentRunResultEvent
+    from pydantic_ai.messages import (
+        FunctionToolCallEvent,
+        FunctionToolResultEvent,
+        PartDeltaEvent,
+        RetryPromptPart,
+        TextPartDelta,
+    )
+    from pydantic_ai.usage import UsageLimits
+
+    scope = dict(scope or {})
+    ctx = ToolContext(db=None, user_id=user_id, scene_id=scene.id, scope=scope)
+    context_note = ""
+    if scene.build_context is not None:
+        try:
+            context_note = scene.build_context(ctx) or ""
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("场景 %s 构造上下文失败：%s", scene.id, exc)
+    prompt = question if not context_note else f"{context_note}\n\n问题：{question}"
+
+    agent = build_agent(scene, cfg, model=model)
+    yield {"type": "start", "scene": scene.id, "model": cfg.model}
+
+    try:
+        async with agent.run_stream_events(
+            prompt,
+            deps=ctx,
+            usage_limits=UsageLimits(
+                request_limit=_REQUEST_LIMIT, tool_calls_limit=_TOOL_CALL_LIMIT
+            ),
+        ) as stream:
+            async for event in stream:
+                if isinstance(event, FunctionToolCallEvent):
+                    part = event.part
+                    if str(part.tool_name).endswith("final_result"):
+                        continue  # 收尾不是"查"
+                    yield {
+                        "type": "tool_call",
+                        "name": part.tool_name,
+                        "args": part.args,
+                    }
+                elif isinstance(event, FunctionToolResultEvent):
+                    name = getattr(event.part, "tool_name", "") or ""
+                    if str(name).endswith("final_result"):
+                        continue
+                    failed = isinstance(event.part, RetryPromptPart)
+                    yield {
+                        "type": "tool_result",
+                        "name": name,
+                        "ok": not failed,
+                        "excerpt": str(event.content)[:400],
+                    }
+                elif isinstance(event, PartDeltaEvent):
+                    delta = event.delta
+                    if isinstance(delta, TextPartDelta) and delta.content_delta:
+                        yield {"type": "delta", "text": delta.content_delta}
+                elif isinstance(event, AgentRunResultEvent):
+                    result = event.result
+                    output = result.output
+                    sources = list(getattr(output, "source_block_ids", []) or [])
+                    steps = _steps_of(result.all_messages())
+                    seen: set[str] = set()
+                    for step in steps:
+                        if step["kind"] == "tool_result" and step.get("ok"):
+                            seen.update(
+                                _BLOCK_ID_RE.findall(
+                                    str(step.get("excerpt", ""))
+                                )
+                            )
+                    usage = result.usage
+                    yield {
+                        "type": "final",
+                        "answer": getattr(output, "answer", "") or "",
+                        "sources": [sid for sid in sources if sid in seen],
+                        "dropped_sources": [sid for sid in sources if sid not in seen],
+                        "steps": steps,
+                        "usage": {
+                            "requests": getattr(usage, "requests", None),
+                            "tool_calls": getattr(usage, "tool_calls", None),
+                        },
+                    }
+    except Exception as exc:  # noqa: BLE001 —— 流式失败要**说人话**，不是静默断流
+        logger.warning("流式跑场景 %s 失败：%s", scene.id, exc)
+        yield {"type": "error", "message": f"{type(exc).__name__}: {exc}"}

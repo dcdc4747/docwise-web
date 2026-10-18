@@ -723,9 +723,10 @@ import {
   agentConfigOpen,
   agentError,
   agentMessages,
+  agentConfig,
   loadConfig as loadAgentConfig,
   resetAgentThread,
-  sendAgent,
+  sendAgentStream,
 } from '../stores/useAgent'
 // 埋点 1（译文改动）：入口只在"有译文"的块上给，存下之后打「已人工修改」标记
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
@@ -734,12 +735,20 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 const askMode = ref('direct')
 const agentScope = computed(() => ({ task_id: currentTask.value && currentTask.value.id }))
 const agentInput = ref('')
+// 有可用模型就默认用助手（配了 key 的人不会想再点一下）；没有就留在老问答
+const hasModelConfig = computed(() => {
+  const cfg = agentConfig.value
+  return Boolean(cfg && (cfg.key_set || cfg.server_default))
+})
+watch(hasModelConfig, (ready) => {
+  if (ready) askMode.value = 'agent'
+}, { immediate: true })
 
 function submitFromComposer() {
   if (askMode.value === 'agent') {
     const text = agentInput.value.trim()
     if (!text || agentBusy.value) return
-    sendAgent(text, agentScope.value)
+    sendAgentStream(text, agentScope.value)
     agentInput.value = ''
     return
   }
@@ -968,6 +977,9 @@ function onKeydown(event) {
 
 onMounted(async () => {
   await nextTick()
+  // ⭐ 挂载就把模型配置读一次：默认模式靠它判断（有 key/服务端默认 → 直接进助手），
+  // 否则要等用户点到「助手」才加载，默认值永远判断不出来。
+  loadAgentConfig()
   attachExposure()
   if (typeof document !== 'undefined') {
     document.addEventListener('visibilitychange', flushExposureByBeacon)

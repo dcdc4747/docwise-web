@@ -146,3 +146,97 @@ export function toolStepsOf(turn) {
     return !name.includes('final_result')
   })
 }
+
+/**
+ * 流式发问（SSE）。与 `sendAgent` 的差别**只在传输**：
+ * 事件类型与最终结构完全一致，所以界面不用分两套。
+ *
+ * ⚠️ 用 `fetch` + `ReadableStream` 而不是 `EventSource`：
+ * EventSource 只能 GET、也带不了 `Authorization` 头。
+ */
+export async function sendAgentStream(question, scope = {}) {
+  const text = String(question || '').trim()
+  if (!text || state.busy) return
+  state.error = ''
+  state.messages.push({ role: 'user', text })
+  const turn = reactive({
+    role: 'assistant',
+    text: '',
+    steps: [],
+    sources: [],
+    dropped: [],
+    usage: null,
+    error: '',
+  })
+  state.messages.push(turn)
+  state.busy = true
+  try {
+    const res = await authFetch('/api/agent/chat/stream', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+      body: JSON.stringify({ scene: state.sceneId, question: text, scope }),
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      turn.error = body.detail || `没答出来（HTTP ${res.status}）`
+      return
+    }
+    if (!res.body) {
+      turn.error = '这个浏览器不支持流式读取'
+      return
+    }
+    const reader = res.body.getReader()
+    const decoder = new TextDecoder('utf-8')
+    let buffer = ''
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      // SSE：事件之间用空行分隔
+      let cut = buffer.indexOf('\n\n')
+      while (cut !== -1) {
+        const chunk = buffer.slice(0, cut)
+        buffer = buffer.slice(cut + 2)
+        cut = buffer.indexOf('\n\n')
+        const line = chunk.split('\n').find((l) => l.startsWith('data: '))
+        if (!line) continue
+        let event = null
+        try {
+          event = JSON.parse(line.slice(6))
+        } catch {
+          continue
+        }
+        applyEvent(turn, event)
+      }
+    }
+  } catch (exc) {
+    turn.error = `请求失败：${exc && exc.message ? exc.message : exc}`
+  } finally {
+    state.busy = false
+  }
+}
+
+/** 把一帧事件并到这一轮回答里（后端形状见 `app/agent/runtime.stream_scene`）。 */
+function applyEvent(turn, event) {
+  if (event.type === 'tool_call') {
+    turn.steps.push({ kind: 'tool_call', name: event.name, args: event.args })
+  } else if (event.type === 'tool_result') {
+    turn.steps.push({
+      kind: 'tool_result',
+      name: event.name,
+      ok: event.ok !== false,
+      excerpt: event.excerpt || '',
+    })
+  } else if (event.type === 'delta') {
+    turn.text += event.text || ''
+  } else if (event.type === 'final') {
+    // 以 final 为准（模型可能边流边改口，最终答案才算数）
+    if (event.answer) turn.text = event.answer
+    turn.sources = event.sources || []
+    turn.dropped = event.dropped_sources || []
+    turn.usage = event.usage || null
+    if (event.steps && event.steps.length) turn.steps = event.steps
+  } else if (event.type === 'error') {
+    turn.error = event.message || '模型调用失败'
+  }
+}

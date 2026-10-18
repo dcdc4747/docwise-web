@@ -14,7 +14,7 @@
     "真实性来源：本清单的 anchors 是由 backend/scripts/check_contract.py --print 打出来的真实路由表逐条核对的，",
     "  不是从文档抄的 —— 手抄文档正是第一版把 25 个端点写成 23 个的原因。"
   ],
-  "declared_endpoint_count": 79,
+  "declared_endpoint_count": 80,
   "anchors": [
     {
       "method": "GET",
@@ -410,6 +410,11 @@
       "method": "DELETE",
       "path": "/api/tasks/{param}/purge",
       "note": "N45 **彻底删除**（不可恢复，连磁盘产物与子表）；只接受回收站里的任务，否则 400（防绕过两步确认）"
+    },
+    {
+      "method": "POST",
+      "path": "/api/agent/chat/stream",
+      "note": "N51 流式（SSE）：`tool_call` / `tool_result` / `delta` / `final` / `error`；非流式仍保留在 N50"
     }
   ],
   "expected_new": []
