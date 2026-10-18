@@ -48,20 +48,22 @@ def test_scenes_endpoint_lists_ready_scenes() -> None:
         "biblio",
         "materials",
     }
-    # 读懂：定位文献 + 读段 + 术语 + 进度/重译 + 偏好
+    # 读懂：定位文献 + 读段 + 术语 + 进度/重译 + 偏好 + 章节定位 + 文献对比
     assert set(items["read_ask"]["packs"]) == {
         "library",
         "terms",
         "tasks",
         "translate",
         "memory",
+        "outline",
+        "compare",
     }
     # ⭐ 工具清单要能被前端/用户核对；同时钉住"别无限堆工具"的上限
     assert "search_library" in items["read_ask"]["tools"]
     assert "read_draft" in items["write_compose"]["tools"]
     assert "run_check" in items["write_compose"]["tools"]
-    assert 8 <= len(items["read_ask"]["tools"]) <= 12
-    assert 10 <= len(items["write_compose"]["tools"]) <= 16
+    assert 10 <= len(items["read_ask"]["tools"]) <= 15
+    assert 10 <= len(items["write_compose"]["tools"]) <= 15
     # ⭐ 工具清单要能被前端/用户核对（文档与接口必须一一对应）
     assert "search_library" in items["read_ask"]["tools"]
     assert "read_draft" in items["write_compose"]["tools"]
@@ -394,11 +396,21 @@ def test_writing_pack_refuses_other_users_draft() -> None:
         session.commit()
 
 
-def test_writing_pack_searches_materials_by_keyword() -> None:
+def test_materials_search_lives_in_one_place() -> None:
+    """素材检索只有一处实现：`materials.list_materials`。
+
+    2026-10-18 合并：`writing.search_materials` 退役——同一个能力两个工具名，
+    模型会随机挑一个，行为还不一致（旧的不过滤软删、不转义通配符）。
+    """
     from app.agent.contracts import ToolContext
-    from app.agent.packs import writing
+    from app.agent.packs import materials as materials_pack
+    from app.agent.packs import writing as writing_pack
     from app.db import SessionLocal
     from app.models import Material
+
+    # ① 旧工具必须没了
+    assert not hasattr(writing_pack, "search_materials")
+    assert "search_materials" not in [t.name for t in writing_pack.PACK.tools]
 
     with SessionLocal() as session:
         hit = Material(
@@ -418,7 +430,7 @@ def test_writing_pack_searches_materials_by_keyword() -> None:
         hit_id, miss_id = hit.id, miss.id
 
     ctx = ToolContext(db=None, user_id=TEST_USER_ID, scene_id="write_compose", scope={})
-    got = writing.search_materials(ctx, {"query": "手性"})
+    got = materials_pack.list_materials(ctx, {"query": "手性"})
     assert len(got.data) == 1
     assert got.data[0]["source"] == "chem.pdf"
     assert got.data[0]["page"] == 3
@@ -427,6 +439,7 @@ def test_writing_pack_searches_materials_by_keyword() -> None:
         for material_id in (hit_id, miss_id):
             session.delete(session.get(Material, material_id))
         session.commit()
+
 
 
 # ============================================================ ⑦ 改写建议校验

@@ -9,7 +9,7 @@ from __future__ import annotations
 from sqlalchemy import select
 
 from ...db import SessionLocal
-from ...models import Draft, Material
+from ...models import Draft
 from ..contracts import Pack, ToolResult, ToolSpec
 
 
@@ -65,43 +65,6 @@ def read_draft(ctx, args: dict | None = None) -> ToolResult:
         db.close()
 
 
-def search_materials(ctx, args: dict | None = None) -> ToolResult:
-    """在我的素材卡里找（快照文本，删了源文献也还在）。"""
-    payload = args or {}
-    query = str(payload.get("query") or "")
-    limit = max(1, min(int(payload.get("limit") or 5), 10))
-    db = SessionLocal()
-    try:
-        stmt = (
-            select(
-                Material.id,
-                Material.text_quote,
-                Material.source_name,
-                Material.page,
-            )
-            .where(Material.user_id == ctx.user_id)
-            .order_by(Material.created_at.desc())
-            .limit(50)
-        )
-        rows = db.execute(stmt).all()
-    finally:
-        db.close()
-    keyword = (query or "").strip()
-    hits = [
-        {
-            "material_id": mid,
-            "quote": (quote or "")[:300],
-            "source": source or "",
-            "page": page,
-        }
-        for mid, quote, source, page in rows
-        if not keyword or keyword in (quote or "")
-    ][:limit]
-    if not hits:
-        return ToolResult(data=[], note="没找到相关素材")
-    return ToolResult(data=hits, note=f"{len(hits)} 条")
-
-
 PACK = Pack(
     name="writing",
     tools=(
@@ -123,19 +86,6 @@ PACK = Pack(
             },
             handler=read_draft,
             max_result_chars=6000,
-        ),
-        ToolSpec(
-            name="search_materials",
-            description="在我的素材卡里按关键词找句子（快照，带原出处）。",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string", "description": "关键词"},
-                    "limit": {"type": "integer", "minimum": 1, "maximum": 10},
-                },
-            },
-            handler=search_materials,
-            max_result_chars=3000,
         ),
     ),
 )
