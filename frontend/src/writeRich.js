@@ -35,6 +35,21 @@ const turndown = new TurndownService({
 // `[n]` 这类文本不能被转义成 `\[n\]`（引文标记要逐字保留）
 turndown.escape = (value) => String(value)
 
+// 图片与表格：**原样保留**成内联 HTML（turndown 默认会拆成纯文本，
+// 那样一保存图片和表格就没了）。Markdown 里允许内联 HTML，往返不会坏。
+turndown.addRule('keepMedia', {
+  filter: (node) => ['IMG', 'TABLE', 'THEAD', 'TBODY', 'TR', 'TH', 'TD'].includes(node.nodeName),
+  replacement: (_content, node) => {
+    if (node.nodeName === 'IMG') {
+      const src = node.getAttribute('src') || ''
+      const alt = node.getAttribute('alt') || ''
+      return `\n\n<img src="${src}" alt="${alt}">\n\n`
+    }
+    // 表格整块交给外层 TABLE 规则输出，内层标签返回原文不重复处理
+    return node.nodeName === 'TABLE' ? node.outerHTML : ''
+  },
+})
+
 // 带 `style` 的块（AI 改版式写在段落上的字号/字体/行距）**整块原样保留**成内联 HTML。
 // 不这么做：`mdToHtml(md)` 一转就把整篇样式抹掉（AI 再写一句正文，版式全丢）。
 turndown.addRule('keepBlockStyle', {

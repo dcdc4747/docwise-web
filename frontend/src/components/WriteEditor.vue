@@ -53,6 +53,26 @@
 
       <span class="we-sep" />
 
+      <!-- 插图 / 插表（2026-10-19）：图片读成 dataURL 保存进正文，不上传服务器 -->
+      <button type="button" title="插入图片（本地文件，不联网）" @click="pickImage">🖼</button>
+      <button type="button" title="插入表格（3×3 带表头）" @click="insertTable">▦</button>
+      <template v-if="inTable">
+        <button type="button" title="加一行" @click="tableCmd('addRowAfter')">＋行</button>
+        <button type="button" title="加一列" @click="tableCmd('addColumnAfter')">＋列</button>
+        <button type="button" title="删这一行" @click="tableCmd('deleteRow')">－行</button>
+        <button type="button" title="删这一列" @click="tableCmd('deleteColumn')">－列</button>
+        <button type="button" title="删整张表" @click="tableCmd('deleteTable')">删表</button>
+      </template>
+      <input
+        ref="imageInput"
+        type="file"
+        accept="image/*"
+        class="we-file"
+        @change="onImagePicked"
+      />
+
+      <span class="we-sep" />
+
       <label class="we-field" title="字体（作用于选区）">
         字体
         <select :value="currentFontFamily" @change="setFontFamily($event.target.value)">
@@ -113,6 +133,8 @@ import { Extension } from '@tiptap/core'
 import StarterKit from '@tiptap/starter-kit'
 import TextAlign from '@tiptap/extension-text-align'
 import { TextStyle } from '@tiptap/extension-text-style'
+import Image from '@tiptap/extension-image'
+import { Table, TableCell, TableHeader, TableRow } from '@tiptap/extension-table'
 
 const props = defineProps({
   /** Markdown 正文（唯一的存储形态） */
@@ -124,7 +146,7 @@ const props = defineProps({
   },
 })
 
-const emit = defineEmits(['update:modelValue', 'update:typography', 'save'])
+const emit = defineEmits(['update:modelValue', 'update:typography', 'save', 'image-error'])
 
 /**
  * 逐处字号（TextStyle + `font-size` 属性）。
@@ -346,6 +368,13 @@ function buildEditor() {
       FontSize,
       FontFamily,
       BlockStyle,
+      // 插图（本地图片走 dataURL，不新增上传接口）
+      Image.configure({ inline: false, allowBase64: true }),
+      // 表格：3×3 带表头那种，够日常用
+      Table.configure({ resizable: false }),
+      TableRow,
+      TableHeader,
+      TableCell,
       WriteShortcuts,
     ],
     editorProps: {
@@ -427,6 +456,52 @@ function setFontFamily(family) {
   else chain.setFontFamily(family).run()
   currentFontFamily.value = family
   syncFontFamily()
+}
+
+/** 是否在表格里（决定"表格操作"那排按钮显不显示） */
+const inTable = computed(() => Boolean(editor.value?.isActive('table')))
+
+const imageInput = ref(null)
+
+function pickImage() {
+  imageInput.value?.click()
+}
+
+/**
+ * 选中本地图片 → 读成 dataURL → 插进正文。
+ *
+ * 为什么用 dataURL：后端没有"上传图片"的接口，加一个要动契约与存储；
+ * dataURL 直接进 `body_html`/`body_md`（内联 `<img src="data:…">`），
+ * 保存、导出、回读都不依赖外部文件。代价是正文体积变大——单张图限额 1.5 MB。
+ */
+function onImagePicked(event) {
+  const file = event.target.files && event.target.files[0]
+  if (!file) return
+  if (file.size > 1_500_000) {
+    // 超限不静默：把它告诉父级（页面会弹 toast）
+    emit('image-error', '图片超过 1.5 MB，先压缩再插')
+    event.target.value = ''
+    return
+  }
+  const reader = new FileReader()
+  reader.onload = () => {
+    const src = String(reader.result || '')
+    if (src) editor.value?.chain().focus().setImage({ src, alt: file.name }).run()
+  }
+  reader.readAsDataURL(file)
+  event.target.value = ''
+}
+
+function insertTable() {
+  editor.value?.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()
+}
+
+/** 表格操作：命令名直接用 TipTap 的（addRowAfter / deleteTable …） */
+function tableCmd(name) {
+  const chain = editor.value?.chain().focus()
+  if (!chain) return
+  const fn = chain[name]
+  if (typeof fn === 'function') fn.call(chain).run()
 }
 
 function setFontSize(size) {
@@ -567,6 +642,36 @@ defineExpose({
 </script>
 
 <style scoped>
+/* 插图（2026-10-19）：最宽不溢出页面，居中 */
+.we :deep(img) {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin: 8px auto;
+  border-radius: 6px;
+}
+/* 表格：细边框 + 表头浅灰，跟 Word 观感接近 */
+.we :deep(table) {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 10px 0;
+}
+.we :deep(th),
+.we :deep(td) {
+  border: 1px solid var(--line);
+  padding: 6px 8px;
+  vertical-align: top;
+}
+.we :deep(th) {
+  background: #f5f6f9;
+  font-weight: 600;
+  text-align: left;
+}
+/* 隐藏原生文件框（用工具栏按钮触发） */
+.we-file {
+  display: none;
+}
+
 .we {
   display: flex;
   flex-direction: column;

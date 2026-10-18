@@ -12,7 +12,8 @@
 
 - 只查**当前用户**的文献（非本人当"找不到"）；
 - 块顺序＝写库顺序（`task_blocks.id` 升序，引擎按阅读顺序写）；
-- 一节超过 6000 字就截断并标 `truncated: true`，**不假装读完了**。
+- 一节超过 6000 字就截断并标 `truncated: true`，**不假装读完了**；
+- 同一节第二次读**直接拒**（读段预算）：不再取块，note 说明已读过。
 
 ⚠️ 这个文件**不许 import pydantic_ai**（结构用例钉着）。
 """
@@ -25,12 +26,15 @@ from ...blocktypes import classify
 from ...db import SessionLocal
 from ...models import Task, TaskBlock
 from ..contracts import Pack, ToolContext, ToolResult, ToolSpec
+from ._budget import budget_for
 
 # 可以作为"一节开头"的类型：章节标题与文献题名（题名后面通常是摘要）
 _SECTION_KINDS = ("heading", "title")
 _READ_MAX_CHARS = 6000
 _EMPTY_NOTE = "这篇没有识别到章节标题（可能是扫描件或结构不在块流里）"
 _MISSING_TASK = "找不到这篇文献（可能已删除，或不是你的）"
+_BUDGET_KIND = "read_section"
+_REPEAT_NOTE = "这一节已经读过了，用前面的内容回答；确实需要重读请说明原因。"
 
 
 def _payload(args: dict | None) -> dict:
@@ -145,7 +149,11 @@ def list_sections(ctx: ToolContext, args: dict | None = None) -> ToolResult:
 
 
 def read_section(ctx: ToolContext, args: dict | None = None) -> ToolResult:
-    """读第 `index` 节：从该标题起到下一个标题前的全部块（逐块 `{block_id, text}`）。"""
+    """读第 `index` 节：从该标题起到下一个标题前的全部块（逐块 `{block_id, text}`）。
+
+    同一节第二次读会被读段预算直接拒（`data=[]`），**不再取块内容**；
+    note 让模型用前面的内容回答，确实要重读再说明原因。
+    """
     payload = _payload(args)
     task_id = _as_int(payload.get("task_id"))
     index = _as_int(payload.get("index"))
@@ -161,6 +169,18 @@ def read_section(ctx: ToolContext, args: dict | None = None) -> ToolResult:
         task = _owned_task(db, ctx.user_id, task_id)
         if task is None:
             return ToolResult(data={"error": _MISSING_TASK}, note=_MISSING_TASK)
+
+        # 读段预算：同一节第二次读直接拒，**不加载块**（省时间也省钱）。
+        # 归属放在前面只查一次主键：别人的文献仍如实说"找不到"。
+        budget = budget_for(ctx, _BUDGET_KIND)
+        key = f"sec:{task_id}:{index}"
+        allowed, why = budget.allow(key)
+        if not allowed:
+            if key in budget.stats()["keys"]:
+                return ToolResult(data=[], note=_REPEAT_NOTE)
+            # 次数/字数预算用完：沿用预算自己的说明，不假称"读过了"
+            return ToolResult(data=[], note=why)
+
         blocks = _load_blocks(db, task.id)
 
     rows = _scan(blocks)
@@ -184,6 +204,7 @@ def read_section(ctx: ToolContext, args: dict | None = None) -> ToolResult:
     start, section = rows[index]
     end = rows[index + 1][0] if index + 1 < len(rows) else len(blocks)
     out, used, truncated = _read_range(blocks, start, end)
+    budget.record(key, used)
 
     data = {
         "task_id": task.id,

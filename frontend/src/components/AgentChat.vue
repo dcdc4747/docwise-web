@@ -41,6 +41,21 @@
             <b>{{ step.kind === 'tool_call' ? '调' : step.ok === false ? '失败' : '返回' }}</b>
             <code>{{ step.name }}</code>
             <span class="agent-trace-detail">{{ detailOf(step) }}</span>
+            <div
+              v-if="step.kind === 'tool_result' && resultCard(step)"
+              class="agent-result-card"
+            >
+              <span
+                v-for="(chip, c) in resultCard(step).chips"
+                :key="'chip-' + c"
+                class="agent-result-chip"
+              >{{ chip }}</span>
+              <span
+                v-for="(line, l) in resultCard(step).lines"
+                :key="'line-' + l"
+                class="agent-result-line"
+              >{{ line }}</span>
+            </div>
           </li>
         </ul>
       </div>
@@ -94,6 +109,21 @@
                   <span v-if="isRunningStep(turn, j)" class="agent-step-dot" aria-label="等待返回" />
                   <span class="agent-step-ms">{{ stepCost(turn, j) }}</span>
                   <span class="agent-trace-detail">{{ detailOf(step) }}</span>
+                  <div
+                    v-if="step.kind === 'tool_result' && resultCard(step)"
+                    class="agent-result-card"
+                  >
+                    <span
+                      v-for="(chip, c) in resultCard(step).chips"
+                      :key="'chip-' + c"
+                      class="agent-result-chip"
+                    >{{ chip }}</span>
+                    <span
+                      v-for="(line, l) in resultCard(step).lines"
+                      :key="'line-' + l"
+                      class="agent-result-line"
+                    >{{ line }}</span>
+                  </div>
                 </li>
               </TransitionGroup>
               <div class="agent-live">{{ liveLine(turn) }}</div>
@@ -125,6 +155,21 @@
                   <b>{{ step.kind === 'tool_call' ? '调' : step.ok === false ? '失败' : '返回' }}</b>
                   <code>{{ step.name }}</code>
                   <span class="agent-trace-detail">{{ detailOf(step) }}</span>
+                  <div
+                    v-if="step.kind === 'tool_result' && resultCard(step)"
+                    class="agent-result-card"
+                  >
+                    <span
+                      v-for="(chip, c) in resultCard(step).chips"
+                      :key="'chip-' + c"
+                      class="agent-result-chip"
+                    >{{ chip }}</span>
+                    <span
+                      v-for="(line, l) in resultCard(step).lines"
+                      :key="'line-' + l"
+                      class="agent-result-line"
+                    >{{ line }}</span>
+                  </div>
                 </li>
               </ul>
             </div>
@@ -302,6 +347,7 @@
             @click="toggleModels()"
           >
             {{ modelReady ? modelLabel : '未配置模型' }}
+            <span v-if="modelIsSceneOwn" class="agent-model-scene" title="这个板块单独指定的模型">本板块</span>
             <span class="agent-model-hint">▾</span>
           </button>
         <!-- ⭐ 只选模型：一个列表，点一下换；自定义配置在「设置」里 -->
@@ -352,6 +398,8 @@
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 
 import AiBadge from './AiBadge.vue'
+
+import { summarizeToolResult } from '../agentResult'
 
 import {
   agentBusy,
@@ -499,12 +547,25 @@ function openSettingsFromPicker() {
 }
 
 const modelReady = computed(() => Boolean(config.value && (config.value.key_set || config.value.server_default)))
+/**
+ * 这个板块**实际会用**的模型：板块指定 > 全局。
+ *
+ * 不显示出来的话，用户在设置里把写作切到 reasoner，输入框旁边还写着 chat，
+ * 看着像"改了没生效"（后端 `/chat/stream` 里确实是按板块取的）。
+ */
+const sceneModelOf = computed(() => {
+  const cfg = config.value || {}
+  const perScene = cfg.scene_models || {}
+  return String(perScene[(agentSceneId.value || '')] || '')
+})
 const modelLabel = computed(() => {
   if (!config.value) return '未配置模型'
   if (!modelReady.value) return '未配置模型'
-  const model = config.value.model || '默认模型'
+  const model = sceneModelOf.value || config.value.model || '默认模型'
   return model
 })
+/** 是否来自"板块指定"（界面上标一下，免得以为是全局改了） */
+const modelIsSceneOwn = computed(() => Boolean(sceneModelOf.value))
 const tierLabel = computed(() => {
   const tier = (config.value && config.value.tier) || 'standard'
   return { fast: '快', standard: '标准', strong: '强' }[tier] || tier
@@ -1009,6 +1070,18 @@ function detailOf(step) {
   return text.length > 80 ? `${text.slice(0, 80)}…` : text
 }
 
+/**
+ * 结构化工具结果的小卡片：只给**看得懂**的结果出卡片。
+ *
+ * 不认识的工具 / 抽不到内容时返回 null——那一行保持原样，
+ * **不放空卡片**（空的卡片比原始字符串更让人困惑）。
+ */
+function resultCard(step) {
+  if (!step || step.kind !== 'tool_result') return null
+  const card = summarizeToolResult(step.name || '', step.excerpt || '')
+  return card.lines.length || card.chips.length ? card : null
+}
+
 /** `**加粗**` → 片段数组（不引第三方 markdown，也不 v-html）。 */
 function segments(text) {
   const out = []
@@ -1067,6 +1140,16 @@ onMounted(async () => {
   这里不引阴影、不加大色块：状态只用左侧一道细色条 + 小字标签。
 -->
 <style scoped>
+.agent-model-scene {
+  margin-left: 4px;
+  padding: 0 5px;
+  border-radius: 6px;
+  background: #eef4ff;
+  color: #1d4ed8;
+  font-size: 10px;
+  vertical-align: 1px;
+}
+
 .agent-note-metric {
   display: inline-block;
   margin: 2px 6px 2px 0;
@@ -1081,6 +1164,35 @@ onMounted(async () => {
   display: block;
   font-size: 12px;
   color: var(--muted);
+  line-height: 1.6;
+}
+
+/* 结构化工具结果（run_check 等）：蓝色 chip + 灰色小字，最多 3 行 chip。 */
+.agent-result-card {
+  display: grid;
+  gap: 3px;
+  margin: 5px 0 2px;
+  padding: 6px 8px;
+  border: 1px solid #e6ecfa;
+  border-radius: 8px;
+  background: #f7f9ff;
+}
+.agent-result-chip {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: #eef4ff;
+  color: #1d4ed8;
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.agent-result-line {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
   line-height: 1.6;
 }
 

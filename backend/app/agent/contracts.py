@@ -33,10 +33,16 @@ class ToolContext:
 
 @dataclass
 class ToolResult:
-    """工具返回值。`note` 会进轨迹，也会回给模型（截断/没查到/降级原因）。"""
+    """工具返回值。`note` 会进轨迹，也会回给模型（截断/没查到/降级原因）。
+
+    `summary` 是**给界面看的摘要**（可选）：结果字典可能很长，`tool_result` 的
+    excerpt 只截前 400 字，关键数字容易被挤掉。有 summary 时界面优先显示它，
+    正文仍以 `data` 为准（模型读的是 data，不是 summary）。
+    """
 
     data: Any
     note: str = ""
+    summary: str = ""
 
 
 @dataclass

@@ -438,7 +438,9 @@ async def stream_scene(
                     if str(name).endswith("final_result"):
                         continue
                     failed = isinstance(event.part, RetryPromptPart)
-                    full_text = str(event.content)
+                    # 优先用工具自己给的摘要（关键数字别被 400 字截断吃掉）
+                    summary = str(getattr(event.part, "summary", "") or "")
+                    full_text = summary or str(event.content)
                     yield {
                         "type": "tool_result",
                         "name": name,

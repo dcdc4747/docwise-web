@@ -538,7 +538,18 @@ def run_check(ctx, args: dict | None = None) -> ToolResult:
         "truncated": truncated,
         "note": human,
     }
-    return ToolResult(data=data, note=human)
+    # 摘要给界面看：先摆数字，别让 400 字截断把关键指标吃掉
+    _summary_bits = []
+    if total:
+        _summary_bits.append(f"发现 {total} 处")
+    if term_rate.get("note"):
+        _summary_bits.append(str(term_rate["note"]))
+    _gaps_note = summarize_gaps(gaps)
+    if _gaps_note:
+        _summary_bits.append(_gaps_note)
+    _summary = "；".join(_summary_bits)
+
+    return ToolResult(data=data, note=human, summary=_summary)
 
 
 PACK = Pack(
