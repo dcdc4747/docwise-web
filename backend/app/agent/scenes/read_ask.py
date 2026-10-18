@@ -45,6 +45,7 @@ SCENE = Scene(
         "outline",
         "compare",
         "figures",
+        "matrix",
     ),
     default_tier="standard",
     build_context=_context,

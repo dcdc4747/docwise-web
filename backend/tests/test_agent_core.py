@@ -59,6 +59,7 @@ def test_scenes_endpoint_lists_ready_scenes() -> None:
         "outline",
         "compare",
         "figures",
+        "matrix",
     }
     # ⭐ 工具清单要能被前端/用户核对；同时钉住"别无限堆工具"的上限
     assert "search_library" in items["read_ask"]["tools"]
@@ -897,6 +898,68 @@ def test_verify_writes_drops_bad_anchor() -> None:
     assert len(kept.ops) == 2, [op.mode for op in kept.ops]
     assert {op.mode for op in kept.ops} == {"append", "insert_after"}
     assert any("剔掉 3 条" in n for n in notes)
+
+    with SessionLocal() as session:
+        session.delete(session.get(Draft, draft_id))
+        session.commit()
+
+
+def test_run_scene_carries_write_ops() -> None:
+    """写作场景：模型给的 ops 要出现在返回里（前端靠它落笔）。"""
+    import json
+
+    from pydantic_ai.messages import ModelResponse, TextPart
+    from pydantic_ai.models.function import FunctionModel
+
+    from app.agent.scenes.write_compose import SCENE as WRITE_SCENE
+    from app.db import SessionLocal
+    from app.models import Draft
+
+    with SessionLocal() as session:
+        draft = Draft(
+            user_id=TEST_USER_ID,
+            title="代写用例",
+            body_md="## 一、引言\n\n手性可以分成时间与空间两部分。",
+        )
+        session.add(draft)
+        session.commit()
+        session.refresh(draft)
+        draft_id = draft.id
+
+    def script(messages, info):  # noqa: ANN001 —— 直接给最终答案，不调工具
+        payload = {
+            "answer": "写好了",
+            "source_block_ids": [],
+            "revisions": [],
+            "ops": [
+                {
+                    "mode": "insert_after",
+                    "anchor": "手性可以分成时间与空间两部分。",
+                    "text": "这里的「时间」指的是时序演化的手性。",
+                    "reason": "补一句定义",
+                }
+            ],
+        }
+        body = json.dumps(payload, ensure_ascii=False)
+        return ModelResponse(parts=[TextPart(content=body)])
+
+    cfg = runtime.LLMConfig(base_url="http://127.0.0.1:1/v1", api_key="x", model="m")
+    result = asyncio.run(
+        runtime.run_scene(
+            WRITE_SCENE,
+            "补一句定义，直接写进正文",
+            user_id=TEST_USER_ID,
+            scope={"draft_id": draft_id},
+            cfg=cfg,
+            model=FunctionModel(script),
+        )
+    )
+
+    assert result["ops"], f"返回里没有 ops：{list(result)}"
+    op = result["ops"][0]
+    assert op["mode"] == "insert_after"
+    assert op["anchor"] == "手性可以分成时间与空间两部分。"
+    assert "时序演化" in op["text"]
 
     with SessionLocal() as session:
         session.delete(session.get(Draft, draft_id))

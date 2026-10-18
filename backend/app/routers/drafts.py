@@ -17,14 +17,14 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from ..deps import get_current_user, get_db
-from ..models import Citation, Draft, Material, User
-from ..timeutil import iso_utc
+from ..models import Citation, Draft, DraftVersion, Material, User
+from ..timeutil import iso_utc, utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -216,10 +216,15 @@ def patch_draft(
     patch = body.model_dump(exclude_unset=True)
     if "title" in patch and patch["title"] is not None:
         row.title = patch["title"].strip()
+    body_changed = False
     if "body_md" in patch and patch["body_md"] is not None:
+        # ⭐ 版本只在**正文内容真的变了**时才记（只改标题 / 连点保存不长版本）
+        body_changed = patch["body_md"] != (row.body_md or "")
         row.body_md = patch["body_md"]
     if "template_id" in patch:
         row.template_id = patch["template_id"]
+    if body_changed:
+        _record_version(db, row, source="user")
     db.commit()
     db.refresh(row)
     return _serialize_draft(row, _citations_of(db, row.id))
@@ -237,6 +242,9 @@ def delete_draft(
     否则 `citations` 会留下孤儿行，之后新建草稿拿到同一个 id 时编号会撞。
     """
     row = _load_owned_draft(db, user, draft_id)
+    # ⚠️ 和引文同一个坑：SQLite 外键没开级联，子表必须手工删，
+    # 否则删掉最大 id 的那篇后新建草稿会复用同一个 id，把旧版本"继承"过来。
+    db.execute(delete(DraftVersion).where(DraftVersion.draft_id == row.id))
     db.execute(delete(Citation).where(Citation.draft_id == row.id))
     db.delete(row)
     db.commit()
@@ -307,3 +315,179 @@ def clear_citations(
     db.execute(delete(Citation).where(Citation.draft_id == row.id))
     db.commit()
     return {"ok": True}
+
+
+# ============================================================ 版本历史（2026-10-19）
+#
+# 为什么现在才建这张表：**AI 能直接改稿之后，版本历史成了回滚的前提**。
+# 用户要能回到"AI 动手之前"的那一版，而"AI 动了哪一版"没法从当前稿反推。
+#
+# 三条口径（别自己发明）：
+# - **版本是整篇快照**，不是 diff：判据是"能不能一键回到那一版"，不是省空间；
+# - **只在正文真变了时记**（`PATCH` 那条路）＋ 与上一条内容相同不重复记 ——
+#   同一秒里连点保存会攒出一串一模一样的版本，把 50 版额度白白吃掉；
+# - **回滚前先存当前稿**（`source="restore"`）：回滚本身也必须可撤销。
+
+_VERSIONS_KEEP = 50
+_VERSIONS_DEFAULT_LIMIT = 20
+_VERSIONS_MAX_LIMIT = 100
+
+
+def _serialize_version_summary(row: DraftVersion) -> dict:
+    """列表项（**不带正文**）：`{id, source, note, created_at, chars}`。"""
+    return {
+        "id": row.id,
+        "source": row.source,
+        "note": row.note,
+        "created_at": iso_utc(row.created_at),
+        "chars": len(row.body_md or ""),
+    }
+
+
+def _serialize_version(row: DraftVersion) -> dict:
+    """单版详情：`{id, body_md, title, source, created_at}`（**只读回显**）。"""
+    return {
+        "id": row.id,
+        "body_md": row.body_md,
+        "title": row.title,
+        "source": row.source,
+        "created_at": iso_utc(row.created_at),
+    }
+
+
+def _trim_versions(db: Session, draft_id: int) -> None:
+    """只留最近 `_VERSIONS_KEEP` 版。
+
+    ⚠️ 排序键是 `id` 不是 `created_at`：同一秒里的多条 `created_at` 完全相同，
+    按时间排等于没排（`id` 单调递增，才是真实的先后）。
+    ⚠️ 删除与新增在**同一个事务**里（调用方 commit），不交给定期清理脚本 ——
+    否则"上限 50"只是愿望，中间会有一段超额期。
+    """
+    stale = db.scalars(
+        select(DraftVersion.id)
+        .where(DraftVersion.draft_id == draft_id)
+        .order_by(DraftVersion.id.desc())
+        .offset(_VERSIONS_KEEP)
+    ).all()
+    if stale:
+        db.execute(delete(DraftVersion).where(DraftVersion.id.in_(stale)))
+
+
+def _record_version(
+    db: Session,
+    draft: Draft,
+    *,
+    source: str,
+    note: str | None = None,
+    dedupe: bool = True,
+) -> DraftVersion | None:
+    """给草稿记一版快照（并把表裁到最近 `_VERSIONS_KEEP` 版）。
+
+    `dedupe=True`（`PATCH` 保存走这条）：**与上一条版本正文相同就不记** ——
+    幂等规则，挡的是"同一份正文连点保存"攒出一串空壳版本。
+    `dedupe=False`（回滚前的快照走这条）：**必须留痕**，哪怕与上一条内容相同；
+    这条快照是"撤销这次回滚"的唯一凭据，省掉它就等于把中间稿弄丢了。
+
+    返回新版本行；被幂等规则挡掉时返回 `None`（调用方不需要区分）。
+    """
+    body = draft.body_md or ""
+    if dedupe:
+        last = db.scalar(
+            select(DraftVersion)
+            .where(DraftVersion.draft_id == draft.id)
+            .order_by(DraftVersion.id.desc())
+            .limit(1)
+        )
+        if last is not None and (last.body_md or "") == body:
+            return None
+
+    row = DraftVersion(
+        draft_id=draft.id,
+        body_md=body,
+        title=draft.title or "",
+        source=source,
+        note=note,
+        created_at=utc_now(),
+    )
+    db.add(row)
+    db.flush()
+    _trim_versions(db, draft.id)
+    return row
+
+
+def _load_owned_version(
+    db: Session, user: User, draft_id: int, version_id: int
+) -> tuple[Draft, DraftVersion]:
+    """取"自己草稿的某一版"；草稿非本人、版本不存在、版本属于别的草稿 → 一律 404。"""
+    draft = _load_owned_draft(db, user, draft_id)
+    row = db.scalar(
+        select(DraftVersion).where(
+            DraftVersion.id == version_id,
+            DraftVersion.draft_id == draft.id,
+        )
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="版本不存在")
+    return draft, row
+
+
+@router.get("/{draft_id}/versions")
+def list_versions(
+    draft_id: int,
+    limit: int = Query(default=_VERSIONS_DEFAULT_LIMIT, ge=1, le=_VERSIONS_MAX_LIMIT),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """`GET /api/drafts/{id}/versions?limit=20` → `200 {items}`（新的在前）。
+
+    ⚠️ **列表不返回正文**：正文单篇可达十几万字，20 条一起带出来会把
+    "打开版本面板"变成一次大传输。列表只给 `chars` 让用户认得出是哪一版，
+    要看正文点详情那一条。
+    """
+    draft = _load_owned_draft(db, user, draft_id)
+    rows = db.scalars(
+        select(DraftVersion)
+        .where(DraftVersion.draft_id == draft.id)
+        .order_by(DraftVersion.id.desc())
+        .limit(limit)
+    ).all()
+    return {"items": [_serialize_version_summary(row) for row in rows]}
+
+
+@router.get("/{draft_id}/versions/{version_id}")
+def get_version(
+    draft_id: int,
+    version_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """`GET /api/drafts/{id}/versions/{version_id}` → `200 Version`。
+
+    ⚠️ **只读回显，不自动应用**：用户点开某一版只是想看看当时写了什么，
+    真回滚要走 `POST .../restore` —— 拿"点开"当"应用"会让误点直接改稿。
+    """
+    _, row = _load_owned_version(db, user, draft_id, version_id)
+    return _serialize_version(row)
+
+
+@router.post("/{draft_id}/versions/{version_id}/restore")
+def restore_version(
+    draft_id: int,
+    version_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """`POST /api/drafts/{id}/versions/{version_id}/restore` → `200 Draft`。
+
+    ⭐ **先把当前正文存成一版 `source="restore"`，再写回**：回滚是把稿子往回拨，
+    如果不在拨之前留痕，"回滚"本身就成了不可撤销的操作 —— 那等于用一次误点
+    换掉用户最新的稿子。
+    ⚠️ 只写回**正文**（`body_md`）；`title` 进快照只是为了记录当时的标题，
+    回滚不擅自改标题。
+    """
+    draft, row = _load_owned_version(db, user, draft_id, version_id)
+    _record_version(db, draft, source="restore", dedupe=False)
+    draft.body_md = row.body_md
+    db.commit()
+    db.refresh(draft)
+    return _serialize_draft(draft, _citations_of(db, draft.id))

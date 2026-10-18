@@ -68,29 +68,54 @@ const anchorKeys = (manifest.anchors || []).map((item) => asKey(item.method, ite
  * （新实现一组就加一个前缀；**基线端点绝不在列** —— 基线必须继续打真后端。）
  */
 const IMPLEMENTED_BUT_MOCKED = [
+  // ⚠️ drafts 这一族必须写**精确路径**：前缀 `/api/drafts` 会把整族子路径都吃掉，
+  //    于是 2026-10-19 新增的 `/api/drafts/{p}/export.md` 和 `.../versions`
+  //    （前端还没调用、不需要 mock）也被要求"必须 mock 过"，对账直接红。
   '/api/drafts',
+  '/api/drafts/{param}',
+  '/api/drafts/{param}/citations',
+  '/api/drafts/{param}/bibliography',
   '/api/check',
   '/api/materials',
+  '/api/materials/{param}',
   '/api/me',
-  // 台账那一组（N15–N17，2026-10-16 加的前缀）：已实现但仍要 mock
+  '/api/me/{param}',
+  '/api/me/preferences',
+  '/api/me/sessions',
+  '/api/me/sessions/{param}',
+  // 台账那一组（N15–N17）：已实现但仍要 mock
   '/api/ask-logs',
   '/api/memory-events',
-  // 知识库那一组（N1–N7、N9–N11，2026-10-16 加的前缀）：已实现但仍要 mock
+  // 知识库那一组（N1–N7、N9–N11）：已实现但仍要 mock
   '/api/collections',
   '/api/tags',
   '/api/smart-collections',
-  // ⚠️ 这一组里有两条挂在**基线家族** `/api/tasks` 下面（N5 归集 / N7 标签）。
-  //   不能整族写 `/api/tasks`——那会把基线端点一起拖进清单，而清单本意是
-  //   「基线必须继续打真后端、绝不在列」；所以写**归一化后的精确路径**。
   '/api/tasks/{param}/collections',
   '/api/tasks/{param}/tags',
-  // 埋点 1（N33 译文改动 / N34 块曝光，2026-10-16 加的前缀）：已实现但仍要 mock
+  // 埋点 1（N33 译文改动 / N34 块曝光）：已实现但仍要 mock
   '/api/block-edits',
   '/api/block-exposures',
 ]
+/**
+ * 不进对账的已实现端点（**前端还没调用**，因此没有也不需要 mock）。
+ *
+ * 2026-10-19 新增：稿子导出（.md/.docx）与版本历史（列表/详情/回滚）。
+ * 等前端真接上（导出按钮、版本面板）再从这里删掉、补 mock 与形状用例。
+ */
+const RECONCILE_EXCLUDED = [
+  'GET /api/drafts/{param}/export.md',
+  'GET /api/drafts/{param}/export.docx',
+  'GET /api/drafts/{param}/versions',
+  'GET /api/drafts/{param}/versions/{param}',
+  'POST /api/drafts/{param}/versions/{param}/restore',
+]
 const reconcileKeys = [
   ...expectedNewKeys,
-  ...anchorKeys.filter((key) => IMPLEMENTED_BUT_MOCKED.some((prefix) => key.includes(prefix))),
+  ...anchorKeys.filter(
+    (key) =>
+      !RECONCILE_EXCLUDED.includes(key) &&
+      IMPLEMENTED_BUT_MOCKED.some((prefix) => key.includes(prefix)),
+  ),
 ]
 
 /** 形状表：每个端点该有哪些字段（**这份表就是"契约逐字段"的落地**）。 */

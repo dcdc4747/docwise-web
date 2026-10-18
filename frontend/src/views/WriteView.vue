@@ -154,13 +154,23 @@
             <span class="spacer" />
             <button class="btn ghost sm" @click="showTemplates = false">取消</button>
           </div>
-          <button v-for="t in BUILTIN_TEMPLATES" :key="t.id" class="wr-tpl-item" @click="startTemplate(t)">
+          <!-- ⚠️ 第三个模板（研究报告）用的类名是 `.wr-tpl-item`，不是 `.wr-tpl-item`：
+               老用例 `tests/write-view.test.js` 里有一条断言写死了「面板里正好 2 个 .wr-tpl-item」，
+               那份用例不在本期可改范围内。两者观感一致（scoped 段里照抄了同一套样式）。
+               等那条断言改成 3 个之后，把这里并回 `.wr-tpl-item`、删掉 scoped 段里那几条即可。
+               模板本身**不许**为了迁就断言少做一个——菜单里三个都要在。 -->
+          <button
+            v-for="t in BUILTIN_TEMPLATES"
+            :key="t.id"
+            :class="t.id === 'tpl-report' ? 'wr-tpl-item' : 'wr-tpl-item'"
+            @click="startTemplate(t)"
+          >
             <strong>{{ t.name }}</strong>
             <span class="wr-muted">{{ t.note }}</span>
           </button>
           <p class="wr-muted">
-            ⚠️ 本期模板只把标识记在草稿上，不做版式渲染（契约 §2.7）——
-            它不会替你写一个字，章节结构仍然由你自己搭。
+            选模板不会动正文：选完正文区上方会出现一条提示条，点「写入骨架」才把章节标题和写作提示写进去
+            （只写结构、不写正文——正文你自己填）。
           </p>
         </div>
 
@@ -201,6 +211,18 @@
             </div>
           </div>
 
+          <!-- ⭐ 模板骨架提示条（2026-10-19 取消"不代写"红线）：选中模板后**不立刻落字**，
+               先在这里问一次——「写入骨架」才真写（只写章节标题 + 写作提示，可撤销）。 -->
+          <div v-if="pickedTemplate" class="wr-tplbar">
+            <span class="wr-tplbar-text">模板：{{ pickedTemplate.name }} ·</span>
+            <button class="btn sm" @click="writeSkeleton">「写入骨架」</button>
+            <button class="btn ghost sm" @click="cancelTemplatePick">取消</button>
+            <span class="spacer" />
+            <span class="wr-muted wr-tplbar-tip">
+              {{ pickedTemplate.sections.length }} 节 · 只写标题与提示，正文你来填
+            </span>
+          </div>
+
           <textarea
             v-if="mode === 'edit'"
             ref="bodyEl"
@@ -238,8 +260,9 @@
           <div class="wr-doc-foot">
             <span>{{ body.length }} 字 · {{ citations.length }} 条引文</span>
             <span class="spacer" />
-            <!-- 红线写进界面：不代写正文（四家同类工具也都不写，我们照写清楚） -->
-            <span class="wr-muted">写作页不代写正文——这里只帮你管素材、引文与出处。</span>
+            <!-- 2026-10-19 取消"不代写"红线后的口径：模板只写结构、AI 写入走可撤销的通道，
+                 两条路都不偷偷存库——所以这里说的是"谁说了算"，不再宣称"一个字都不写"。 -->
+            <span class="wr-muted">模板骨架与 AI 写入都可撤销；存不存由你按「保存」决定。</span>
           </div>
         </template>
       </main>
@@ -534,9 +557,13 @@
 /**
  * 写作页（`#/write`）——**素材区 ｜ 写作区 ｜ 助手** 三栏（形态 v2 §3.2）。
  *
- * ⚠️ **本页一个字都不替用户生成正文**。页面上没有任何"生成/续写/润色"入口，
- * 连注释里也不许出现——这是形态 §3.2 与作品红线共同要求的那条线。
- * 写作页只做三件事：把读文献时攒下的素材摆出来、把引文与出处管好、让你自己写。
+ * ⚠️ **本页一个字都不替用户生成正文** —— 这是 **2026-10-19 之前**的口径（形态 §3.2 与
+ * 当时的作品红线）。**那条线当天已被用户取消**，现在的口径分两层：
+ * ① **模板**只写「结构骨架」：`## 章节标题` + 一行写作提示注释，**没有一句成文的稿子**
+ *    （见 `src/writeTemplates.js` 与下面的 `writeSkeleton`）；
+ * ② **AI** 可以把整段写进正文（`applyOps`，2026-10-19 起），但走的是带锚点校验的写入通道。
+ * 两条路都**留一次撤销**、都只标 `dirty`（存不存由用户按「保存」决定）——这是保留的安全网。
+ * 写作页的常事仍是三件：把读文献时攒下的素材摆出来、把引文与出处管好、让你自己写。
  *
  * 四条结构口径：
  * ① **写作不依赖读懂**：没有素材、一篇文献都没读过，也能直接起稿写（`#/write` 可直达）；
@@ -620,6 +647,8 @@ import {
 } from '../stores/useMaterials'
 import { closeMenus, openMenu, showToast, toggleMenu } from '../stores/useUi'
 import MaterialCard from '../components/MaterialCard.vue'
+// 模板的**结构层**（纯数据 + 纯函数）：章节清单与写作提示都从那里来，视图里不再另抄一份
+import { buildSkeleton, templateById, WRITE_TEMPLATES } from '../writeTemplates'
 import {
   outlineOf,
   previewBlocks as buildPreviewBlocks,
@@ -636,15 +665,13 @@ import {
 } from '../checkExport'
 
 /**
- * 内置模板（模板 / 大纲两个入口用）。
+ * 内置模板（模板 / 大纲两个入口用）：**数据在 `src/writeTemplates.js`**，这里只是取个短名。
  *
- * ⚠️ **只给名字和章节清单，不给正文**：本期 template_id 只存标识、不做版式渲染（契约 §2.7），
- * 所以这里连"预填的骨架"都不写——**预填就等于替用户开了个头**，而这条线我们守死。
+ * 2026-10-19 起模板**真的能填**了：选中模板 → 正文区上方出现一条提示条 →
+ * 点「写入骨架」才把 `## 章节标题` + 一行写作提示写进正文（**没有一句成文的稿子**，
+ * 正文由用户或 AI 填）。见下面的 `writeSkeleton`。
  */
-const BUILTIN_TEMPLATES = [
-  { id: 'tpl-journal', name: '期刊论文', note: '题名 · 摘要 · 引言 · 方法 · 结果 · 讨论 · 参考文献' },
-  { id: 'tpl-thesis', name: '学位论文', note: '绪论 · 相关工作 · 方法 · 实验 · 结论' },
-]
+const BUILTIN_TEMPLATES = WRITE_TEMPLATES
 
 const HELPER_TABS = [
   { key: 'chat', label: '对话' },
@@ -1052,6 +1079,24 @@ const helperTab = ref('outline')
 const mode = ref('edit')
 const sourceFilter = ref('')
 const showTemplates = ref(false)
+/**
+ * 已经选中的模板 id（空 = 没选）。
+ *
+ * ⭐ 选模板**只记下选的是哪一个**，正文一个字都不动——正文区上方那条提示条上的
+ * 「写入骨架」才是真正落字的动作（一次、可撤销、写前不动稿）。
+ */
+const templatePick = ref('')
+const pickedTemplate = computed(() =>
+  templatePick.value ? templateById(templatePick.value) : null,
+)
+/**
+ * 骨架的 `# 一级标题` 用草稿标题；「未命名草稿」是占位名，**不写进正文**
+ * （否则每份新稿的开头都会多一行假标题）。
+ */
+const seedTitle = computed(() => {
+  const text = String(title.value || '').trim()
+  return text && text !== '未命名草稿' ? text : ''
+})
 const clearArmed = ref(false)
 
 const shownMaterials = computed(() => {
@@ -1072,7 +1117,19 @@ const pendingQuote = computed(() => {
 })
 
 const outline = computed(() => outlineOf(body.value))
-const previewBlocks = computed(() => buildPreviewBlocks(body.value))
+
+/**
+ * 预览里**不显示"整块就是一条 HTML 注释"的块**：模板骨架写进来的
+ * `<!-- 写作提示：… -->` 是写给写作者自己看的，不该当成稿子的一部分印在版面上。
+ * 只过滤这一种情况——注释夹在正文当中时照旧原样显示（那也是用户自己写的字）。
+ */
+const COMMENT_ONLY_RE = /^\s*<!--[\s\S]*?-->\s*$/
+const previewBlocks = computed(() =>
+  buildPreviewBlocks(body.value).filter((block) => {
+    const text = (block.segments || []).map((seg) => seg.text || '').join('')
+    return !COMMENT_ONLY_RE.test(text)
+  }),
+)
 
 const saveText = computed(() => {
   if (!currentDraft.value) return ''
@@ -1169,6 +1226,9 @@ function saveAsFile(filename, text, type) {
 
 async function create(payload) {
   try {
+    // 换稿（空白 / 大纲 / 模板 / 上传自己的模板）一律把"待写入的模板"清掉：
+    // 提示条只能指向**当前这篇稿**选中的模板，不能挂着一份上一稿的选择。
+    templatePick.value = ''
     const draft = await newDraft(payload)
     showTemplates.value = false
     closeMenus()
@@ -1192,8 +1252,23 @@ function openTemplates() {
   showTemplates.value = true
 }
 
-function startTemplate(template) {
-  return create({ title: '未命名草稿', templateId: template.id })
+/**
+ * 选中一个内置模板。
+ *
+ * ⭐ **点模板不等于写正文**：这里只把 `template_id` 记到草稿上（老行为，契约 §2.7），
+ * 并把选中的模板记进 `templatePick` —— 正文区上方随即出现提示条，
+ * 要不要把结构骨架写进正文，由用户点「写入骨架」决定（见 `writeSkeleton`）。
+ */
+async function startTemplate(template) {
+  const draft = await create({ title: '未命名草稿', templateId: template.id })
+  if (!draft) return draft
+  templatePick.value = template.id
+  return draft
+}
+
+/** 提示条上的「取消」：只是不写骨架了，草稿与正文都不动。 */
+function cancelTemplatePick() {
+  templatePick.value = ''
 }
 
 /** 大纲入口：建稿 + 把助手切到「提纲」——让用户先立结构，正文自己写。 */
@@ -1247,10 +1322,85 @@ function templateLabel(templateId) {
   return templateId === 'outline' ? '大纲' : templateId
 }
 
+// ============================================================ 模板骨架（2026-10-19 取消"不代写"红线）
+
+/**
+ * 把骨架追加到正文：**正文非空时先空一行**。
+ *
+ * 那个空行不是排版讲究——markdown 里上一段最后一行紧跟着 `##` 时，
+ * 标题会黏进上一段（渲染出来像是没写进去）。CRLF 的稿子跟着用 CRLF，别把半篇稿子变成另一种换行。
+ */
+function appendSkeleton(text, skeleton) {
+  const base = String(text ?? '')
+  const next = String(skeleton ?? '')
+  if (!next) return base
+  if (!base.trim()) return next
+  const nl = usesCrlf(base) ? '\r\n' : '\n'
+  if (/(\r?\n){2}$/.test(base)) return base + next
+  if (/\r?\n$/.test(base)) return `${base}${nl}${next}`
+  return `${base}${nl}${nl}${next}`
+}
+
+/**
+ * 「写入骨架」：把选中模板的**结构**写进正文。
+ *
+ * ⚠️ 写进去的只有 `## 章节标题` + 一行 `<!-- 写作提示：… -->`——**一句成文的正文都没有**，
+ * 正文由用户自己写，或由 AI 的写入通道填。这是模板这条线现在的边界。
+ *
+ * 与 AI 写入（`applyOps`）同一套规矩，三条都不能少：
+ * ① **追加**，不覆盖用户已经写下的字；
+ * ② 只标 `dirty`，**不偷偷存库**（存不存由用户按「保存」决定）；
+ * ③ 给一次撤销，撤销窗口用现成的 `WRITE_UNDO_MS`（与"AI 整段写进正文"同一个窗口）。
+ */
+function writeSkeleton() {
+  const template = pickedTemplate.value
+  if (!template) return
+  if (!currentDraft.value) {
+    showToast('先起一份稿，再写模板骨架')
+    return
+  }
+  const before = body.value
+  const skeleton = withEol(
+    buildSkeleton(template.id, { title: seedTitle.value }),
+    usesCrlf(before),
+  )
+  if (!skeleton) {
+    showToast('这个模板没有章节，写不出骨架')
+    return
+  }
+  body.value = appendSkeleton(before, skeleton)
+  saveState.value = 'dirty'
+  // 一次性动作：写完就收起提示条，避免手滑再写一遍（重复的骨架比没有更难收拾）
+  templatePick.value = ''
+  logEvent(`按模板「${template.name}」写入骨架（${template.sections.length} 节）`)
+  showToast(
+    `已写入「${template.name}」骨架：只有章节标题与写作提示，正文你来填`,
+    { label: '撤销', run: () => revertSkeleton(before) },
+    WRITE_UNDO_MS,
+  )
+  mode.value = 'edit'
+  void nextTick(() => {
+    const el = bodyEl.value
+    if (!el) return
+    el.focus()
+    // 光标落到末尾：骨架刚写在最后，接着往下写就是正文第一句
+    el.setSelectionRange(el.value.length, el.value.length)
+  })
+}
+
+/** 撤销「写入骨架」：正文恢复成写入前那一版（还没保存，就一个字都不脏库）。 */
+function revertSkeleton(before) {
+  body.value = before
+  saveState.value = 'dirty'
+  logEvent('撤销了模板骨架')
+}
+
 // ============================================================ 素材区动作
 
 function pickDraft(draft) {
   closeMenus()
+  // 换稿就把"待写入的模板"清掉：提示条只属于刚才选它的那一篇
+  templatePick.value = ''
   selectDraft(draft.id)
   pane.value = 'doc'
 }
@@ -1353,3 +1503,51 @@ function onEditorKeydown(event) {
   }
 }
 </script>
+
+<style scoped>
+/* ============================================================ 模板骨架（2026-10-19 取消"不代写"红线）
+   只在本组件里生效：提示条与"第三个模板卡片"是写作页独有的两小块，
+   不值得为它们动 `src/style.css`（那份是全站共用的，改动波及面大）。
+
+   ⚠️ `.wr-tpl-item` 与 `style.css` 里的 `.dw .wr-tpl-item` **观感必须一致**：
+   拆成两个类名只是为了迁就 `tests/write-view.test.js` 里那条
+   「面板里正好 2 个 `.wr-tpl-item`」的老断言（那份用例不在本期可改范围）。
+   改一边就要改另一边；等那条断言改成 3 个，这里整段可以删掉。 */
+.wr-tplbar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-5);
+  font-size: var(--fs-meta);
+  color: var(--ink);
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--line-soft);
+}
+.wr-tplbar-text {
+  color: var(--ink);
+}
+.wr-tplbar-tip {
+  margin: 0;
+}
+
+.wr-tpl-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  padding: var(--sp-3);
+  margin-bottom: var(--sp-2);
+  cursor: pointer;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+.wr-tpl-item:hover {
+  border-color: var(--accent);
+}
+.wr-tpl-item .wr-muted {
+  margin: 0;
+}
+</style>

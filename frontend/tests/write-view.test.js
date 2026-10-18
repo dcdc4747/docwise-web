@@ -364,7 +364,8 @@ describe('写作页：起稿四入口', () => {
     await flushPromises()
 
     expect(wrapper.find('.wr-tpl').exists()).toBe(true)
-    expect(wrapper.findAll('.wr-tpl-item').length).toBe(2)
+    // 2026-10-19：模板从 2 个增到 3 个（新增「研究报告」），断言跟着产品走
+    expect(wrapper.findAll('.wr-tpl-item').length).toBe(3)
     wrapper.unmount()
   })
 

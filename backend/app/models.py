@@ -574,3 +574,34 @@ class UserLLMConfig(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=utc_now, onupdate=utc_now
     )
+
+
+class DraftVersion(Base):
+    """草稿版本（2026-10-19）：**AI 会改稿之后，版本历史是回滚的前提**。
+
+    背景：文案已允许 AI 直接把内容写进 `drafts.body_md`，用户再点保存。有了
+    "AI 动手改稿"，用户就必须能回到 AI 动手之前 —— 所以这里存的是**整篇快照**，
+    而不是 diff：判据是"能不能一键回到那一版"，不是"省不省空间"。
+
+    `source` 三种（本期冻结，别再加值，前端按它显示来源标签）：
+    - `user` —— 用户在 PATCH 里保存正文时自动记一版；
+    - `ai`   —— 保留给"AI 写入"路径显式落版本（本期没有写入方，schema 先留位）；
+    - `restore` —— **回滚前**先把当时的正文存下来（否则"回滚把中间稿弄丢"）。
+
+    ⚠️ 与 `tasks.started_at` 那批一样，`created_at` 用 `utc_now()`（naive UTC），
+    不用裸 `datetime.now()`；接口输出统一走 `iso_utc()`。
+    ⚠️ `body_md` / `title` 是**快照**（创建时拷贝），不回 JOIN `drafts` 取现值 ——
+    版本的意义就是"那时的稿子"，JOIN 会把它变成活引用。
+    ⚠️ 只保留最近 50 版（见 `routers/drafts.py` 的 `_VERSIONS_KEEP`），
+    表会不会无限长由写入方保证，不靠定期清理脚本。
+    """
+
+    __tablename__ = "draft_versions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    draft_id: Mapped[int] = mapped_column(ForeignKey("drafts.id"), index=True)
+    body_md: Mapped[str] = mapped_column(Text, default="")
+    title: Mapped[str] = mapped_column(String(200), default="")
+    source: Mapped[str] = mapped_column(String(16), default="user")
+    note: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)

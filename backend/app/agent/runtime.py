@@ -226,9 +226,27 @@ async def run_scene(
         ),
     )
 
-    output = result.output
+    output, verify_notes = _run_verify(scene, ctx, result.output)
     answer = getattr(output, "answer", "") or ""
     sources = list(getattr(output, "source_block_ids", []) or [])
+    # 写作侧的两条通道（与 stream_scene 保持一致，非流式也要给）
+    revisions = [
+        {
+            "original": getattr(item, "original", ""),
+            "revised": getattr(item, "revised", ""),
+            "reason": getattr(item, "reason", ""),
+        }
+        for item in (getattr(output, "revisions", []) or [])
+    ]
+    ops = [
+        {
+            "mode": getattr(item, "mode", ""),
+            "text": getattr(item, "text", ""),
+            "anchor": getattr(item, "anchor", ""),
+            "reason": getattr(item, "reason", ""),
+        }
+        for item in (getattr(output, "ops", []) or [])
+    ]
 
     steps = _steps_of(result.all_messages())
     # 出处校验：只留**工具真的返回过**的块号（模型编的一律剔掉）
@@ -244,6 +262,9 @@ async def run_scene(
         "answer": answer,
         "sources": verified,
         "dropped_sources": [sid for sid in sources if sid not in verified],
+        "revisions": revisions,
+        "ops": ops,
+        "notes": verify_notes,
         "steps": steps,
         "usage": {
             "requests": getattr(usage, "requests", None),

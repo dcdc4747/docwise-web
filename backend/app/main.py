@@ -28,6 +28,7 @@ from .routers.block_events import router as block_events_router
 from .routers.check import router as check_router
 from .routers.collections import router as collections_router
 from .routers.collections import task_router as collections_task_router
+from .routers.draft_export import router as draft_export_router
 from .routers.drafts import router as drafts_router
 from .routers.ledger import router as ledger_router
 from .routers.materials import router as materials_router
@@ -240,6 +241,8 @@ app.include_router(tasks_router)
 # ⚠️ **必须写在 `webapp.mount_frontend(app)` 之前** —— Starlette 按注册顺序匹配，
 # 写在挂载之后会被静态文件吃成 404（`test_same_origin` 有结构断言盯着）。
 app.include_router(drafts_router)
+# 稿子的 .md / .docx 导出（用户要「能交稿」）。同样必须在 mount_frontend 之前。
+app.include_router(draft_export_router)
 # 收口检查（契约 §2.7 / N22–N23）。同样**必须在 `webapp.mount_frontend(app)` 之前**。
 app.include_router(check_router)
 # 素材卡（契约 §2.4 / N12–N14）。同样**必须在 `webapp.mount_frontend(app)` 之前**。
