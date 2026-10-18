@@ -197,10 +197,99 @@ describe('AgentChat（读懂侧）', () => {
     expect(wrapper.find('.agent-rev-new').text()).toContain('两个维度')
     expect(wrapper.find('.agent-notes').text()).toContain('剔掉 1 条')
 
-    await wrapper.find('.agent-rev-foot button').trigger('click')
+    await wrapper.find('.agent-rev-foot .agent-rev-apply').trigger('click')
     const emitted = wrapper.emitted('apply-revision')
     expect(emitted).toBeTruthy()
     expect(emitted[0][0].revised).toContain('两个维度')
+  })
+
+  // ============================================================ 批量 / 忽略 / 状态标记
+  // 说明：这三条只管「组件有没有把决定交回页面」。**正文到底改没改、能不能撤销**由
+  // WriteView 的 `applyRevision` 负责（它同步回报结果，卡片据此显示已采用 / 没采用）。
+
+  /** 塞一轮带 `revisions` 的助手消息（`done: true`，建议卡才会出）。 */
+  function pushRevisions(revisions) {
+    agentMessages.value.push({
+      role: 'assistant',
+      text: '这几句可以更贴学科用语。',
+      steps: [],
+      sources: [],
+      dropped: [],
+      done: true,
+      revisions,
+    })
+  }
+
+  const REVS = [
+    { original: '甲句。', revised: '甲句（改）。', reason: '更像学科用语' },
+    { original: '乙句。', revised: '乙句（改）。', reason: '去掉冗词' },
+  ]
+
+  it('批量采用：顶部「全部采用（N）」对每条待处理建议都发 `apply-revision`', async () => {
+    const wrapper = mount(AgentChat, { props: { scope: { draft_id: 3 } } })
+    await flushPromises()
+    pushRevisions(REVS)
+    await flushPromises()
+
+    const all = wrapper.find('.agent-revs-all')
+    expect(all.exists()).toBe(true)
+    expect(all.text()).toContain('全部采用（2）')
+    // 旁边还有「忽略全部」（同一行操作）
+    expect(wrapper.find('.agent-revs-ignore').text()).toContain('忽略全部')
+
+    await all.trigger('click')
+
+    const emitted = wrapper.emitted('apply-revision')
+    expect(emitted).toHaveLength(2)
+    expect(emitted.map((call) => call[0].original)).toEqual(['甲句。', '乙句。'])
+    // 批量信息挂在第二个参数上：页面靠 `last` 收尾（汇总提示 + 整批撤销）
+    expect(emitted[0][1].batch).toEqual({ total: 2, index: 0, last: false })
+    expect(emitted[1][1].batch).toEqual({ total: 2, index: 1, last: true })
+
+    // 批量之后整组都标成已采用，顶部按钮没有可再采用的了
+    expect(wrapper.findAll('.agent-rev.is-applied')).toHaveLength(2)
+    expect(wrapper.find('.agent-revs-all').attributes('disabled')).toBeDefined()
+  })
+
+  it('已采用：左侧标绿、状态写「已采用」，两个按钮都禁用（不能重复采用）', async () => {
+    const wrapper = mount(AgentChat, { props: { scope: { draft_id: 3 } } })
+    await flushPromises()
+    pushRevisions([REVS[0]])
+    await flushPromises()
+
+    const card = wrapper.find('.agent-rev')
+    expect(card.classes()).not.toContain('is-applied')
+
+    await card.find('.agent-rev-apply').trigger('click')
+    expect(card.classes()).toContain('is-applied')
+    expect(card.find('.agent-rev-state').text()).toBe('已采用')
+    expect(card.find('.agent-rev-apply').attributes('disabled')).toBeDefined()
+    expect(card.find('.agent-rev-ignore').attributes('disabled')).toBeDefined()
+
+    // 禁用之后再点一次也不该多发一条（这条建议已经处置过了）
+    await card.find('.agent-rev-apply').trigger('click')
+    expect(wrapper.emitted('apply-revision')).toHaveLength(1)
+  })
+
+  it('忽略：标成已忽略，之后「全部采用」不再带上它', async () => {
+    const wrapper = mount(AgentChat, { props: { scope: { draft_id: 3 } } })
+    await flushPromises()
+    pushRevisions([...REVS, { original: '丙句。', revised: '丙句（改）。', reason: '更短' }])
+    await flushPromises()
+
+    const cards = wrapper.findAll('.agent-rev')
+    await cards[1].find('.agent-rev-ignore').trigger('click')
+    expect(cards[1].classes()).toContain('is-ignored')
+    expect(cards[1].find('.agent-rev-state').text()).toBe('已忽略')
+    expect(wrapper.find('.agent-revs-all').text()).toContain('全部采用（2）')
+
+    await wrapper.find('.agent-revs-all').trigger('click')
+    const emitted = wrapper.emitted('apply-revision')
+    expect(emitted).toHaveLength(2)
+    expect(emitted.map((call) => call[0].original)).toEqual(['甲句。', '丙句。'])
+    // 被忽略的那条保持灰的，没有被批量采用改写成「已采用」
+    expect(cards[1].classes()).toContain('is-ignored')
+    expect(wrapper.findAll('.agent-rev.is-applied')).toHaveLength(2)
   })
 
   it('轨迹只算工具调用：`final_result` 那条被剔掉', () => {

@@ -575,6 +575,7 @@ import {
   jumpToSource,
   loadDrafts,
   loadMaterials,
+  logEvent,
   materialSources,
   materials,
   materialsError,
@@ -632,22 +633,128 @@ const HELPER_TABS = [
 ]
 
 /**
+ * 采用改写建议的撤销窗口（毫秒）。toast 本身是 `useUi` 那套（全站同一个提示条，
+ * 由 `App.vue` 渲染、`runToastUndo` 执行），这里只决定它留多久。
+ */
+const REVISION_UNDO_MS = 6000
+
+/** 一次批量采用的过程（同一批的 `apply-revision` 是同步连发的，用一个变量串起来就够）。 */
+let applyBatch = null
+
+/**
+ * 在正文里做**一次逐字替换**；找不到原句返回 `null`（**正文一个字都不改**）。
+ * 绝不"模糊替换"——改错一句比不改更糟。
+ * 返回的记录带着替换发生的位置，撤销时靠它把原文放回原处。
+ */
+function replaceInBody(rev) {
+  const original = String(rev && rev.original ? rev.original : '')
+  const revised = String(rev && rev.revised ? rev.revised : '')
+  if (!original || !body.value) return null
+  const at = body.value.indexOf(original)
+  if (at < 0) return null
+  body.value = body.value.slice(0, at) + revised + body.value.slice(at + original.length)
+  return { at, original, revised }
+}
+
+/**
+ * 把一条替换退回去：**先按记下的位置**核对改后句。
+ * 位置对不上时（用户又在前面改过字），只有改后句在正文里**只出现一次**才退——
+ * 出现多次就分不清是哪一句，宁可如实说撤不了，也不退错地方。
+ */
+function revertReplacement(record) {
+  const text = body.value || ''
+  const { at, original, revised } = record
+  if (text.slice(at, at + revised.length) === revised) {
+    body.value = text.slice(0, at) + original + text.slice(at + revised.length)
+    return true
+  }
+  if (!revised) return false
+  const first = text.indexOf(revised)
+  if (first < 0 || first !== text.lastIndexOf(revised)) return false
+  body.value = text.slice(0, first) + original + text.slice(first + revised.length)
+  return true
+}
+
+/**
+ * 撤销一批替换：**从后往前**退（先动靠后的位置，前面记下的偏移量才不会失效）。
+ * 同一位置被连着改过（A→B→C）时按**相反次序**退：先退 C→B，再退 B→A。
+ * 有条目退不回去就如实说——不许假装全都退了。
+ */
+function undoRevisions(records, label) {
+  const rows = records
+    .map((record, index) => ({ record, index }))
+    .sort((a, b) => b.record.at - a.record.at || b.index - a.index)
+    .map((row) => row.record)
+  const done = rows.filter((record) => revertReplacement(record)).length
+  const failed = rows.length - done
+  if (done) {
+    saveState.value = 'dirty'
+    logEvent(`撤销${label}：${done} 条改写已改回原文`)
+  }
+  if (failed) {
+    showToast(`撤销没做完：有 ${failed} 条正文已经改过，退不回原来的位置`)
+    return
+  }
+  showToast(`已撤销${label}，正文改回原来的写法`)
+}
+
+/**
+ * 一次批量采纳收尾：只出一条汇总提示（不是每条都弹一下）。
+ * 跳过的是"正文里找不到原句"的——那几条**没动正文**，卡片上也不会标成已采用。
+ */
+function finishApplyBatch(run) {
+  applyBatch = null
+  const applied = run.applied.length
+  logEvent(`批量采用改写建议：采用 ${applied} 条，跳过 ${run.skipped} 条`)
+  showToast(
+    `采用 ${applied} 条，跳过 ${run.skipped} 条` +
+      (run.skipped ? '（跳过的是正文里找不到原句的）' : ''),
+    applied ? { label: '撤销', run: () => undoRevisions(run.applied, '这一批改写') } : null,
+    REVISION_UNDO_MS,
+  )
+}
+
+/**
  * 采用一条改写建议：**逐字**在正文里找原句，找到才替换。
  *
  * 找不到就如实说（可能稿子已经改过了），绝不"模糊替换"——
  * 改错一句比不改更糟。
+ *
+ * ⭐ **可撤销**：替换成功后走 `useUi` 的 `showToast(text, { label: '撤销', run })`
+ * （全站同一套提示条，挂在 App.vue 里），撤销把正文改回原文。
+ * ⭐ **批量**：`AgentChat` 的「全部采用」是逐条、同步地发同一个 `apply-revision`，
+ * 第二条参数里的 `batch = { total, index, last }` 把它们串成一批；
+ * 最后一条到达时给一条「采用 N 条，跳过 M 条」的汇总提示，撤销把整批一起退回去。
+ * `meta.report(ok)` 把结果同步回报给建议卡（卡片据此显示「已采用」还是「没采用」）。
  */
-function applyRevision(rev) {
-  const original = String(rev && rev.original ? rev.original : '')
-  const revised = String(rev && rev.revised ? rev.revised : '')
-  if (!original || !body.value) return
-  if (!body.value.includes(original)) {
-    logEvent('改写建议没采用：稿子里找不到那句原文（可能已经改过了）')
+function applyRevision(rev, meta = null) {
+  const batch = meta && meta.batch ? meta.batch : null
+  if (batch && batch.index === 0) applyBatch = { applied: [], skipped: 0 }
+
+  const record = replaceInBody(rev)
+  const ok = Boolean(record)
+  if (ok) saveState.value = 'dirty'
+  if (meta && typeof meta.report === 'function') meta.report(ok)
+
+  if (batch) {
+    const run = applyBatch || (applyBatch = { applied: [], skipped: 0 })
+    if (ok) run.applied.push(record)
+    else run.skipped += 1
+    if (batch.last) finishApplyBatch(run)
     return
   }
-  body.value = body.value.replace(original, revised)
-  saveState.value = 'dirty'
+
+  if (!ok) {
+    logEvent('改写建议没采用：稿子里找不到那句原文（可能已经改过了）')
+    showToast('没采用：正文里找不到那句原文（可能已经改过了）')
+    return
+  }
   logEvent('采用了一条改写建议')
+  showToast(
+    '已采用一条改写建议',
+    { label: '撤销', run: () => undoRevisions([record], '这条改写') },
+    REVISION_UNDO_MS,
+  )
 }
 
 const bodyEl = ref(null)

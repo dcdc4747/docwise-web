@@ -107,12 +107,60 @@
 
             <!-- 写作侧：可采用的替换建议（点了才写进稿子） -->
             <div v-if="turn.revisions && turn.revisions.length" class="agent-revisions">
-              <div v-for="(rev, k) in turn.revisions" :key="k" class="agent-rev">
+              <!-- 批量：整组采纳 / 忽略。`全部采用（N）` 里的 N 是**还没处置**的条数 -->
+              <div class="agent-revs-head">
+                <span class="agent-revs-count">{{ turn.revisions.length }} 条建议</span>
+                <span class="spacer" />
+                <button
+                  type="button"
+                  class="agent-revs-all"
+                  :disabled="!pendingCount(i, turn)"
+                  @click="applyAll(i, turn)"
+                >
+                  全部采用（{{ pendingCount(i, turn) }}）
+                </button>
+                <button
+                  type="button"
+                  class="agent-revs-ignore"
+                  :disabled="!pendingCount(i, turn)"
+                  @click="ignoreAll(i, turn)"
+                >
+                  忽略全部
+                </button>
+              </div>
+              <div
+                v-for="(rev, k) in turn.revisions"
+                :key="k"
+                class="agent-rev"
+                :class="revisionClass(i, k)"
+              >
                 <div class="agent-rev-orig">{{ rev.original }}</div>
                 <div class="agent-rev-new">{{ rev.revised }}</div>
                 <div class="agent-rev-foot">
                   <span class="agent-rev-reason">{{ rev.reason }}</span>
-                  <button type="button" @click="$emit('apply-revision', rev)">采用</button>
+                  <span
+                    v-if="revisionStatus(i, k)"
+                    class="agent-rev-state"
+                    :class="revisionClass(i, k)"
+                  >
+                    {{ revisionStatusText(i, k) }}
+                  </span>
+                  <button
+                    type="button"
+                    class="agent-rev-apply"
+                    :disabled="isSettled(i, k)"
+                    @click="applyOne(i, k, rev)"
+                  >
+                    采用
+                  </button>
+                  <button
+                    type="button"
+                    class="agent-rev-ignore"
+                    :disabled="isSettled(i, k)"
+                    @click="ignoreOne(i, k)"
+                  >
+                    忽略
+                  </button>
                 </div>
               </div>
             </div>
@@ -404,6 +452,116 @@ function toolSteps(turn) {
   return toolStepsOf(turn)
 }
 
+// ============================================================ 改写建议：采用 / 忽略（单条与批量）
+
+/**
+ * 每条建议的处置：`applied`（已采用）/ `ignored`（已忽略）/ `missing`（正文里找不到原句）。
+ *
+ * 键用「第几轮 : 第几条」——**同一条建议不能重复采用**，批量也不会把已经处置过的再带上。
+ * 对话清空时一并清掉（否则新一轮的第 0 条会继承上一轮的状态）。
+ */
+const revStates = reactive({})
+
+function revisionStatus(turnIndex, revIndex) {
+  return revStates[`${turnIndex}:${revIndex}`] || ''
+}
+
+function setRevisionStatus(turnIndex, revIndex, status) {
+  revStates[`${turnIndex}:${revIndex}`] = status
+}
+
+/** 已处置（采用 / 忽略）的不能再点；`missing` 不算处置过——正文改一下还能再试。 */
+function isSettled(turnIndex, revIndex) {
+  const status = revisionStatus(turnIndex, revIndex)
+  return status === 'applied' || status === 'ignored'
+}
+
+/** 卡片左侧的状态色（绿 = 已采用、灰 = 已忽略、琥珀 = 正文里没找到）。 */
+function revisionClass(turnIndex, revIndex) {
+  const status = revisionStatus(turnIndex, revIndex)
+  return status ? `is-${status}` : ''
+}
+
+function revisionStatusText(turnIndex, revIndex) {
+  const status = revisionStatus(turnIndex, revIndex)
+  if (status === 'applied') return '已采用'
+  if (status === 'ignored') return '已忽略'
+  if (status === 'missing') return '没采用 · 原文没找到'
+  return ''
+}
+
+/** 还没处置的条数（「全部采用（N）」的 N，也是「忽略全部」的作用范围）。 */
+function pendingCount(turnIndex, turn) {
+  const revisions = (turn && turn.revisions) || []
+  let count = 0
+  revisions.forEach((_, revIndex) => {
+    if (!isSettled(turnIndex, revIndex)) count += 1
+  })
+  return count
+}
+
+/**
+ * 采用一条：只把 `apply-revision` 抛给页面——**正文的替换由页面做**，组件不碰稿子。
+ *
+ * `report` 是页面回报结果的通道：页面的 `applyRevision` 是同步函数，所以 `emit` 返回时
+ * 结果已经拿到了。页面说"正文里找不到原句"时不能标成「已采用」（那是假话），标 `missing`。
+ */
+function applyOne(turnIndex, revIndex, rev) {
+  if (isSettled(turnIndex, revIndex)) return
+  let outcome = null
+  emit('apply-revision', rev, {
+    report: (ok) => {
+      outcome = ok
+    },
+  })
+  setRevisionStatus(turnIndex, revIndex, outcome === false ? 'missing' : 'applied')
+}
+
+function ignoreOne(turnIndex, revIndex) {
+  if (isSettled(turnIndex, revIndex)) return
+  setRevisionStatus(turnIndex, revIndex, 'ignored')
+}
+
+/**
+ * 全部采用：**依次**把每条待处理建议交回页面（同一个 `apply-revision`，与单条点「采用」一致）。
+ * `batch = { total, index, last }` 让页面知道这是同一批、哪一条是最后一条（页面的
+ * 「采用 N 条，跳过 M 条」汇总与批量撤销都挂在这上面）。
+ */
+function applyAll(turnIndex, turn) {
+  const rows = []
+  ;((turn && turn.revisions) || []).forEach((rev, revIndex) => {
+    if (rev && !isSettled(turnIndex, revIndex)) rows.push({ revIndex, rev })
+  })
+  const total = rows.length
+  if (!total) return
+  rows.forEach((row, index) => {
+    let outcome = null
+    emit('apply-revision', row.rev, {
+      batch: { total, index, last: index === total - 1 },
+      report: (ok) => {
+        outcome = ok
+      },
+    })
+    setRevisionStatus(turnIndex, row.revIndex, outcome === false ? 'missing' : 'applied')
+  })
+}
+
+/** 忽略全部：只标成已忽略，**不发 `apply-revision`**——之后批量采用也不会再带上它们。 */
+function ignoreAll(turnIndex, turn) {
+  ;((turn && turn.revisions) || []).forEach((_, revIndex) => {
+    if (!isSettled(turnIndex, revIndex)) setRevisionStatus(turnIndex, revIndex, 'ignored')
+  })
+}
+
+// 清空对话（重新开一轮）时把处置状态一起清掉，免得新一轮的建议继承旧状态
+watch(
+  () => turns.value.length,
+  (len) => {
+    if (len) return
+    for (const key of Object.keys(revStates)) delete revStates[key]
+  },
+)
+
 function toolCallCount(turn) {
   return toolStepsOf(turn).filter((step) => step.kind === 'tool_call').length
 }
@@ -433,3 +591,113 @@ onMounted(async () => {
 })
 
 </script>
+
+<!--
+  只补"批量操作行 + 三种处置状态"这几条，**建议卡本体的样式仍走 style.css 里那套**
+  （`.dw .agent-rev*`）。这里不引阴影、不加大色块：状态只用左侧一道细色条 + 小字标签。
+-->
+<style scoped>
+.agent-revs-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 2px;
+}
+
+.agent-revs-count {
+  font-size: var(--fs-micro);
+  color: var(--muted);
+}
+
+.agent-revs-head button {
+  border: 1px solid var(--accent-line, #c7d2fe);
+  background: #fff;
+  color: var(--accent);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font: inherit;
+  font-size: var(--fs-micro);
+  cursor: pointer;
+}
+
+.agent-revs-head button:hover:not(:disabled) {
+  background: var(--accent-soft, #eef2ff);
+}
+
+.agent-revs-head button.agent-revs-ignore {
+  border-color: var(--line);
+  color: var(--muted);
+}
+
+.agent-revs-head button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* 已采用 / 已忽略 / 没找到：左侧一道细色条，卡片底色只做极轻的变化
+   （色条从 1px 变 3px 会让文字右移 2px，所以左内边距补回 2px） */
+.agent-rev.is-applied {
+  border-left: 3px solid #86efac;
+  padding-left: 8px;
+  background: #f7fdf9;
+}
+
+.agent-rev.is-ignored {
+  border-left: 3px solid #e2e8f0;
+  padding-left: 8px;
+  background: #fafafa;
+  opacity: 0.72;
+}
+
+.agent-rev.is-missing {
+  border-left: 3px solid #fcd34d;
+  padding-left: 8px;
+  background: #fffdf5;
+}
+
+/* 窄栏里「理由 + 状态 + 两个按钮」会挤：允许换行，别把按钮压扁 */
+.agent-rev-foot {
+  flex-wrap: wrap;
+}
+
+.agent-rev-state {
+  flex: 0 0 auto;
+  font-size: var(--fs-micro);
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 1px 8px;
+  white-space: nowrap;
+}
+
+.agent-rev-state.is-applied {
+  color: #15803d;
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+}
+
+.agent-rev-state.is-missing {
+  color: #b45309;
+  border-color: #fde68a;
+  background: #fffbeb;
+}
+
+.agent-rev-foot button.agent-rev-ignore {
+  border-color: var(--line);
+  color: var(--muted);
+}
+
+.agent-rev-foot button.agent-rev-ignore:hover:not(:disabled) {
+  background: #f8fafc;
+}
+
+/* 处置过的按钮是死的：不给 hover 反馈，免得看着还能点 */
+.agent-rev-foot button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.agent-rev-foot button:disabled:hover {
+  background: #fff;
+}
+</style>
