@@ -3284,6 +3284,108 @@ svg.ic-inl {
 }
 
 /* ============================================================================
+   [AG] Agent 对话（2026-10-18）—— 会自己调工具的助手
+   ============================================================================
+   位置要求：必须在 `[R9]` 之前（#162 的用例断言 R9 是最后一段卡片样式）。
+   只加样式、不改既有类名；`.dw` 命名空间内，登录页/后台不受影响。 */
+
+/* 模式开关：助手（会查库）/ 只读这一篇 */
+.dw .ask-mode { display: flex; gap: 6px; align-items: center; margin: 0 0 10px; }
+.dw .ask-mode button {
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--muted);
+  border-radius: var(--r-sm);
+  padding: 5px 10px;
+  font: inherit;
+  font-size: var(--fs-meta);
+  cursor: pointer;
+}
+.dw .ask-mode button.on { border-color: var(--accent); color: var(--accent); background: #eef2ff; }
+.dw .ask-mode .ask-mode-reset { margin-left: auto; border: none; background: none; color: var(--muted); }
+
+/* 顶部：模型 / 强度 / 齿轮 */
+.dw .agent-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.dw .agent-model {
+  font-size: var(--fs-meta);
+  color: var(--ink);
+  background: #f1f5f9;
+  border-radius: 999px;
+  padding: 3px 10px;
+}
+.dw .agent-model.warn { background: #fef3c7; color: #92400e; }
+.dw .agent-tier { font-size: var(--fs-micro); color: var(--muted); }
+.dw .agent-gear {
+  margin-left: auto;
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: var(--r-sm);
+  padding: 4px 8px;
+  cursor: pointer;
+}
+
+/* 设置面板 */
+.dw .agent-config {
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  background: #fbfdff;
+}
+.dw .agent-config label { display: grid; gap: 3px; margin-bottom: 8px; }
+.dw .agent-config label > span { font-size: var(--fs-micro); color: var(--muted); }
+.dw .agent-config input,
+.dw .agent-config select {
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 6px 8px;
+  font: inherit;
+  font-size: var(--fs-meta);
+  background: #fff;
+  color: var(--ink);
+}
+.dw .agent-config-ops { display: flex; align-items: center; gap: 8px; }
+.dw .agent-note { font-size: var(--fs-micro); color: var(--muted); }
+.dw .agent-hint { margin: 8px 0 0; font-size: var(--fs-micro); color: var(--muted); line-height: 1.6; }
+
+/* 对话流 */
+.dw .agent-flow { display: flex; flex-direction: column; gap: 10px; }
+.dw .agent-empty { color: var(--muted); font-size: var(--fs-meta); line-height: 1.7; }
+.dw .agent-turn { display: flex; flex-direction: column; gap: 6px; }
+.dw .agent-bubble {
+  border-radius: var(--r-md);
+  padding: 9px 11px;
+  font-size: var(--fs-meta);
+  line-height: 1.75;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.dw .agent-bubble.user { background: #eef2ff; color: var(--ink); align-self: flex-end; max-width: 92%; }
+.dw .agent-bubble.answer { background: #f8fafc; border: 1px solid var(--line); }
+.dw .agent-bubble.err { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; }
+.dw .agent-bubble.pending { color: var(--muted); }
+
+/* 轨迹：它查了什么 */
+.dw .agent-trace { font-size: var(--fs-micro); }
+.dw .agent-trace-head {
+  border: none;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: var(--fs-micro);
+  cursor: pointer;
+  padding: 0;
+}
+.dw .agent-trace-list { margin: 6px 0 0; padding-left: 16px; color: var(--muted); display: grid; gap: 4px; }
+.dw .agent-trace-list li.bad { color: #b91c1c; }
+.dw .agent-trace-list code { color: var(--ink); font-size: var(--fs-micro); }
+.dw .agent-trace-detail { margin-left: 6px; }
+
+.dw .agent-src { display: flex; gap: 10px; font-size: var(--fs-micro); color: var(--muted); }
+.dw .agent-src-drop { color: #b45309; }
+.dw .agent-usage { font-size: var(--fs-micro); color: var(--muted); }
+
+/* ============================================================================
    [R9] 字体栈与渲染开关（2026-10-16）—— 全站字体只在这里定
    ============================================================================
    为什么单独放**文件最后**、而不是并进上面 `.dw` 的 token 段：契约 §4.3 第 5 条

@@ -260,12 +260,27 @@ function menuWrapByTitle(wrapper, title) {
     .find((m) => m.find('button.btn').exists() && m.find('button.btn').attributes('title') === title)
 }
 
-/** 打开一篇论文的阅读工作区：完成态点卡片按钮，进行中点任务条上的文件名。 */
-async function openReader(wrapper, label) {
+/**
+ * 打开一篇论文的阅读工作区：完成态点卡片按钮，进行中点任务条上的文件名。
+ *
+ * ⚠️ 2026-10-18：问答页签有两种模式（`agent` 会自己查库 / `direct` 只读这一篇），默认 agent。
+ * **这批用例断言的是老问答的界面与行为**，所以默认显式切到 direct ——
+ * 免得"界面默认值一变、一堆无关断言跟着红"。写 agent 用例时传 `{ askMode: 'agent' }`。
+ */
+async function openReader(wrapper, label, { askMode = 'direct' } = {}) {
   const btn = buttonByText(wrapper, label)
   expect(btn, `没找到「${label}」入口`).toBeTruthy()
   await btn.trigger('click')
   await flushPromises()
+  if (askMode === 'direct') {
+    const modeBtn = wrapper
+      .findAll('.ask-mode button')
+      .find((b) => b.text().includes('只读这一篇'))
+    if (modeBtn) {
+      await modeBtn.trigger('click')
+      await flushPromises()
+    }
+  }
 }
 
 describe('App.vue 页面渲染', () => {
