@@ -232,19 +232,13 @@
       </main>
 
       <!-- ---------- 助手：提纲 / 引用 / 过程 ---------- -->
-      <aside class="wr-helper">
-        <div class="tabs">
-          <button
-            v-for="tab in HELPER_TABS"
-            :key="tab.key"
-            :class="{ on: helperTab === tab.key }"
-            @click="pickHelper(tab.key)"
-          >
-            {{ tab.label }}
-          </button>
-        </div>
-
-        <div class="wr-helper-body">
+      <AssistPane
+        root-class="wr-helper"
+        body-class="wr-helper-body"
+        :tabs="HELPER_TABS"
+        :active-key="helperTab"
+        @update:active-key="pickHelper"
+      >
           <!-- 对话：写作侧 agent（读草稿 / 查素材 / 找依据） -->
           <div v-if="helperTab === 'chat'" class="wr-chat">
             <AgentChat
@@ -372,8 +366,7 @@
               所以这里只记「本次会话做过什么」，不假装有历史。
             </p>
           </div>
-        </div>
-      </aside>
+      </AssistPane>
     </div>
 
     <!-- ==================== 校对检查抽屉（形态 §3.3） ====================
@@ -534,6 +527,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 
 import AgentChat from '../components/AgentChat.vue'
+import AssistPane from '../components/AssistPane.vue'
 import CiteChip from '../components/CiteChip.vue'
 import EmptyState from '../components/EmptyState.vue'
 import HonestNote from '../components/HonestNote.vue'

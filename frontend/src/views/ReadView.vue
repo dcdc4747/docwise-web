@@ -445,7 +445,15 @@
     </div>
 
     <!-- 助手区：桌面 = 右栏；手机 = 底部抽屉三档。**同一份 DOM**，只有容器类名不同 -->
-    <div :class="assistClass">
+    <AssistPane
+      ref="assistPaneRef"
+      :root-class="assistClass"
+      :body-class="assistBodyClass"
+      :tabs="assistTabs"
+      :active-key="assistTab"
+      @update:active-key="switchTab"
+    >
+      <template #above-tabs>
       <template v-if="isNarrow">
         <div class="grip" @click="cycleSheet">
           <i /><span>{{ sheetGripText }}</span>
@@ -470,20 +478,9 @@
       >
         <Icon name="x" class="sm" />
       </button>
+      </template>
 
-      <div class="tabs">
-        <button
-          v-for="tab in assistTabs"
-          :key="tab.key"
-          :class="{ on: assistTab === tab.key }"
-          @click="switchTab(tab.key)"
-        >
-          {{ tab.label }}
-        </button>
-      </div>
-
-      <div :class="assistBodyClass" :ref="setAssistBody">
-        <div v-if="honestNote" class="honest">{{ honestNote }}</div>
+      <div v-if="honestNote" class="honest">{{ honestNote }}</div>
 
         <!-- ============ 问答（与 agent 统一：它自己会查库） ============ -->
         <div class="tabpane" :class="{ on: assistTab === 'ask' }">
@@ -565,10 +562,7 @@
             </div>
           </template>
         </div>
-      </div>
-
-      <!-- 问答输入框吸底 -->
-    </div>
+    </AssistPane>
   </div>
 </template>
 
@@ -585,6 +579,7 @@
  * 所以由 `App.vue` 算好、当 prop 传进来。
  */
 import AgentChat from '../components/AgentChat.vue'
+import AssistPane from '../components/AssistPane.vue'
 import AiBadge from '../components/AiBadge.vue'
 import Icon from '../components/Icon.vue'
 import MaterialSaveButton from '../components/MaterialSaveButton.vue'
@@ -606,7 +601,7 @@ import {
   sendAgentStream,
 } from '../stores/useAgent'
 // 埋点 1（译文改动）：入口只在"有译文"的块上给，存下之后打「已人工修改」标记
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch, watchEffect } from 'vue'
 
 // 问答页签的两种模式：`agent` = 会调工具的助手（默认），`direct` = 只读这一篇的老问答
 const agentScope = computed(() => ({ task_id: currentTask.value && currentTask.value.id }))
@@ -615,6 +610,15 @@ const agentScope = computed(() => ({ task_id: currentTask.value && currentTask.v
 const ASSIST_W_KEY = 'docwise_assist_w'
 const SPLITTER_MIN = 300
 const SPLITTER_MAX = 760
+/**
+ * AssistPane 暴露的滚动容器：`useUi.assistBodyEl` 原来是直接拿 div 的模板 ref，
+ * 现在容器归组件所有，所以在这里同步一份（点出处 / 提问后滚到底要用）。
+ */
+const assistPaneRef = ref(null)
+watchEffect(() => {
+  setAssistBody(assistPaneRef.value ? assistPaneRef.value.bodyEl : null)
+})
+
 const splitterDragging = ref(false)
 const assistWidth = ref(readAssistWidth())
 

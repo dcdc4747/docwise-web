@@ -4016,6 +4016,28 @@ svg.ic-inl {
   min-height: 0;
 }
 
+
+/* ---- 右栏助手骨架（AssistPane.vue）：高度链只此一处 ----
+   读懂 / 写作两个页面共用。规则写在这里而不是各页，
+   是为了让"新加一个页签"不可能再把输入框顶到中间（已经犯过三次）。 */
+.dw .assist-pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.dw .assist-pane-body {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+/* 页签里的"动作位"靠右（例如新对话），页签本身不拉伸 */
+.dw .assist-pane > .tabs > button { flex: 0 0 auto; }
+.dw .assist-pane > .tabs > .agent-views-spacer,
+.dw .assist-pane > .tabs > .tabs-extra {
+  flex: 1 1 auto;
+}
+
 /* ============================================================================
    [R9] 字体栈与渲染开关（2026-10-16）—— 全站字体只在这里定
    ============================================================================
