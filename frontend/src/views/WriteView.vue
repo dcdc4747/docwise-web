@@ -212,6 +212,82 @@
         @update:active-key="pickHelper"
       >
           <!-- 对话：写作侧 agent（读草稿 / 查素材 / 找依据） -->
+          <div v-if="helperTab === 'materials'" class="wr-matpane">
+        <div class="wr-colhead">
+          <span>素材 · {{ shownMaterials.length }}</span>
+          <span class="spacer" />
+          <select
+            v-if="materialSources.length > 1"
+            v-model="sourceFilter"
+            class="wr-select"
+            aria-label="按来源文献筛选素材"
+          >
+            <option value="">全部来源</option>
+            <option v-for="name in materialSources" :key="name" :value="name">{{ name }}</option>
+          </select>
+        </div>
+
+        <div class="wr-colbody">
+          <!-- 素材接口取不到：如实说 + 给重试，**并说清写稿不受影响**。
+               ⚠️ 这一段**不能把下面的空态出口挤掉**：第一版把它写成 v-if / v-else-if，
+               结果接口一挂（真后端现在还没有 N13）就只剩"取不到"，
+               形态 §3.2 要求的「去读懂一篇」+「不读文献，直接写」两个出口**一个都看不到**。
+               诚实提示与出口**并存**才是对的：说清为什么空，同时照样给出路。 -->
+          <template v-if="materialsError">
+            <HonestNote :text="`素材取不到：${materialsError}`" />
+            <p class="wr-muted">
+              素材接口还没上线时就会这样——写稿不受影响，下面的写作区照常可以写。
+            </p>
+            <button class="btn sm" @click="loadMaterials">重试</button>
+          </template>
+
+          <!-- 素材为空：形态 §3.2 的两个出口，**两个都真能用** -->
+          <EmptyState
+            v-if="!materials.length"
+            title="还没有素材卡"
+            description="素材卡是你在阅读文献时存下来的证据快照——记着「第 X 页 · 哪一句」。"
+            action-text="去读懂一篇"
+            @action="goRead"
+          >
+            <button class="btn ghost sm" @click="writeWithoutReading">不读文献，直接写</button>
+          </EmptyState>
+
+          <template v-else>
+            <p v-if="!shownMaterials.length" class="wr-muted">
+              这组来源筛选下没有素材——把上面的「全部来源」调回来就有了。
+            </p>
+            <!-- ⭐ 素材卡**只有一种形态**（卡② 的 `MaterialCard.vue`，素材库页与这里共用）：
+                 出处芯片、三态（正常 / 源文献已删 / 软删）、空白压平都归它，
+                 写作页只多挂一个「插入引文」（那是写作自己的动作，卡片不该知道）。
+                 ⚠️ 第一版这里自己写了一套 `.wr-mat*` 的卡片——同一形态两套前缀，
+                 样式与行为必然各走各的（已删掉，见 style.css 同一次提交）。 -->
+            <div v-for="m in shownMaterials" :key="m.id" class="wr-matslot">
+              <!-- ⚠️ 这里**故意不挂 `@restore`**：契约里没有"恢复"端点（N14 只有软删），
+                   所以卡片那个「撤销删除」只可能出现在自跑演示（`:demo` / `?demo=mock`）里；
+                   生产路径上的"删错了"由下面那条 5 秒撤销提示兜（**在发 DELETE 之前**）。 -->
+              <MaterialCard :material="m" @locate="jumpToMaterial(m)" />
+              <div class="wr-matslot-ops">
+                <button class="btn sm" @click="insertMaterial(m)">插入引文</button>
+                <button
+                  class="btn ghost sm"
+                  title="从素材里移除（5 秒内可撤销）"
+                  @click="removeMaterial(m.id)"
+                >
+                  移除
+                </button>
+              </div>
+            </div>
+            <!-- ⭐ 客户端撤销窗口：5 秒内**一个请求都没发**，点撤销就什么都不发生 -->
+            <div v-if="pendingDelete" class="wr-matundo">
+              <span>
+                已移除「{{ pendingQuote }}…」，5 秒内可撤销。
+              </span>
+              <button class="btn sm" @click="cancelPendingDelete()">撤销</button>
+            </div>
+          </template>
+        </div>
+            </div>
+
           <div v-if="helperTab === 'chat'" class="wr-chat">
             <AgentChat
               scene="write_compose"
@@ -383,81 +459,7 @@
               （保存过的每一版都在那儿，保留最近 50 版）。
             </p>
           </div>
-            <div class="wr-matpane">
-        <div class="wr-colhead">
-          <span>素材 · {{ shownMaterials.length }}</span>
-          <span class="spacer" />
-          <select
-            v-if="materialSources.length > 1"
-            v-model="sourceFilter"
-            class="wr-select"
-            aria-label="按来源文献筛选素材"
-          >
-            <option value="">全部来源</option>
-            <option v-for="name in materialSources" :key="name" :value="name">{{ name }}</option>
-          </select>
-        </div>
-
-        <div class="wr-colbody">
-          <!-- 素材接口取不到：如实说 + 给重试，**并说清写稿不受影响**。
-               ⚠️ 这一段**不能把下面的空态出口挤掉**：第一版把它写成 v-if / v-else-if，
-               结果接口一挂（真后端现在还没有 N13）就只剩"取不到"，
-               形态 §3.2 要求的「去读懂一篇」+「不读文献，直接写」两个出口**一个都看不到**。
-               诚实提示与出口**并存**才是对的：说清为什么空，同时照样给出路。 -->
-          <template v-if="materialsError">
-            <HonestNote :text="`素材取不到：${materialsError}`" />
-            <p class="wr-muted">
-              素材接口还没上线时就会这样——写稿不受影响，下面的写作区照常可以写。
-            </p>
-            <button class="btn sm" @click="loadMaterials">重试</button>
-          </template>
-
-          <!-- 素材为空：形态 §3.2 的两个出口，**两个都真能用** -->
-          <EmptyState
-            v-if="!materials.length"
-            title="还没有素材卡"
-            description="素材卡是你在阅读文献时存下来的证据快照——记着「第 X 页 · 哪一句」。"
-            action-text="去读懂一篇"
-            @action="goRead"
-          >
-            <button class="btn ghost sm" @click="writeWithoutReading">不读文献，直接写</button>
-          </EmptyState>
-
-          <template v-else>
-            <p v-if="!shownMaterials.length" class="wr-muted">
-              这组来源筛选下没有素材——把上面的「全部来源」调回来就有了。
-            </p>
-            <!-- ⭐ 素材卡**只有一种形态**（卡② 的 `MaterialCard.vue`，素材库页与这里共用）：
-                 出处芯片、三态（正常 / 源文献已删 / 软删）、空白压平都归它，
-                 写作页只多挂一个「插入引文」（那是写作自己的动作，卡片不该知道）。
-                 ⚠️ 第一版这里自己写了一套 `.wr-mat*` 的卡片——同一形态两套前缀，
-                 样式与行为必然各走各的（已删掉，见 style.css 同一次提交）。 -->
-            <div v-for="m in shownMaterials" :key="m.id" class="wr-matslot">
-              <!-- ⚠️ 这里**故意不挂 `@restore`**：契约里没有"恢复"端点（N14 只有软删），
-                   所以卡片那个「撤销删除」只可能出现在自跑演示（`:demo` / `?demo=mock`）里；
-                   生产路径上的"删错了"由下面那条 5 秒撤销提示兜（**在发 DELETE 之前**）。 -->
-              <MaterialCard :material="m" @locate="jumpToMaterial(m)" />
-              <div class="wr-matslot-ops">
-                <button class="btn sm" @click="insertMaterial(m)">插入引文</button>
-                <button
-                  class="btn ghost sm"
-                  title="从素材里移除（5 秒内可撤销）"
-                  @click="removeMaterial(m.id)"
-                >
-                  移除
-                </button>
-              </div>
-            </div>
-            <!-- ⭐ 客户端撤销窗口：5 秒内**一个请求都没发**，点撤销就什么都不发生 -->
-            <div v-if="pendingDelete" class="wr-matundo">
-              <span>
-                已移除「{{ pendingQuote }}…」，5 秒内可撤销。
-              </span>
-              <button class="btn sm" @click="cancelPendingDelete()">撤销</button>
-            </div>
-          </template>
-        </div>
-            </div>
+            
       </AssistPane>
     </div>
 
@@ -1195,7 +1197,8 @@ async function copyBibliography() {
 const pane = ref('doc')
 /** 1024–1100px 区间：助手是抽屉，点顶栏「助手」开合。 */
 const helperOpen = ref(false)
-const helperTab = ref('outline')
+// 默认停在第一个页签（素材）——素材搬进助手之后，停在第三格会让人以为它没了
+const helperTab = ref('materials')
 const mode = ref('edit')
 const sourceFilter = ref('')
 const showTemplates = ref(false)
