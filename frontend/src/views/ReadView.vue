@@ -877,7 +877,7 @@ function flushExposureByBeacon() {
  * `Esc` 关助手抽屉（1024–1099 档）。
  *
  * 为什么要有：抽屉是 `position: fixed` 盖在正文上，没有遮罩，**键盘用户如果没有 Esc
- * 就只能靠鼠标回去点那个按钮**（与收口检查抽屉的 `Esc 可关` 同一口径）。
+ * 就只能靠鼠标回去点那个按钮**（与校对检查抽屉的 `Esc 可关` 同一口径）。
  * 其余宽度下抽屉根本不存在，这个监听相当于空转（`closeAssistDrawer()` 幂等）。
  */
 function onKeydown(event) {

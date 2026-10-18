@@ -28,10 +28,10 @@ import AppTabbar from '../src/components/AppTabbar.vue'
 /** `bun run test` 的 cwd 是 `frontend/`（与 app.smoke.test.js 同一口径）。 */
 const srcText = (rel) => readFileSync(resolve(process.cwd(), 'src', rel), 'utf8')
 
-/** R6 之后要传进来的 5 个标签（形态 §3.4：库 / 起草 / 检查 / 记忆 / 我的）。 */
+/** R6 之后要传进来的 5 个标签（形态 §3.4：库 / 写作 / 检查 / 记忆 / 我的）。 */
 const FIVE_TABS = [
   { key: 'library', label: '库', icon: 'layers' },
-  { key: 'write', label: '起草', icon: 'pen' },
+  { key: 'write', label: '写作', icon: 'pen' },
   { key: 'check', label: '检查', icon: 'check-search' },
   { key: 'memory', label: '记忆', icon: 'gear' },
   { key: 'me', label: '我的', icon: 'user' },
@@ -57,7 +57,7 @@ describe('AppTabbar 底部标签栏（座位）', () => {
     // 默认值必须是空数组；写成字面量标签数组就是"硬编了一份没做的导航"
     expect(src).toMatch(/tabs:\s*\{\s*type:\s*Array,\s*default:\s*\(\)\s*=>\s*\[\]\s*\}/)
     // 5 个标签的文案不许出现在这个文件里（它们属于 R6 的数据源）
-    for (const label of ['库', '起草', '检查', '记忆', '我的']) {
+    for (const label of ['库', '写作', '检查', '记忆', '我的']) {
       expect(src).not.toContain(`label: '${label}'`)
     }
   })
@@ -67,7 +67,7 @@ describe('AppTabbar 底部标签栏（座位）', () => {
 
     const items = wrapper.findAll('button.tabbar-item')
     expect(items).toHaveLength(5)
-    expect(items.map((i) => i.find('.tabbar-lbl').text())).toEqual(['库', '起草', '检查', '记忆', '我的'])
+    expect(items.map((i) => i.find('.tabbar-lbl').text())).toEqual(['库', '写作', '检查', '记忆', '我的'])
     // 第一个是「库」不是「读懂」（R6 判据①点名）
     expect(items[0].text()).not.toContain('读懂')
 

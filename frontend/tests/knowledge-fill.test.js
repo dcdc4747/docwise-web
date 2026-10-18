@@ -193,7 +193,7 @@ describe('概览（N42）', () => {
 })
 
 describe('接线（结构断言）', () => {
-  it('起草页：引用页签有参考文献块、收口抽屉有历史报告', () => {
+  it('写作页：引用页签有参考文献块、校对抽屉有历史报告', () => {
     const view = readSrc('src/views/WriteView.vue')
     expect(view).toContain('wr-biblio')
     expect(view).toContain('bibStyleOptions')

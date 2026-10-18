@@ -47,7 +47,7 @@
       >
         保存
       </button>
-      <button class="btn ghost sm wr-check-toggle" @click="openCheckDrawer">收口检查</button>
+      <button class="btn ghost sm wr-check-toggle" @click="openCheckDrawer">校对检查</button>
       <button class="btn ghost sm wr-helper-toggle" @click="helperOpen = !helperOpen">助手</button>
     </div>
 
@@ -100,7 +100,7 @@
             </p>
             <!-- ⭐ 素材卡**只有一种形态**（卡② 的 `MaterialCard.vue`，素材库页与这里共用）：
                  出处芯片、三态（正常 / 源文献已删 / 软删）、空白压平都归它，
-                 起草页只多挂一个「插入引文」（那是起草自己的动作，卡片不该知道）。
+                 写作页只多挂一个「插入引文」（那是写作自己的动作，卡片不该知道）。
                  ⚠️ 第一版这里自己写了一套 `.wr-mat*` 的卡片——同一形态两套前缀，
                  样式与行为必然各走各的（已删掉，见 style.css 同一次提交）。 -->
             <div v-for="m in shownMaterials" :key="m.id" class="wr-matslot">
@@ -155,7 +155,7 @@
         <div v-if="!currentDraft" class="wr-start">
           <EmptyState
             title="先起一份稿"
-            description="起草不依赖读懂——没有素材也能直接写；正文一个字都由你自己写。"
+            description="写作不依赖读懂——没有素材也能直接写；正文一个字都由你自己写。"
             action-text="空白文字"
             @action="startBlank"
           >
@@ -167,7 +167,7 @@
           </EmptyState>
 
           <p v-if="draftsError" class="wr-muted">
-            草稿列表没取到：{{ draftsError }}——{{ draftsError.includes('404') ? '后端起草接口还没上线时会这样。' : '可以重试。' }}
+            草稿列表没取到：{{ draftsError }}——{{ draftsError.includes('404') ? '后端写作接口还没上线时会这样。' : '可以重试。' }}
           </p>
         </div>
 
@@ -226,7 +226,7 @@
             <span>{{ body.length }} 字 · {{ citations.length }} 条引文</span>
             <span class="spacer" />
             <!-- 红线写进界面：不代写正文（四家同类工具也都不写，我们照写清楚） -->
-            <span class="wr-muted">起草页不代写正文——这里只帮你管素材、引文与出处。</span>
+            <span class="wr-muted">写作页不代写正文——这里只帮你管素材、引文与出处。</span>
           </div>
         </template>
       </main>
@@ -367,14 +367,14 @@
       </aside>
     </div>
 
-    <!-- ==================== 收口检查抽屉（形态 §3.3） ====================
-         ⭐ 收口**是起草页里的抽屉，不是独立页面**：检查时要一边看着自己的稿子
+    <!-- ==================== 校对检查抽屉（形态 §3.3） ====================
+         ⭐ 校对**是写作页里的抽屉，不是独立页面**：检查时要一边看着自己的稿子
          （"这句该引没引"得对着上下文看）。`Esc` 可关、点遮罩可关。
          ⚠️ 抽屉**只出报告**：没有"一键修好/自动改写"（形态 §3.3 ②：并列摆出两处，不自动改）。 -->
     <div v-if="checkOpen" class="wr-checkmask" @click="closeCheck" />
-    <aside v-if="checkOpen" class="wr-check" role="dialog" aria-label="收口检查">
+    <aside v-if="checkOpen" class="wr-check" role="dialog" aria-label="校对检查">
       <div class="wr-checkhead">
-        <span>收口检查</span>
+        <span>校对检查</span>
         <span class="spacer" />
         <button class="btn ghost sm" @click="closeCheck">关闭</button>
       </div>
@@ -503,14 +503,14 @@
 
 <script setup>
 /**
- * 起草页（`#/write`）——**素材区 ｜ 写作区 ｜ 助手** 三栏（形态 v2 §3.2）。
+ * 写作页（`#/write`）——**素材区 ｜ 写作区 ｜ 助手** 三栏（形态 v2 §3.2）。
  *
  * ⚠️ **本页一个字都不替用户生成正文**。页面上没有任何"生成/续写/润色"入口，
  * 连注释里也不许出现——这是形态 §3.2 与作品红线共同要求的那条线。
- * 起草页只做三件事：把读文献时攒下的素材摆出来、把引文与出处管好、让你自己写。
+ * 写作页只做三件事：把读文献时攒下的素材摆出来、把引文与出处管好、让你自己写。
  *
  * 四条结构口径：
- * ① **起草不依赖读懂**：没有素材、一篇文献都没读过，也能直接起稿写（`#/write` 可直达）；
+ * ① **写作不依赖读懂**：没有素材、一篇文献都没读过，也能直接起稿写（`#/write` 可直达）；
  * ② ⭐ **点 `[1]` 回原文**：走 `stores/useWrite.jumpToSource` → 复用阅读区 `traceTo`；
  *    源文献已删时 `[1]` 是**灰的、不可点**，并写清为什么（死链不许做成活链样式）；
  * ③ **起稿四入口**：模板 / 大纲 / 空白 / 上传自己的模板——落到接口只差一个 `template_id`；
@@ -594,7 +594,7 @@ import {
   TEXT_TEMPLATE_RE,
   uploadTemplateId,
 } from '../writeText'
-// 收口报告的导出层（E11）：纯函数序列化单独一层，导出内容与界面所见一致
+// 校对报告的导出层（E11）：纯函数序列化单独一层，导出内容与界面所见一致
 import {
   canExport,
   exportFilename,
@@ -633,7 +633,7 @@ async function pickHelper(key) {
 }
 
 /**
- * 开收口抽屉：**顺手拉一次历史**（N43）。
+ * 开校对抽屉：**顺手拉一次历史**（N43）。
  * ⚠️ 拉历史失败只影响那一块（`checkHistoryError` 自己会说），不挡当前报告。
  */
 async function openCheckDrawer() {
@@ -721,12 +721,12 @@ onMounted(async () => {
 
 onUnmounted(() => {
   window.removeEventListener('keydown', onWriteKeydown)
-  // 离开起草页（含点 [1] 跳去阅读区）前，把没存上的字送出去
+  // 离开写作页（含点 [1] 跳去阅读区）前，把没存上的字送出去
   void saveNow().catch(() => {})
   disposeWrite()
 })
 
-// ============================================================ 收口检查（M4）
+// ============================================================ 校对检查（M4）
 
 /** `Esc` 关抽屉（形态 §3.3：`Esc` 可关、点遮罩可关）。 */
 function onWriteKeydown(event) {
