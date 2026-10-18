@@ -48,6 +48,19 @@
         保存
       </button>
       <button class="btn ghost sm wr-check-toggle" @click="openCheckDrawer">校对检查</button>
+      <button
+        class="btn ghost sm wr-export"
+        type="button"
+        :disabled="!currentDraft || exporting"
+        :title="currentDraft ? '把这篇稿子导出成文件' : '先起一份稿'"
+        @click="toggleExportMenu"
+      >
+        {{ exporting ? '导出中…' : '导出 ▾' }}
+      </button>
+      <div v-if="exportMenuOpen" class="wr-exportmenu" role="menu">
+        <button type="button" @click="exportDraft('md')">Markdown（.md）</button>
+        <button type="button" @click="exportDraft('docx')">Word（.docx）</button>
+      </div>
       <button class="btn ghost sm wr-helper-toggle" @click="helperOpen = !helperOpen">助手</button>
     </div>
 
@@ -585,6 +598,7 @@ import AssistPane from '../components/AssistPane.vue'
 import CiteChip from '../components/CiteChip.vue'
 import EmptyState from '../components/EmptyState.vue'
 import HonestNote from '../components/HonestNote.vue'
+import { authFetch } from '../auth'
 import { navigate } from '../router'
 import {
   bibEntries,
@@ -1207,6 +1221,61 @@ function exportReport(format) {
   }
 }
 
+/**
+ * 导出这篇稿子。`md` 走文本、`docx` 走二进制（**不能**按文本读，会损坏文件）。
+ * 后端 `.docx` 需要引擎 venv 里的 python-docx；不可用时回 503 + 人话，原样提示。
+ */
+const exporting = ref(false)
+const exportMenuOpen = ref(false)
+
+function toggleExportMenu() {
+  exportMenuOpen.value = !exportMenuOpen.value
+}
+
+async function exportDraft(format) {
+  exportMenuOpen.value = false
+  const draft = currentDraft.value
+  if (!draft || exporting.value) return
+  exporting.value = true
+  exportError.value = ''
+  try {
+    const res = await authFetch(`/api/drafts/${draft.id}/export.${format}`)
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      exportError.value = body.detail || `导出没成（HTTP ${res.status}）`
+      showToast(`导出没成：${exportError.value}`)
+      return
+    }
+    const filename = `${draft.title || '未命名草稿'}.${format}`
+    if (format === 'docx') {
+      saveBlob(filename, await res.blob())
+    } else {
+      saveAsFile(filename, await res.text(), 'text/markdown;charset=utf-8')
+    }
+    logEvent(`导出了 ${String(format).toUpperCase()}`)
+  } catch (exc) {
+    exportError.value = `导出请求失败：${exc && exc.message ? exc.message : exc}`
+    showToast(`导出没成：${exportError.value}`)
+  } finally {
+    exporting.value = false
+  }
+}
+
+/** 二进制落盘（与 `saveAsFile` 同一套：Blob + 临时链，用完即撤）。 */
+function saveBlob(filename, blob) {
+  const url = URL.createObjectURL(blob)
+  try {
+    const link = document.createElement('a')
+    link.href = url
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+  } finally {
+    URL.revokeObjectURL(url)
+  }
+}
+
 /** 把一段文本存成文件（Blob + 临时链，用完即撤——不留悬着的 object URL）。 */
 function saveAsFile(filename, text, type) {
   const url = URL.createObjectURL(new Blob([text], { type }))
@@ -1505,6 +1574,32 @@ function onEditorKeydown(event) {
 </script>
 
 <style scoped>
+.wr-exportmenu {
+  position: absolute;
+  top: 42px;
+  right: 96px;
+  z-index: 40;
+  min-width: 168px;
+  padding: 6px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+  display: grid;
+  gap: 2px;
+}
+.wr-exportmenu button {
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.wr-exportmenu button:hover { background: #f1f3f7; }
+
 /* ============================================================ 模板骨架（2026-10-19 取消"不代写"红线）
    只在本组件里生效：提示条与"第三个模板卡片"是写作页独有的两小块，
    不值得为它们动 `src/style.css`（那份是全站共用的，改动波及面大）。
