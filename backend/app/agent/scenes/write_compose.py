@@ -45,11 +45,21 @@ SYSTEM = (
 
 
 def build_context(ctx) -> str:
-    """把「正在写哪一篇」带给模型；没有 draft_id 就让它自己调 list_drafts。"""
+    """把「正在写哪一篇」和「有哪些技能」带给模型。
+
+    ⚠️ 技能只给**索引**（名字 + 一句话何时用），正文要模型自己调 `use_skill` 取——
+    这就是"渐进披露"：预装 10 个技能也不会把默认上下文撑大。
+    """
+    from ..skills import skill_index_prompt
+
+    parts: list[str] = []
     draft_id = (ctx.scope or {}).get("draft_id")
-    if not draft_id:
-        return ""
-    return f"用户正在编辑草稿 draft_id={draft_id}（可用 read_draft 读取）。"
+    if draft_id:
+        parts.append(f"用户正在编辑草稿 draft_id={draft_id}（可用 read_draft 读取）。")
+    index = skill_index_prompt("write_compose")
+    if index:
+        parts.append(index)
+    return "\n\n".join(parts)
 
 
 def verify_writes(ctx, output):
@@ -166,6 +176,8 @@ SCENE = Scene(
         "biblio",
         "materials",
         "memory_write",
+        # 板块专属知识（体例 / 排版 / 改稿协议），按需加载
+        "skills",
     ),
     default_tier="standard",
     build_context=build_context,

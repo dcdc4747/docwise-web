@@ -1,0 +1,28 @@
+{
+  "skills": [
+    {
+      "name": "journal-format",
+      "title": "投稿体例（中文期刊 / APA / IEEE）",
+      "applies_to": [
+        "write_compose"
+      ],
+      "when": "用户提到目标刊或体例要求，或问该有哪几节时"
+    },
+    {
+      "name": "typesetting-rules",
+      "title": "版面规范（字号/字体/行距/题注）",
+      "applies_to": [
+        "write_compose"
+      ],
+      "when": "用户要求调字号、字体、行距、缩进，或问这样排对不对时"
+    },
+    {
+      "name": "revision-protocol",
+      "title": "改稿协议（最小改动、锚点、语气）",
+      "applies_to": [
+        "write_compose"
+      ],
+      "when": "用户让你改写、润色、压缩或扩写某一段时"
+    }
+  ]
+}
