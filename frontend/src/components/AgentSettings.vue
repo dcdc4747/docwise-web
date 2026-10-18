@@ -23,7 +23,14 @@ const saveNote = agentSaveNote
 
 const section = ref('model')
 const saving = ref(false)
-const form = reactive({ baseUrl: '', model: '', tier: 'standard', apiKey: '' })
+const form = reactive({
+  baseUrl: '',
+  model: '',
+  tier: 'standard',
+  apiKey: '',
+  // 每板块单独指定模型：空串 = 跟随全局（不动就不会多花钱）
+  sceneModels: { read_ask: '', write_compose: '' },
+})
 const customModel = ref(false)
 
 const scenes = agentScenes
@@ -60,6 +67,11 @@ watch(
     form.model = cfg.model || ''
     form.tier = cfg.tier || 'standard'
     form.apiKey = ''
+    const perScene = cfg.scene_models || {}
+    form.sceneModels = {
+      read_ask: perScene.read_ask || '',
+      write_compose: perScene.write_compose || '',
+    }
     customModel.value = false
   },
   { immediate: true },
@@ -87,7 +99,11 @@ function pickModel(value) {
 async function save() {
   saving.value = true
   try {
-    const ok = await saveAgentConfig({ ...form })
+    // 空串不落库（后端也会过滤，这里先清一遍，别让它变成 "": "" 的脏数据）
+    const scene_models = Object.fromEntries(
+      Object.entries(form.sceneModels || {}).filter(([, v]) => String(v || '').trim()),
+    )
+    const ok = await saveAgentConfig({ ...form, scene_models })
     if (ok) openSettings(false)
   } finally {
     saving.value = false
@@ -181,6 +197,29 @@ async function save() {
             <option value="strong">强（贵，复杂推理）</option>
           </select>
         </label>
+        <fieldset class="agent-scene-models">
+          <legend>按板块指定模型（可选）</legend>
+          <p class="agent-modal-hint">
+            留空 = 跟随上面那个模型。写作切到
+            <code class="agent-inline-code">deepseek-reasoner</code>
+            会更稳，但**更贵更慢**（同一段约 2–3 倍时间）——按需再开。
+          </p>
+          <label>
+            <span>读懂</span>
+            <select v-model="form.sceneModels.read_ask">
+              <option value="">跟随全局</option>
+              <option v-for="m in modelOptions" :key="'r-' + m" :value="m">{{ m }}</option>
+            </select>
+          </label>
+          <label>
+            <span>写作</span>
+            <select v-model="form.sceneModels.write_compose">
+              <option value="">跟随全局</option>
+              <option v-for="m in modelOptions" :key="'w-' + m" :value="m">{{ m }}</option>
+            </select>
+          </label>
+        </fieldset>
+
         <label>
           <span>API Key</span>
           <input

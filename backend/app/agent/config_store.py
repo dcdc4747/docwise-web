@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 
 from sqlalchemy import select
@@ -75,6 +76,33 @@ class ResolvedConfig:
     source: str  # "user" / "server"
 
 
+
+#: 允许按板块单独指定模型的场景（白名单：不认识的键一律忽略，防止存脏数据）
+SCENE_IDS = ("read_ask", "write_compose")
+
+
+def scene_models_of(row: UserLLMConfig | None) -> dict[str, str]:
+    """把库里的 JSON 读成 `{scene_id: model}`；读坏了当空（不抛）。"""
+    if row is None or not row.scene_models:
+        return {}
+    try:
+        data = json.loads(row.scene_models)
+    except (TypeError, ValueError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {
+        str(key): str(value)
+        for key, value in data.items()
+        if key in SCENE_IDS and str(value or "").strip()
+    }
+
+
+def scene_model(db: Session, user_id: int, scene_id: str) -> str:
+    """这个板块要不要单独用某个模型（空串 = 跟随全局）。"""
+    return scene_models_of(load_row(db, user_id)).get(scene_id, "")
+
+
 def _secret() -> str:
     return (settings.docwise_secret or "").strip()
 
@@ -99,6 +127,7 @@ def public_view(db: Session, user_id: int) -> dict:
             "server_default": default_ready,
             "providers": PROVIDERS,
             "tier_models": TIER_MODELS,
+            "scene_models": {},
         }
     return {
         "configured": True,
@@ -110,6 +139,7 @@ def public_view(db: Session, user_id: int) -> dict:
         "server_default": default_ready,
         "providers": PROVIDERS,
         "tier_models": TIER_MODELS,
+        "scene_models": scene_models_of(row),
     }
 
 
@@ -121,6 +151,7 @@ def save(
     model: str,
     tier: str,
     api_key: str | None,
+    scene_models: dict[str, str] | None = None,
 ) -> UserLLMConfig:
     """写配置。`api_key` 为 None 表示**不动原密钥**（PUT 的常见误用是"不传就清空"）。"""
     row = load_row(db, user_id)
@@ -130,6 +161,13 @@ def save(
     row.base_url = (base_url or "").strip()
     row.model = (model or "").strip()
     row.tier = (tier or "standard").strip() or "standard"
+    if scene_models is not None:
+        clean = {
+            key: str(value).strip()
+            for key, value in scene_models.items()
+            if key in SCENE_IDS and str(value or '').strip()
+        }
+        row.scene_models = json.dumps(clean, ensure_ascii=False) if clean else None
     if api_key is not None and api_key.strip():
         secret = _secret()
         if not secret:

@@ -571,6 +571,9 @@ class UserLLMConfig(Base):
     # OpenAI 兼容端点（DeepSeek / Qwen / Kimi / GLM / OpenRouter / Ollama 都走这条）
     base_url: Mapped[str] = mapped_column(String(512), default="")
     model: Mapped[str] = mapped_column(String(128), default="")
+    # 每板块单独指定模型（JSON 文本）：{"write_compose": "deepseek-reasoner"}
+    # 留空 = 跟随全局 model；解析优先级见 agent/config_store.py 的 scene_model()
+    scene_models: Mapped[str | None] = mapped_column(Text, nullable=True)
     tier: Mapped[str] = mapped_column(String(16), default="standard")
     key_cipher: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     key_hint: Mapped[str | None] = mapped_column(String(16), nullable=True)

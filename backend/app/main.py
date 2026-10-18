@@ -135,6 +135,15 @@ def _ensure_schema() -> None:
                 conn.execute(
                     text(f"ALTER TABLE {table} ADD COLUMN body_html TEXT")
                 )
+        # 每板块换模型（2026-10-19）：老库补列；空 = 跟随全局模型
+        if "user_llm_configs" in tables:
+            llm_columns = {
+                col["name"] for col in inspector.get_columns("user_llm_configs")
+            }
+            if "scene_models" not in llm_columns:
+                conn.execute(
+                    text("ALTER TABLE user_llm_configs ADD COLUMN scene_models TEXT")
+                )
 
 
 def _assign_legacy_tasks() -> None:

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from ..contracts import Scene, ToolContext
 from ..outputs import AskAnswer
+from ..verify_read import verify_sources
 
 _SYSTEM = """你是「读懂」页里的文献助手，服务对象是正在读论文的学生/研究者。
 
@@ -65,5 +66,7 @@ SCENE = Scene(
     ),
     default_tier="standard",
     build_context=_context,
+    # 收尾校验：剔掉格式不对的出处，并给出「出处可定位率」
+    verify=verify_sources,
     status="ready",
 )

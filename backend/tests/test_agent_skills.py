@@ -34,7 +34,7 @@ def test_index_is_short_and_only_names_what_to_use() -> None:
     assert "use_skill" in index
     # 每条一行、一行不超过一句
     lines = [line for line in index.splitlines() if line.startswith("- ")]
-    assert len(lines) == 3
+    assert len(lines) == 6  # 原 3 个写作技能 + 新增 3 个
     for line in lines:
         assert len(line) <= 60, line  # 中文按字符算，60 已经很宽松
     assert len(index) < 400

@@ -29,6 +29,8 @@ class ConfigIn(BaseModel):
     tier: str = Field(default="standard", max_length=16)
     # 不传 = 不动原密钥（PUT 的常见误用是"不传就清空"）
     api_key: str | None = Field(default=None, max_length=512)
+    # 每板块单独指定模型：{"write_compose": "deepseek-reasoner"}；空/不传 = 跟随全局
+    scene_models: dict[str, str] | None = Field(default=None)
 
 
 class ChatIn(BaseModel):
@@ -88,6 +90,7 @@ def put_config(
             model=payload.model,
             tier=payload.tier,
             api_key=payload.api_key,
+            scene_models=payload.scene_models,
         )
     except RuntimeError as exc:
         # 没有 DOCWISE_SECRET：拒绝落库并说清楚（不偷偷用写死的常量）
@@ -102,6 +105,24 @@ def delete_config(
 ) -> dict:
     config_store.clear(db, user.id)
     return config_store.public_view(db, user.id)
+
+
+def _cfg_with_scene_model(db: Session, user_id: int, scene_id: str, cfg):
+    """把「按板块指定的模型」套到已解析的配置上。
+
+    优先级：**请求里显式给的 model > 板块指定 > 全局已存 > 服务端默认**。
+    第一项由 `resolve()` 已经处理（它会把 override 填进 cfg），这里只补中间一层。
+    """
+    override = config_store.scene_model(db, user_id, scene_id)
+    if not override:
+        return cfg
+    return type(cfg)(
+        base_url=cfg.base_url,
+        model=override,
+        api_key=cfg.api_key,
+        tier=cfg.tier,
+        source=f"{cfg.source}+scene",
+    )
 
 
 @router.post("/chat")
@@ -125,6 +146,9 @@ async def chat(
 
     scope = {k: v for k, v in (payload.scope or {}).items() if k in _SCOPE_KEYS}
     cfg = config_store.resolve(db, user.id, payload.override)
+    # 没在请求里指定 model 时，才让板块覆盖生效（请求显式给的最优先）
+    if not (payload.override or {}).get("model"):
+        cfg = _cfg_with_scene_model(db, user.id, scene.id, cfg)
     if not cfg.api_key:
         raise HTTPException(
             status_code=400,
@@ -202,6 +226,10 @@ async def chat_stream(
                 "（或让管理员在 .env 里配 DEEPSEEK_API_KEY）"
             ),
         )
+
+    # 与 /chat 同一口径：请求显式给的 model 最优先，其次板块覆盖
+    if not (payload.override or {}).get("model"):
+        cfg = _cfg_with_scene_model(db, user.id, scene.id, cfg)
 
     llm = runtime.LLMConfig(
         base_url=cfg.base_url, api_key=cfg.api_key, model=cfg.model
