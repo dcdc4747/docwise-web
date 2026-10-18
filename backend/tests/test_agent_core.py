@@ -53,13 +53,14 @@ def test_scenes_endpoint_lists_ready_scenes() -> None:
         # 改版式（服务端改 body_html + 存一版）
         "format",
     }
-    # 读懂：定位文献 + 读段 + 术语 + 偏好 + 章节定位 + 文献对比 + 技能
-    # （进度/重译让位给界面，见 scenes/read_ask.py 注释）
+    # 读懂：定位文献 + 读段 + 术语 + 章节定位 + 文献对比 + 集合 + 技能
+    # （进度/重译与偏好让位给界面，见 scenes/read_ask.py 注释）
     assert set(items["read_ask"]["packs"]) == {
         "library",
         "terms",
         "tasks",
-        "memory",
+        # 偏好只读让位给知识库集合（用户要求 agent 能管集合）
+        "collections",
         "outline",
         "compare",
         "figures",
