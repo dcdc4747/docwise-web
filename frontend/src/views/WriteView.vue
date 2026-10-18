@@ -52,7 +52,7 @@
     </div>
 
     <!-- ==================== 三栏 ==================== -->
-    <div class="wr-body">
+    <div class="wr-body" :style="writeBodyStyle">
       <!-- ---------- 素材区（资产层） ---------- -->
       <aside class="wr-materials">
         <div class="wr-colhead">
@@ -129,6 +129,19 @@
           </template>
         </div>
       </aside>
+
+      <!-- 素材 | 写作 之间的分隔条（双击复位；<1100px 由 CSS 隐藏） -->
+      <div
+        class="splitter wr-split-mats"
+        :class="{ dragging: dragging === 'mats' }"
+        role="separator"
+        aria-orientation="vertical"
+        title="拖动调整素材栏宽度（双击复位）"
+        @pointerdown="startDrag('mats', $event)"
+        @dblclick="resetWidths"
+      >
+        <i />
+      </div>
 
       <!-- ---------- 写作区 ---------- -->
       <main class="wr-doc">
@@ -232,6 +245,19 @@
       </main>
 
       <!-- ---------- 助手：提纲 / 引用 / 过程 ---------- -->
+      <!-- 写作 | 助手 之间的分隔条 -->
+      <div
+        class="splitter wr-split-helper"
+        :class="{ dragging: dragging === 'helper' }"
+        role="separator"
+        aria-orientation="vertical"
+        title="拖动调整助手栏宽度（双击复位）"
+        @pointerdown="startDrag('helper', $event)"
+        @dblclick="resetWidths"
+      >
+        <i />
+      </div>
+
       <AssistPane
         root-class="wr-helper"
         body-class="wr-helper-body"
@@ -806,6 +832,88 @@ function applyRevision(rev, meta = null) {
     { label: '撤销', run: () => undoRevisions([record], '这条改写') },
     REVISION_UNDO_MS,
   )
+}
+
+/**
+ * 三栏宽度（可拖）。两条边界各自独立，都存 localStorage。
+ *
+ * ⚠️ 上限要跟视口走：三栏一起挤的时候，**中间写作区必须留够 380**，
+ * 否则拖到最后正文变成一条竖线（读懂页当初也踩过，见 SPLITTER_MAX 的注释）。
+ */
+const MATS_KEY = 'docwise_write_mats_w'
+const HELPER_KEY = 'docwise_write_helper_w'
+const MATS_MIN = 240
+const MATS_MAX = 520
+const HELPER_MIN = 300
+const HELPER_MAX = 700
+const DOC_MIN = 380
+
+function readWidth(key, min, max, fallback) {
+  const saved = Number(localStorage.getItem(key) || 0)
+  return saved >= min && saved <= max ? saved : fallback
+}
+
+const matsWidth = ref(readWidth(MATS_KEY, MATS_MIN, MATS_MAX, 320))
+const helperWidth = ref(readWidth(HELPER_KEY, HELPER_MIN, HELPER_MAX, 340))
+const dragging = ref('')
+
+const writeBodyStyle = computed(() => ({
+  '--mats-w': `${matsWidth.value}px`,
+  '--helper-w': `${helperWidth.value}px`,
+}))
+
+/**
+ * 三栏总宽受限：拖到把写作区压到 DOC_MIN 以下就停住。
+ *
+ * ⚠️ 基数用 `.wr-body` 的**实际宽度**，不是 `window.innerWidth`——
+ * 视口 1440 时 `.wr-body` 只有 1180（左侧导航占掉一截），
+ * 按视口算会放过"写作区只剩 368"的结果（实测踩过）。
+ */
+function clampPaneWidth(kind, px) {
+  const body = document.querySelector('.wr-body')
+  const total = (body && body.clientWidth) || window.innerWidth || 1440
+  if (kind === 'mats') {
+    const room = total - helperWidth.value - DOC_MIN - 12
+    return Math.round(Math.min(Math.max(px, MATS_MIN), Math.min(MATS_MAX, room)))
+  }
+  const room = total - matsWidth.value - DOC_MIN - 12
+  return Math.round(Math.min(Math.max(px, HELPER_MIN), Math.min(HELPER_MAX, room)))
+}
+
+function startDrag(kind, event) {
+  if (!event || event.button !== 0) return
+  dragging.value = kind
+  const startX = event.clientX
+  const startW = kind === 'mats' ? matsWidth.value : helperWidth.value
+  const onMove = (moveEvent) => {
+    const delta = moveEvent.clientX - startX
+    // 素材栏在左：往右拖 = 变宽；助手栏在右：往左拖 = 变宽
+    const next = kind === 'mats' ? startW + delta : startW - delta
+    const clamped = clampPaneWidth(kind, next)
+    if (kind === 'mats') matsWidth.value = clamped
+    else helperWidth.value = clamped
+  }
+  const onUp = () => {
+    dragging.value = ''
+    localStorage.setItem(MATS_KEY, String(matsWidth.value))
+    localStorage.setItem(HELPER_KEY, String(helperWidth.value))
+    window.removeEventListener('pointermove', onMove)
+    window.removeEventListener('pointerup', onUp)
+    document.body.style.cursor = ''
+    document.body.style.userSelect = ''
+  }
+  window.addEventListener('pointermove', onMove)
+  window.addEventListener('pointerup', onUp)
+  document.body.style.cursor = 'col-resize'
+  document.body.style.userSelect = 'none'
+}
+
+/** 双击任一分隔条：两栏都回到默认宽度。 */
+function resetWidths() {
+  matsWidth.value = 320
+  helperWidth.value = 340
+  localStorage.setItem(MATS_KEY, '320')
+  localStorage.setItem(HELPER_KEY, '340')
 }
 
 const bodyEl = ref(null)
