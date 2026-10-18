@@ -17,11 +17,11 @@
 
 ## 三条硬规则
 
-1. **渐进披露**：prompt 里只放索引（每条 ≤40 字）；模型判断要用时调 `use_skill(name)` 取正文。
-   这样"预装 10 个 skill"也不会把默认上下文撑大。
+1. **渐进披露**：prompt 只放索引（每条 ≤40 字）；要用时模型自己调
+   `use_skill(name)` 取正文——预装再多也不撑大默认上下文。
 2. **预算封顶**：单个 skill 正文 ≤4000 字（读的时候再截断），一轮最多调用 2 次——
    防止模型把 skill 当百科翻。
-3. **可验收**：skill 带 `checks` 列表（能算的判据），供 `run_check` / scene 的 `verify` 使用。
+3. **可验收**：skill 带 `checks`（能算的判据），供 `run_check` 与 scene 的
 """
 
 from __future__ import annotations

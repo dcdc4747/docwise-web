@@ -38,7 +38,8 @@ def test_scenes_endpoint_lists_ready_scenes() -> None:
     assert items["write_compose"]["status"] == "ready"
     # 写作场景要同时带两类工具：写作（草稿/素材）+ 查库（找依据）
     # 写作场景带四类工具：写作（草稿/素材）+ 查库（找依据）+ 术语 + 引文
-    # 写作：读稿 + 找依据 + 术语 + 引文 + 自查 + 排版 + 素材（写作闭环需要的全套）
+    # 写作：读稿 + 找依据 + 术语 + 引文 + 自查 + 排版 + 素材 + 技能
+    # （正好 15 个工具，用满预算）
     assert set(items["write_compose"]["packs"]) == {
         "writing",
         "library",
@@ -48,6 +49,8 @@ def test_scenes_endpoint_lists_ready_scenes() -> None:
         "biblio",
         "materials",
         "memory_write",
+        # 板块专属知识（体例/排版/改稿协议），按需加载
+        "skills",
     }
     # 读懂：定位文献 + 读段 + 术语 + 进度/重译 + 偏好 + 章节定位 + 文献对比
     assert set(items["read_ask"]["packs"]) == {
