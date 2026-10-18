@@ -40,7 +40,12 @@ turndown.escape = (value) => String(value)
 turndown.addRule('keepInlineStyle', {
   filter: (node) =>
     node.nodeName === 'SPAN' && Boolean(node.getAttribute && node.getAttribute('style')),
-  replacement: (content, node) => `<span style="${node.getAttribute('style')}">${content}</span>`,
+  replacement: (content, node) => {
+    // ⚠️ 属性值里的双引号必须转义：字体名本身就带引号
+    // （`font-family: "Kaiti SC", KaiTi`），不转义会把 `style="…"` 截断
+    const style = String(node.getAttribute('style') || '').replace(/"/g, '&quot;')
+    return `<span style="${style}">${content}</span>`
+  },
 })
 
 // 空段落（TipTap 的空行）转成空行，而不是 `<p></p>` 残留

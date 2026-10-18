@@ -53,6 +53,15 @@
 
       <span class="we-sep" />
 
+      <label class="we-field" title="字体（作用于选区）">
+        字体
+        <select :value="currentFontFamily" @change="setFontFamily($event.target.value)">
+          <option value="">默认</option>
+          <option v-for="font in FONT_FAMILIES" :key="font.label" :value="font.value">
+            {{ font.label }}
+          </option>
+        </select>
+      </label>
       <label class="we-field" title="正文字号">
         字号
         <select
@@ -160,6 +169,59 @@ const FontSize = Extension.create({
 })
 
 const FONT_SIZES = [12, 14, 16, 18, 20, 22, 24]
+
+/**
+ * 字体（2026-10-19 用户要求）：中文写作真正会用到的几款，全部用**系统自带**的字族名，
+ * 不引外部字体文件（离线可用、也不增加打包体积）。
+ * `value` 为空 = 跟随文档默认（宋体）。
+ */
+/**
+ * 逐处字体（与字号同一套 `textStyle` 机制）。
+ * 之所以自己写：TipTap 官方只有 TextStyle 基座，具体属性要自己挂。
+ */
+const FontFamily = Extension.create({
+  name: 'fontFamily',
+  addOptions() {
+    return { types: ['textStyle'] }
+  },
+  addGlobalAttributes() {
+    return [
+      {
+        types: this.options.types,
+        attributes: {
+          fontFamily: {
+            default: null,
+            parseHTML: (element) => element.style.fontFamily || null,
+            renderHTML: (attributes) =>
+              attributes.fontFamily ? { style: `font-family: ${attributes.fontFamily}` } : {},
+          },
+        },
+      },
+    ]
+  },
+  addCommands() {
+    return {
+      setFontFamily:
+        (family) =>
+        ({ chain }) =>
+          chain().setMark('textStyle', { fontFamily: family }).run(),
+      unsetFontFamily:
+        () =>
+        ({ chain }) =>
+          chain().setMark('textStyle', { fontFamily: null }).removeEmptyTextStyle().run(),
+    }
+  },
+})
+
+const FONT_FAMILIES = [
+  { label: '宋体', value: "'Songti SC', 'SimSun', 'Source Han Serif SC', serif" },
+  { label: '黑体', value: "'Heiti SC', 'SimHei', 'Source Han Sans SC', sans-serif" },
+  { label: '楷体', value: "'Kaiti SC', 'KaiTi', 'STKaiti', serif" },
+  { label: '仿宋', value: "'FangSong', 'STFangsong', serif" },
+  { label: '思源宋体', value: "'Source Han Serif SC', 'Noto Serif SC', serif" },
+  { label: '思源黑体', value: "'Source Han Sans SC', 'Noto Sans SC', sans-serif" },
+  { label: '等宽', value: "'JetBrains Mono', Consolas, 'Courier New', monospace" },
+]
 const LINE_HEIGHTS = [1.5, 1.65, 1.8, 2.0]
 const PARA_SPACINGS = [0, 6, 10, 14, 18]
 
@@ -191,6 +253,7 @@ function buildEditor() {
       TextAlign.configure({ types: ['heading', 'paragraph'] }),
       TextStyle,
       FontSize,
+      FontFamily,
     ],
     editorProps: {
       attributes: {
@@ -211,6 +274,7 @@ function buildEditor() {
     onSelectionUpdate: () => {
         syncHeading()
         syncFontSize()
+        syncFontFamily()
       },
   })
 }
@@ -241,6 +305,35 @@ function setHeading(level) {
   headingLevel.value = level
   if (level === 0) chain.setParagraph().run()
   else chain.toggleHeading({ level }).run()
+}
+
+/** 选区当前字体（没有内联 mark 时显示"默认"） */
+const currentFontFamily = ref('')
+function normalizeFamily(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/["']/g, '')
+    .replace(/\s+/g, '')
+}
+
+function syncFontFamily() {
+  const raw = editor.value?.getAttributes('textStyle')?.fontFamily || ''
+  if (!raw) {
+    currentFontFamily.value = ''
+    return
+  }
+  // 命中已知字体就回显选项自己的值（引号风格不同，必须归一后比）
+  const hit = FONT_FAMILIES.find((font) => normalizeFamily(font.value) === normalizeFamily(raw))
+  currentFontFamily.value = hit ? hit.value : raw
+}
+
+function setFontFamily(family) {
+  const chain = editor.value?.chain().focus()
+  if (!chain) return
+  if (!family) chain.unsetFontFamily().run()
+  else chain.setFontFamily(family).run()
+  currentFontFamily.value = family
+  syncFontFamily()
 }
 
 function setFontSize(size) {
