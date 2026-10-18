@@ -295,6 +295,7 @@
               :scope="{ draft_id: currentDraft ? currentDraft.id : null }"
               @apply-revision="applyRevision"
               @apply-ops="applyOps"
+              @draft-changed="onDraftChangedByAi"
             />
           </div>
 
@@ -692,6 +693,7 @@ import {
   loadVersions,
   readVersion,
   restoreVersion,
+  reloadCurrentDraft,
   toggleCheck,
 } from '../stores/useWrite'
 // 素材卡的写入路径（M2）：移除 + 客户端 5 秒撤销窗口
@@ -1092,28 +1094,30 @@ function resetWidths() {
  * 为什么 Markdown 仍是"主"：引文 `[n]`、提纲、导出、AI 写入的锚点校验都按它做，
  * 一次全换会把这些一起打翻。HTML 只是**多了逐段样式**。
  */
-let syncingRich = false
+/**
+ * 「这次 body 的变化，是我从 html 派生出来的」——靠这个影子值判断，
+ * 而不是靠时序标志位。
+ *
+ * 为什么不能用标志位：`reloadCurrentDraft()` 会**同时**写 body 与 bodyHtml，
+ * 两个 watcher 的派发顺序不受我们控制；先写 html 时，body 的 watcher 随后
+ * 会把 `mdToHtml(md)` 写回去——**Markdown 里没有字号字体**，
+ * 刚拉回来的版式就被覆盖了（真页面实测：toast 说改了、界面没变）。
+ */
+let mdMirror = ''
+
 watch(bodyHtml, (html) => {
-  if (syncingRich) return
   const next = htmlToMd(html)
+  mdMirror = next
   if (next === body.value) return
-  syncingRich = true
   body.value = next
-  // 下一拍放开，避免同一次派发里又被反向写回
-  void nextTick(() => {
-    syncingRich = false
-  })
 })
 
 watch(body, (md) => {
-  if (syncingRich) return
+  // 这次变化就是上面派生出来的，别再反向转一次（否则样式被抹掉）
+  if (md === mdMirror) return
   const nextHtml = mdToHtml(md)
   if (nextHtml === bodyHtml.value) return
-  syncingRich = true
   bodyHtml.value = nextHtml
-  void nextTick(() => {
-    syncingRich = false
-  })
 })
 
 const editorEl = ref(null)
@@ -1266,6 +1270,23 @@ const saveText = computed(() => {
 
 // ============================================================ 取数
 
+/**
+ * AI 改了版式（服务端改库）→ 重拉这一篇。
+ *
+ * 为什么需要：排版工具不像 `ops` 那样把文本交回前端落地；
+ * 不重拉，模型说"已改成小四宋体"，用户看到的还是旧版式。
+ * ⚠️ 有未保存的字时 `reloadCurrentDraft` 内部会拒绝覆盖——用户手里的字优先，
+ * 这时把"先保存再刷新"如实告诉他，不假装成功。
+ */
+async function onDraftChangedByAi() {
+  const ok = await reloadCurrentDraft()
+  showToast(
+    ok
+      ? 'AI 已改版式——不满意可从「版本」页签回滚'
+      : 'AI 改了版式，但当前有未保存的字；先保存，再看这一页',
+  )
+}
+
 onMounted(async () => {
   window.addEventListener('keydown', onWriteKeydown)
   await Promise.all([loadDrafts(), loadMaterials()])
@@ -1282,8 +1303,20 @@ onUnmounted(() => {
 
 // ============================================================ 校对检查（M4）
 
-/** `Esc` 关抽屉（形态 §3.3：`Esc` 可关、点遮罩可关）。 */
+/**
+ * 页面级快捷键（2026-10-19）：
+ * - `Ctrl/Cmd+S`：保存。**必须在这里再兜一条**——焦点在标题栏、助手输入框等编辑器之外时，
+ *   编辑器自己的监听收不到，浏览器就会弹「保存网页」对话框（实测：标题聚焦时
+ *   `defaultPrevented` 是 false）。这里 `preventDefault` + 调已有的保存回调。
+ *   编辑器有焦点时由 `WriteEditor.onKeydown` 处理并 `stopPropagation`，不会重复保存。
+ * - `Esc`：关校对抽屉（形态 §3.3：`Esc` 可关、点遮罩可关）。
+ */
 function onWriteKeydown(event) {
+  if ((event.ctrlKey || event.metaKey) && (event.key === 's' || event.key === 'S')) {
+    event.preventDefault()
+    void saveWithFeedback()
+    return
+  }
   if (event.key === 'Escape' && checkOpen.value) closeCheck()
 }
 
@@ -1716,13 +1749,6 @@ async function focusOutline(item) {
   // 提纲条目 → 第几个标题（编辑器按标题节点定位，比 Markdown 偏移更稳）
   const headingsBefore = outline.value.filter((it) => it.offset < item.offset).length
   editorEl.value?.focusHeading(headingsBefore)
-}
-
-function onEditorKeydown(event) {
-  if ((event.ctrlKey || event.metaKey) && (event.key === 's' || event.key === 'S')) {
-    event.preventDefault()
-    void saveWithFeedback()
-  }
 }
 </script>
 

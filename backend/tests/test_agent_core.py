@@ -39,7 +39,7 @@ def test_scenes_endpoint_lists_ready_scenes() -> None:
     # 写作场景要同时带两类工具：写作（草稿/素材）+ 查库（找依据）
     # 写作场景带四类工具：写作（草稿/素材）+ 查库（找依据）+ 术语 + 引文
     # 写作：读稿 + 找依据 + 术语 + 引文 + 自查 + 排版 + 素材 + 技能
-    # （正好 15 个工具，用满预算）
+    # （偏好写入让位给「改版式」，见 scenes/write_compose.py 注释；正好 15 个）
     assert set(items["write_compose"]["packs"]) == {
         "writing",
         "library",
@@ -48,28 +48,32 @@ def test_scenes_endpoint_lists_ready_scenes() -> None:
         "check",
         "biblio",
         "materials",
-        "memory_write",
         # 板块专属知识（体例/排版/改稿协议），按需加载
         "skills",
+        # 改版式（服务端改 body_html + 存一版）
+        "format",
     }
-    # 读懂：定位文献 + 读段 + 术语 + 进度/重译 + 偏好 + 章节定位 + 文献对比
+    # 读懂：定位文献 + 读段 + 术语 + 偏好 + 章节定位 + 文献对比 + 技能
+    # （进度/重译让位给界面，见 scenes/read_ask.py 注释）
     assert set(items["read_ask"]["packs"]) == {
         "library",
         "terms",
         "tasks",
-        "translate",
         "memory",
         "outline",
         "compare",
         "figures",
         "matrix",
+        "skills",
     }
     # ⭐ 工具清单要能被前端/用户核对；同时钉住"别无限堆工具"的上限
     assert "search_library" in items["read_ask"]["tools"]
     assert "read_draft" in items["write_compose"]["tools"]
     assert "run_check" in items["write_compose"]["tools"]
     assert "list_figures" in items["read_ask"]["tools"]
-    assert "save_term_preference" in items["write_compose"]["tools"]
+    # 技能工具两侧都要有（板块专属知识按需取）；偏好写入已让位给界面
+    assert "use_skill" in items["write_compose"]["tools"]
+    assert "use_skill" in items["read_ask"]["tools"]
     assert 12 <= len(items["read_ask"]["tools"]) <= 15
     assert 12 <= len(items["write_compose"]["tools"]) <= 15
     # ⭐ 工具清单要能被前端/用户核对（文档与接口必须一一对应）

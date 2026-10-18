@@ -23,6 +23,54 @@
         "write_compose"
       ],
       "when": "用户让你改写、润色、压缩或扩写某一段时"
+    },
+    {
+      "name": "close-reading",
+      "title": "精读一段的流程",
+      "applies_to": [
+        "read_ask"
+      ],
+      "when": "用户问这段什么意思、讲了什么时"
+    },
+    {
+      "name": "quote-grounding",
+      "title": "引用与出处纪律",
+      "applies_to": [
+        "read_ask"
+      ],
+      "when": "要引用原文、要给出处时"
+    },
+    {
+      "name": "term-consistency",
+      "title": "术语与译名一致",
+      "applies_to": [
+        "read_ask"
+      ],
+      "when": "涉及术语、译名、缩写时"
+    },
+    {
+      "name": "section-map",
+      "title": "结构梳理（章节/目录）",
+      "applies_to": [
+        "read_ask"
+      ],
+      "when": "问结构、顺序、缺哪一节时"
+    },
+    {
+      "name": "cross-doc-matrix",
+      "title": "多篇对比矩阵",
+      "applies_to": [
+        "read_ask"
+      ],
+      "when": "问几篇文献的异同时"
+    },
+    {
+      "name": "translation-audit",
+      "title": "译文核对",
+      "applies_to": [
+        "read_ask"
+      ],
+      "when": "问译文准不准、有没有漏译时"
     }
   ]
 }

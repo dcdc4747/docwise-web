@@ -306,6 +306,8 @@ function applyEvent(turn, event) {
     turn.revisions = event.revisions || []
     turn.ops = event.ops || []
     turn.notes = event.notes || []
+    // AI 改过版式：写作页据此重拉草稿（撤销走「版本」页签）
+    turn.draftChanged = Boolean(event.draft_changed)
     turn.usage = event.usage || null
     if (event.steps && event.steps.length) turn.steps = event.steps
   } else if (event.type === 'error') {

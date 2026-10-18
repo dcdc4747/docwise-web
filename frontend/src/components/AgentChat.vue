@@ -366,7 +366,7 @@ const props = defineProps({
   // 场景：读懂 = read_ask（默认），写作 = write_compose
   scene: { type: String, default: 'read_ask' },
 })
-const emit = defineEmits(['quick', 'apply-revision', 'apply-ops'])
+const emit = defineEmits(['quick', 'apply-revision', 'apply-ops', 'draft-changed'])
 
 // 空态那三条：覆盖"跨库找文献 / 读这篇 / 换说法"
 const QUICK_PROMPTS = [
@@ -1005,6 +1005,14 @@ function startNewThread() {
 function watchOps() {
   const last = turns.value[turns.value.length - 1]
   if (!last || last.role !== 'assistant' || !last.done) return
+
+  // ① AI 改过版式（服务端改库）→ 让页面重拉草稿
+  if (last.draftChanged && !last.draftChangeSent) {
+    last.draftChangeSent = true
+    emit('draft-changed')
+  }
+
+  // ② 直接写进正文的文本操作
   const ops = last.ops || []
   if (!ops.length || last.opsApplied) return
   // 打个标记，保证同一条回答只写一次

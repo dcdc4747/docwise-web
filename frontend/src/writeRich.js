@@ -35,6 +35,19 @@ const turndown = new TurndownService({
 // `[n]` 这类文本不能被转义成 `\[n\]`（引文标记要逐字保留）
 turndown.escape = (value) => String(value)
 
+// 带 `style` 的块（AI 改版式写在段落上的字号/字体/行距）**整块原样保留**成内联 HTML。
+// 不这么做：`mdToHtml(md)` 一转就把整篇样式抹掉（AI 再写一句正文，版式全丢）。
+turndown.addRule('keepBlockStyle', {
+  filter: (node) =>
+    ['P', 'H1', 'H2', 'H3', 'LI', 'BLOCKQUOTE'].includes(node.nodeName) &&
+    Boolean(node.getAttribute && node.getAttribute('style')),
+  replacement: (content, node) => {
+    const tag = node.nodeName.toLowerCase()
+    const style = String(node.getAttribute('style') || '').replace(/"/g, '&quot;')
+    return `\n\n<${tag} style="${style}">${content}</${tag}>\n\n`
+  },
+})
+
 // 带 `style` 的 span（逐处字号）**原样保留**成内联 HTML ——
 // 这正是"不同字号能存住"的关键：turndown 默认会把它拆成纯文本，样式就丢了。
 turndown.addRule('keepInlineStyle', {

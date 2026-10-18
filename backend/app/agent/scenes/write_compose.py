@@ -175,9 +175,11 @@ SCENE = Scene(
         "check",
         "biblio",
         "materials",
-        "memory_write",
+        # 偏好写入交给界面（设置里有入口）；把名额留给「改版式」
         # 板块专属知识（体例 / 排版 / 改稿协议），按需加载
         "skills",
+        # 改版式（字号/字体/行距/缩进/套体例）：服务端改 body_html + 存一版
+        "format",
     ),
     default_tier="standard",
     build_context=build_context,

@@ -724,6 +724,35 @@ export function disposeWrite() {
   }
 }
 
+
+/**
+ * 重新拉一次当前草稿（AI 改版式之后用）。
+ *
+ * 为什么不复用 `loadDrafts`：那个会**覆盖整张列表**并可能把"正在编辑"的判断搅乱；
+ * 这里只按 id 取这一篇，取到就把 `bodyHtml` / `body` / 标题一起换掉。
+ * ⚠️ 有未保存的改动时**不覆盖**（用户手里的字比"AI 改的版式"重要），
+ * 只把提醒交给调用方去说。
+ */
+export async function reloadCurrentDraft() {
+  const id = currentDraftId.value
+  if (!id) return false
+  if (dirty) return false
+  try {
+    const draft = await apiJson(`/api/drafts/${id}`)
+    if (!draft) return false
+    title.value = draft.title || title.value
+    body.value = draft.body_md || ''
+    bodyHtml.value = draft.body_html || mdToHtml(draft.body_md || '')
+    mergeDraftMeta(draft)
+    saveState.value = 'saved'
+    savedAt.value = clockNow()
+    return true
+  } catch {
+    // 取不到就算了：界面上仍提示"版本里有这一版"，不假装成功
+    return false
+  }
+}
+
 // ============================================================ 版本历史（2026-10-19）
 
 /**

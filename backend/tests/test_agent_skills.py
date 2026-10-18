@@ -41,10 +41,15 @@ def test_index_is_short_and_only_names_what_to_use() -> None:
 
 
 def test_skills_are_isolated_per_scene() -> None:
-    """读懂板块拿不到写作技能（`applies_to` 是硬边界）。"""
-    assert skills_for("read_ask") == []
-    assert skill_index_prompt("read_ask") == ""
-    assert {skill.name for skill in skills_for("write_compose")} >= {"journal-format"}
+    """板块隔离：`applies_to` 是硬边界（两边互相拿不到）。"""
+    read_names = {skill.name for skill in skills_for("read_ask")}
+    assert "close-reading" in read_names
+    assert "journal-format" not in read_names
+
+    write_names = {skill.name for skill in skills_for("write_compose")}
+    assert "journal-format" in write_names
+    assert "close-reading" not in write_names
+    assert "journal-format" not in skill_index_prompt("read_ask")
 
 
 def test_use_skill_returns_body_and_title() -> None:
@@ -68,31 +73,39 @@ def test_use_skill_rejects_other_scene_and_unknown_names() -> None:
     assert "要给技能名" in empty.note
 
 
-def test_long_skill_body_is_truncated_with_disclosure(tmp_path) -> None:
+def test_long_skill_body_is_truncated_with_disclosure(monkeypatch) -> None:
     """超过上限要截断，并且如实标注（不假装完整）。"""
-    (tmp_path / "huge").mkdir()
     too_long = "啊" * (MAX_BODY_CHARS + 50)
-    (tmp_path / "huge" / "SKILL.md").write_text(too_long, encoding="utf-8")
-    (tmp_path / "_index.json").write_text(
-        json.dumps(
+    declared = {
+        "skills": [
             {
-                "skills": [
-                    {
-                        "name": "huge",
-                        "title": "超长技能",
-                        "applies_to": ["write_compose"],
-                        "when": "测试用",
-                    }
-                ]
-            },
-            ensure_ascii=False,
-        ),
-        encoding="utf-8",
-    )
+                "name": "huge",
+                "title": "超长技能",
+                "applies_to": ["write_compose"],
+                "when": "测试用",
+            }
+        ]
+    }
 
-    loaded = load_skills(tmp_path)["huge"]
+    def fake_read(path) -> str:
+        if path.name == "_index.json":
+            return json.dumps(declared, ensure_ascii=False)
+        if path.name == "SKILL.md":
+            return too_long
+        return ""
+
+    monkeypatch.setattr("app.agent.skills._read_text", fake_read)
+    loaded = load_skills()["huge"]
     assert len(loaded.body) == MAX_BODY_CHARS + 50
     assert loaded.when == "测试用"
+
+    # 工具层按上限截断，并留下「已截断」的说明
+    monkeypatch.setattr(
+        "app.agent.packs.skills.load_skills", lambda: {"huge": loaded}
+    )
+    result = use_skill(_ctx(), {"name": "huge"})
+    assert result.data["truncated"] is True
+    assert "已截断" in result.data["body"]
 
 
 def test_pack_exposes_exactly_one_tool() -> None:

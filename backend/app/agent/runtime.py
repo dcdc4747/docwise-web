@@ -42,6 +42,20 @@ _BLOCK_ID_RE = re.compile(r"\bp\d+_b\d+\b")
 # （"这篇结论有多可靠"实测要查 20 次工具）。
 # 但仍保留**硬上限**：没有上限时模型可能在一轮里无限查下去（真的会发生），
 # 所以这是"防失控"，不是"防成本"。撞到上限会给人话（见 `_human_error`）。
+
+# 会**直接改库里草稿**的工具（改版式）。调过它们，`final` 里要带 `draft_changed`，
+# 前端据此重新拉一次草稿——不然"AI 说改了、界面还是旧的"。
+_DRAFT_MUTATING_TOOLS = frozenset(
+    {
+        # 当前实现（format 包）
+        "apply_style",
+        # 兼容早期命名（改版式工具曾经是这三个名字）
+        "set_paragraph_style",
+        "set_document_style",
+        "apply_template_style",
+    }
+)
+
 _REQUEST_LIMIT = 40
 _TOOL_CALL_LIMIT = 60
 
@@ -392,6 +406,8 @@ async def stream_scene(
     agent = build_agent(scene, cfg, model=model)
     yield {"type": "start", "scene": scene.id, "model": cfg.model}
 
+    # 这一轮有没有动过库里的稿子（改版式）
+    draft_touched = False
     # `final_result` 的 args 流累加器（按 tool_call_id 隔离，避免多轮串味）
     final_args: dict[str, str] = {}
     final_sent: dict[str, str] = {}
@@ -407,6 +423,8 @@ async def stream_scene(
             async for event in stream:
                 if isinstance(event, FunctionToolCallEvent):
                     part = event.part
+                    if str(part.tool_name) in _DRAFT_MUTATING_TOOLS:
+                        draft_touched = True
                     if str(part.tool_name).endswith("final_result"):
                         # 收尾不是"查"；正文另走 args 流（见下面的 Delta 分支）
                         continue
@@ -485,6 +503,8 @@ async def stream_scene(
                         "sources": [sid for sid in sources if sid in seen],
                         "dropped_sources": [sid for sid in sources if sid not in seen],
                         "steps": steps,
+                        # 改过版式就让前端重拉草稿（撤销走版本历史）
+                        "draft_changed": draft_touched,
                         "usage": {
                             "requests": getattr(usage, "requests", None),
                             "tool_calls": getattr(usage, "tool_calls", None),

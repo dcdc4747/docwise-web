@@ -13,7 +13,7 @@
     ③ **版式（字号/行距/段距/缩进）是文档级设置**，不是逐字标记 ——
        Markdown 存不下逐字样式，硬存就会在保存后悄悄丢掉（那种"改了没保存住"更糟）。
   -->
-  <div class="we">
+  <div class="we" @keydown="onKeydown">
     <div class="we-bar" role="toolbar" aria-label="排版工具栏">
       <select
         class="we-sel"
@@ -91,7 +91,7 @@
       <span class="we-sep" />
 
       <button type="button" title="撤销（Ctrl+Z）" @click="cmd('undo')">↶</button>
-      <button type="button" title="重做（Ctrl+Shift+Z）" @click="cmd('redo')">↷</button>
+      <button type="button" title="重做（Ctrl+Shift+Z / Ctrl+Y）" @click="cmd('redo')">↷</button>
     </div>
 
     <div
@@ -99,7 +99,6 @@
       ref="hostEl"
       class="we-page"
       :style="pageStyle"
-      @keydown="onKeydown"
     >
       <EditorContent :editor="editor" class="we-content" />
     </div>
@@ -168,6 +167,45 @@ const FontSize = Extension.create({
   },
 })
 
+/**
+ * 块级样式（段落/标题/列表项/引用上的 `style`）。
+ *
+ * 为什么需要：AI 改版式时把字号字体写在**段落**上（`<p style="font-size:17px">`），
+ * 而 TipTap 只认 schema 里声明过的属性——没声明就**静默丢掉**，
+ * 表现是"模型说改了、编辑器里没变"。这里把常用几项声明成属性，解析与渲染都保留。
+ */
+const BLOCK_STYLE_ATTRS = ['fontFamily', 'fontSize', 'lineHeight', 'textIndent']
+
+const BlockStyle = Extension.create({
+  name: 'blockStyle',
+  addOptions() {
+    return { types: ['paragraph', 'heading', 'listItem', 'blockquote'] }
+  },
+  addGlobalAttributes() {
+    return [
+      {
+        types: this.options.types,
+        attributes: Object.fromEntries(
+          BLOCK_STYLE_ATTRS.map((key) => [
+            key,
+            {
+              default: null,
+              parseHTML: (element) => element.style[key] || null,
+              renderHTML: (attributes) =>
+                attributes[key] ? { style: `${kebab(key)}: ${attributes[key]}` } : {},
+            },
+          ]),
+        ),
+      },
+    ]
+  },
+})
+
+/** `fontFamily` → `font-family`（CSS 属性名） */
+function kebab(name) {
+  return name.replace(/[A-Z]/g, (ch) => `-${ch.toLowerCase()}`)
+}
+
 const FONT_SIZES = [12, 14, 16, 18, 20, 22, 24]
 
 /**
@@ -213,6 +251,59 @@ const FontFamily = Extension.create({
   },
 })
 
+/**
+ * 写作快捷键（2026-10-19）——目标是**像 Word/WPS 一样能盲操**。
+ *
+ * 为什么自己再注册一遍（StarterKit 本来就有 Bold/Italic/UndoRedo）：
+ * ① 快捷键是**产品承诺**，集中在这一处才读得全、改得动（散在三个扩展里没人说得清）；
+ * ② `Tab` 是 StarterKit 的缺口：ListItem 只在"能缩进"时接住它，**正文里没人接**，
+ *    浏览器会把焦点移到工具栏/下一个控件上（实测：`Tab` 的 `defaultPrevented` 是 false）。
+ *    这里统一兜底：列表里缩进，其余情况**吞掉这个键**（返回 true → ProseMirror 调 preventDefault），
+ *    正文不插不可见的制表符——首行缩进是文档级设置（工具栏「缩进」），不靠空格伪造。
+ * ③ 优先级调高（1000）：先于 StarterKit 的 ListItem 拿到 `Tab`，行为才由这里说了算；
+ *    键位与官方扩展一致，不会出现"两套快捷键各管一半"。
+ *
+ * `Mod-s` **故意不写在这里**：它要在 DOM 层 `stopPropagation`（见 `onKeydown`），
+ * 否则页面级的保存监听会收到第二遍、存两次。
+ */
+const WriteShortcuts = Extension.create({
+  name: 'writeShortcuts',
+  priority: 1000,
+  addKeyboardShortcuts() {
+    return {
+      'Mod-b': () => this.editor.commands.toggleBold(),
+      'Mod-i': () => this.editor.commands.toggleItalic(),
+      // 撤销/重做**总是返回 true**（= 吞掉按键）：历史为空时也不能落回浏览器的原生撤销，
+      // 那会绕过 ProseMirror 的 history、直接改 DOM（状态与文档就对不上了）。
+      'Mod-z': () => {
+        this.editor.commands.undo()
+        return true
+      },
+      'Shift-Mod-z': () => {
+        this.editor.commands.redo()
+        return true
+      },
+      'Mod-y': () => {
+        this.editor.commands.redo()
+        return true
+      },
+      // 列表里 Tab / Shift-Tab = 缩进 / 反缩进；不在列表里就只吞键，焦点不跳走
+      Tab: ({ editor }) => {
+        if (editor.isActive('listItem')) {
+          if (editor.commands.sinkListItem('listItem')) return true
+        }
+        return true
+      },
+      'Shift-Tab': ({ editor }) => {
+        if (editor.isActive('listItem')) {
+          if (editor.commands.liftListItem('listItem')) return true
+        }
+        return true
+      },
+    }
+  },
+})
+
 const FONT_FAMILIES = [
   { label: '宋体', value: "'Songti SC', 'SimSun', 'Source Han Serif SC', serif" },
   { label: '黑体', value: "'Heiti SC', 'SimHei', 'Source Han Sans SC', sans-serif" },
@@ -254,6 +345,8 @@ function buildEditor() {
       TextStyle,
       FontSize,
       FontFamily,
+      BlockStyle,
+      WriteShortcuts,
     ],
     editorProps: {
       attributes: {
@@ -367,10 +460,33 @@ function toggleIndent() {
   setTypo('indent', !props.typography.indent)
 }
 
+/**
+ * 编辑器内的按键兜底（快捷键本体见 `WriteShortcuts`）。
+ *
+ * 两件事 ProseMirror 管不到，必须在这一层做：
+ * ① `Ctrl/Cmd+S` 保存——`preventDefault` 拦掉浏览器「保存网页」对话框，再走页面的保存回调。
+ *    `stopPropagation` 是给 WriteView 的页面级监听留的：编辑器有焦点时**只存一次**，
+ *    焦点在标题栏/助手输入框时由页面那条监听接手。
+ * ② `Ctrl/Cmd+B` 的**冒泡**——外壳 App.vue 在 window 上把 `Ctrl+B` 当"收起/展开左栏"
+ *    （全局快捷键）。写作区里它必须是加粗，不切断冒泡的话会一边加粗一边把左栏收起来
+ *    （2026-10-19 实测：`rail-min` 从 true 变 false）。
+ *
+ * 复制/粘贴/剪切（`Ctrl+C/V/X`）**不在这里处理**：交给浏览器与 ProseMirror 原生剪贴板，
+ * 它同时带 `text/html` 与 `text/plain`，富文本和纯文本都不会粘成源码。
+ */
 function onKeydown(event) {
-  if ((event.ctrlKey || event.metaKey) && (event.key === 's' || event.key === 'S')) {
+  if (!(event.ctrlKey || event.metaKey)) return
+  const key = String(event.key || '').toLowerCase()
+  if (key === 's') {
     event.preventDefault()
+    event.stopPropagation()
     emit('save')
+    return
+  }
+  if (key === 'b') {
+    // 加粗已由 `Mod-b` 处理；这里只拦住冒泡，别让外壳再收一次左栏
+    event.preventDefault()
+    event.stopPropagation()
   }
 }
 
