@@ -353,7 +353,7 @@ const props = defineProps({
   // 场景：读懂 = read_ask（默认），写作 = write_compose
   scene: { type: String, default: 'read_ask' },
 })
-const emit = defineEmits(['quick', 'apply-revision'])
+const emit = defineEmits(['quick', 'apply-revision', 'apply-ops'])
 
 // 空态那三条：覆盖"跨库找文献 / 读这篇 / 换说法"
 const QUICK_PROMPTS = [
@@ -791,8 +791,25 @@ function startNewThread() {
   viewMode.value = 'chat'
 }
 
+/**
+ * 直接写进正文的操作：**final 一到就交给页面落进稿子**（用户已授权代写）。
+ *
+ * 为什么不放在 SSE 解析里逐个处理：ops 只在 `final` 里整批出现，
+ * 这里盯着"最后一轮 + 已完成"最稳（也避免多次触发重复写入）。
+ */
+function watchOps() {
+  const last = turns.value[turns.value.length - 1]
+  if (!last || last.role !== 'assistant' || !last.done) return
+  const ops = last.ops || []
+  if (!ops.length || last.opsApplied) return
+  // 打个标记，保证同一条回答只写一次
+  last.opsApplied = true
+  emit('apply-ops', ops)
+}
+
 onMounted(async () => {
   await Promise.all([loadScenes(), loadConfig()])
+  watch(turns, watchOps, { deep: true })
   // ⚠️ 必须**在 loadScenes 之后**切场景：反过来会被默认场景顶掉，
   // 写作页就会拿 read_ask 的 scene 去问（连 output 类型都是错的）。
   if (props.scene && props.scene !== sceneId.value) setScene(props.scene)

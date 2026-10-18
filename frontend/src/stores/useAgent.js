@@ -145,8 +145,9 @@ export async function sendAgent(question, scope = {}) {
     sources: [],
     dropped: [],
     usage: null,
-    // 写作侧：可采用的替换建议 + 服务端校验说明
+    // 写作侧：可采用的替换建议 + 直接写进正文的操作 + 服务端校验说明
     revisions: [],
+    ops: [],
     notes: [],
     
     error: '',
@@ -296,6 +297,7 @@ function applyEvent(turn, event) {
     turn.sources = event.sources || []
     turn.dropped = event.dropped_sources || []
     turn.revisions = event.revisions || []
+    turn.ops = event.ops || []
     turn.notes = event.notes || []
     turn.usage = event.usage || null
     if (event.steps && event.steps.length) turn.steps = event.steps

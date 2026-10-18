@@ -271,6 +271,7 @@
               scene="write_compose"
               :scope="{ draft_id: currentDraft ? currentDraft.id : null }"
               @apply-revision="applyRevision"
+              @apply-ops="applyOps"
             />
           </div>
 
@@ -657,6 +658,8 @@ const HELPER_TABS = [
  * 由 `App.vue` 渲染、`runToastUndo` 执行），这里只决定它留多久。
  */
 const REVISION_UNDO_MS = 6000
+/** AI **整段写进正文**的撤销窗口：比改一句重得多，给够时间读完再决定。 */
+const WRITE_UNDO_MS = 20000
 
 /** 一次批量采用的过程（同一批的 `apply-revision` 是同步连发的，用一个变量串起来就够）。 */
 let applyBatch = null
@@ -804,6 +807,80 @@ function finishApplyBatch(run) {
  * 最后一条到达时给一条「采用 N 条，跳过 M 条」的汇总提示，撤销把整批一起退回去。
  * `meta.report(ok)` 把结果同步回报给建议卡（卡片据此显示「已采用」还是「没采用」）。
  */
+/**
+ * 把 agent 的写入操作**直接落进正文**（2026-10-19 取消"不代写"红线）。
+ *
+ * 安全网只有一条但够用：**整批一次撤销**（撤销窗口见 TOAST 设置）。
+ * 落盘策略与手动编辑一致：改完标 `dirty`，用户按「保存」（不偷偷存库）。
+ */
+function applyOps(ops) {
+  const list = Array.isArray(ops) ? ops : []
+  if (!list.length || !body.value) return
+  const before = body.value
+  const crlf = usesCrlf(before)
+  let text = normalizeEol(before)
+  let applied = 0
+  const skipped = []
+
+  for (const op of list) {
+    const mode = String(op.mode || '')
+    const chunk = normalizeEol(String(op.text || ''))
+    const anchor = normalizeEol(String(op.anchor || '')).trim()
+    if (!chunk.trim()) {
+      skipped.push(mode || '空内容')
+      continue
+    }
+    if (mode === 'append') {
+      text = `${text.replace(/\s+$/, '')}\n\n${chunk}\n`
+      applied += 1
+    } else if (mode === 'prepend') {
+      text = `${chunk}\n\n${text.replace(/^\s+/, '')}`
+      applied += 1
+    } else if (mode === 'replace') {
+      const at = anchor ? text.indexOf(anchor) : -1
+      if (at < 0) {
+        skipped.push('原文没找到')
+        continue
+      }
+      text = text.slice(0, at) + chunk + text.slice(at + anchor.length)
+      applied += 1
+    } else if (mode === 'insert_after') {
+      const at = anchor ? text.indexOf(anchor) : -1
+      if (at < 0) {
+        skipped.push('原文没找到')
+        continue
+      }
+      const cut = at + anchor.length
+      text = `${text.slice(0, cut)}\n\n${chunk}${text.slice(cut)}`
+      applied += 1
+    } else {
+      skipped.push(mode || '未知操作')
+    }
+  }
+
+  if (!applied) {
+    showToast(`没能写进正文：${skipped.join('、') || '内容为空'}`)
+    return
+  }
+
+  body.value = withEol(text, crlf)
+  saveState.value = 'dirty'
+  logEvent(`AI 写进正文（${applied} 处）`)
+  const skipNote = skipped.length ? `，跳过 ${skipped.length} 处` : ''
+  showToast(
+    `AI 已写进正文（${applied} 处${skipNote}）`,
+    { label: '撤销', run: () => revertOps(before) },
+    WRITE_UNDO_MS,
+  )
+}
+
+/** 整批撤销：把正文恢复成写入前那一版（未保存就 undo，一个字都不脏库）。 */
+function revertOps(before) {
+  body.value = before
+  saveState.value = 'dirty'
+  logEvent('撤销了 AI 的写入')
+}
+
 function applyRevision(rev, meta = null) {
   const batch = meta && meta.batch ? meta.batch : null
   if (batch && batch.index === 0) applyBatch = { applied: [], skipped: 0 }

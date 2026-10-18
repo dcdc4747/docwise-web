@@ -841,3 +841,63 @@ def test_get_understanding_survives_list_shaped_terms() -> None:
         session.query(TaskUnderstanding).filter_by(task_id=task_id).delete()
         session.delete(session.get(Task, task_id))
         session.commit()
+
+
+def test_verify_writes_drops_bad_anchor() -> None:
+    """直接写正文的操作：锚点必须逐字在稿子里，否则丢掉（编锚点会把稿子写乱）。"""
+    from app.agent.contracts import ToolContext
+    from app.agent.outputs import WriteAnswer, WriteOp
+    from app.agent.scenes.write_compose import verify_writes
+    from app.db import SessionLocal
+    from app.models import Draft
+
+    with SessionLocal() as session:
+        draft = Draft(
+            user_id=TEST_USER_ID,
+            title="写入用例",
+            body_md="一、引言\n\n手性可以分成时间与空间两部分。",
+        )
+        session.add(draft)
+        session.commit()
+        session.refresh(draft)
+        draft_id = draft.id
+
+    ctx = ToolContext(
+        db=None,
+        user_id=TEST_USER_ID,
+        scene_id="write_compose",
+        scope={"draft_id": draft_id},
+    )
+    output = WriteAnswer(
+        answer="写了两段",
+        ops=[
+            # 合法：追加（不需要锚点）
+            WriteOp(mode="append", text="二、方法\n\n本文用……", reason="补一节"),
+            # 合法：锚点是原文
+            WriteOp(
+                mode="insert_after",
+                text="（这里补一句依据）",
+                anchor="手性可以分成时间与空间两部分。",
+                reason="续写",
+            ),
+            # 非法：锚点不存在
+            WriteOp(
+                mode="replace",
+                text="乱写",
+                anchor="这句稿子里没有",
+                reason="编的",
+            ),
+            # 非法：空文本
+            WriteOp(mode="append", text="   ", reason="空"),
+            # 非法：未知 mode
+            WriteOp(mode="delete_all", text="x", reason="想删库"),
+        ],
+    )
+    kept, notes = verify_writes(ctx, output)
+    assert len(kept.ops) == 2, [op.mode for op in kept.ops]
+    assert {op.mode for op in kept.ops} == {"append", "insert_after"}
+    assert any("剔掉 3 条" in n for n in notes)
+
+    with SessionLocal() as session:
+        session.delete(session.get(Draft, draft_id))
+        session.commit()

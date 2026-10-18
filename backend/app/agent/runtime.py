@@ -354,6 +354,16 @@ async def stream_scene(
                         }
                         for item in (getattr(output, "revisions", []) or [])
                     ]
+                    # 直接写进正文的操作（用户已取消"不代写"红线）
+                    ops = [
+                        {
+                            "mode": getattr(item, "mode", ""),
+                            "text": getattr(item, "text", ""),
+                            "anchor": getattr(item, "anchor", ""),
+                            "reason": getattr(item, "reason", ""),
+                        }
+                        for item in (getattr(output, "ops", []) or [])
+                    ]
                     steps = _steps_of(result.all_messages())
                     # 从消息历史里取**完整**工具结果来校验出处
                     seen = _verified_block_ids(result.all_messages())
@@ -362,6 +372,7 @@ async def stream_scene(
                         "type": "final",
                         "model": cfg.model,
                         "revisions": revisions,
+                        "ops": ops,
                         "notes": verify_notes,
                         "answer": getattr(output, "answer", "") or "",
                         "sources": [sid for sid in sources if sid in seen],
