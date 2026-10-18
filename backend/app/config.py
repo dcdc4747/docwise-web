@@ -52,6 +52,10 @@ class Settings(BaseSettings):
     # 同一用户名 + IP 连续登录失败上限（超过锁 5 分钟）
     docwise_login_max_attempts: int = 5
 
+    # Agent（用户自带模型）的密钥加密口令。**没有它就不许落库**（见 agent/crypto.py）。
+    # 换掉它 = 之前存的密钥解不开（会当作"没配"，不会崩）。
+    docwise_secret: str | None = None
+
     deepseek_api_key: str | None = None
     deepseek_model: str | None = None
     deepseek_base_url: str | None = None

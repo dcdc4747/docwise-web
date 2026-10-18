@@ -20,6 +20,7 @@ from .db import Base, SessionLocal, engine, ensure_fts
 from .logging_setup import setup_logging
 from .models import Task, User
 from .routers.admin import router as admin_router
+from .routers.agent import router as agent_router
 from .routers.ask import router as ask_router
 from .routers.auth import router as auth_router
 from .routers.bibliography import router as bibliography_router
@@ -226,6 +227,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Agent（契约 §2.10 / N46–N50）。⚠️ 同样必须在 webapp.mount_frontend 之前。
+app.include_router(agent_router)
 app.include_router(ask_router)
 app.include_router(auth_router)
 app.include_router(admin_router)

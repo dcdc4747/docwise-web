@@ -539,3 +539,32 @@ class UserPrefs(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=utc_now, onupdate=utc_now
     )
+
+
+class UserLLMConfig(Base):
+    """每用户一份「用哪家模型」（2026-10-18）。
+
+    ⚠️ **密钥只写不读**：`key_cipher` 是 HMAC-CTR 流加密后的值（见 `agent/crypto.py`），
+    接口**永远不回明文**，只回 `key_set` 与末四位掩码。
+    没有 `DOCWISE_SECRET` 时**拒绝落库**（返回 409 说明原因），
+    而不是拿一个写死的常量假装加密了。
+
+    ⚠️ 它和 `user_prefs` 分开：偏好是"界面习惯、整包覆盖、可明文"，
+    这里是**凭据**，读写口径完全不同（PUT 不带 key 不代表清空 key）。
+    """
+
+    __tablename__ = "user_llm_configs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"), unique=True, index=True
+    )
+    # OpenAI 兼容端点（DeepSeek / Qwen / Kimi / GLM / OpenRouter / Ollama 都走这条）
+    base_url: Mapped[str] = mapped_column(String(512), default="")
+    model: Mapped[str] = mapped_column(String(128), default="")
+    tier: Mapped[str] = mapped_column(String(16), default="standard")
+    key_cipher: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    key_hint: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=utc_now, onupdate=utc_now
+    )
