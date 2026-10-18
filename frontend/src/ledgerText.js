@@ -20,7 +20,7 @@ export const STAGE_TEXT = {
   translate: '逐段翻译',
   understanding: '导读 / 术语',
   ask: '问答',
-  check: '收口检查',
+  check: '校对检查',
   cite: '引文',
   edit: '译文编辑',
   // 块曝光（M2 埋点的分母）：一次会话开始记曝光时写一条，不是每块一条

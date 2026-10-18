@@ -1,5 +1,5 @@
 /**
- * 起草页（M1 起草：#/write 三栏）的用例。
+ * 写作页（M1 写作：#/write 三栏）的用例。
  *
  * 这一包盯的是三件"做错了没人看得出来"的事：
  * ① ⭐ **点 `[1]` 回原文**：引文 → `material_id` → 素材的 `task_id`/`block_id` → 阅读区高亮那一句。
@@ -122,7 +122,7 @@ function jsonOf(data, status = 200) {
 }
 
 /**
- * 起草页要的那几个端点的假后端（**含真实的行为**：POST 会真的往列表里加）。
+ * 写作页要的那几个端点的假后端（**含真实的行为**：POST 会真的往列表里加）。
  * `calls` 记下每一次请求，用例靠它断言"到底打没打、带了什么"。
  */
 function stubWriteFetch(options = {}) {
@@ -153,7 +153,7 @@ function stubWriteFetch(options = {}) {
       return jsonOf({ items: state.materials })
     }
     if (url.includes('/api/drafts')) {
-      if (state.failDrafts && method === 'GET') return jsonOf({ detail: '起草接口还没上线' }, 404)
+      if (state.failDrafts && method === 'GET') return jsonOf({ detail: '写作接口还没上线' }, 404)
       const citationMatch = /\/api\/drafts\/(\d+)\/citations/.exec(url)
       if (citationMatch && method === 'POST') {
         const material = state.materials.find((item) => item.id === body.material_id)
@@ -234,7 +234,7 @@ afterEach(() => {
   document.body.innerHTML = ''
 })
 
-describe('起草页：三栏骨架与红线', () => {
+describe('写作页：三栏骨架与红线', () => {
   it('渲染素材 ｜ 写作 ｜ 助手三栏，且页面上没有源码痕迹', async () => {
     const { impl } = stubWriteFetch({ drafts: [draftFixture()], materials: [MATERIAL] })
     globalThis.fetch = impl
@@ -273,7 +273,7 @@ describe('起草页：三栏骨架与红线', () => {
   })
 })
 
-describe('起草页：起稿四入口', () => {
+describe('写作页：起稿四入口', () => {
   it('没有草稿时四个入口都在（空白 / 模板 / 大纲 / 上传自己的模板）', async () => {
     const { impl } = stubWriteFetch({ drafts: [], materials: [] })
     globalThis.fetch = impl
@@ -397,7 +397,7 @@ describe('起草页：起稿四入口', () => {
   })
 })
 
-describe('起草页：素材为空时的两个出口', () => {
+describe('写作页：素材为空时的两个出口', () => {
   it('素材为空：给「去读懂一篇」+「不读文献，直接写」，且后者真的能起稿', async () => {
     const { impl, calls } = stubWriteFetch({ drafts: [], materials: [] })
     globalThis.fetch = impl
@@ -443,7 +443,7 @@ describe('起草页：素材为空时的两个出口', () => {
   })
 })
 
-describe('起草页：插入引文', () => {
+describe('写作页：插入引文', () => {
   it('点「插入引文」→ POST citations，正文落下 [1]，引用页签同步出现', async () => {
     const { impl, calls } = stubWriteFetch({
       drafts: [draftFixture({ body_md: '', citations: [] })],
@@ -523,7 +523,7 @@ describe('起草页：插入引文', () => {
   })
 })
 
-describe('起草页：源文献已删的引文（死链不许做成活链）', () => {
+describe('写作页：源文献已删的引文（死链不许做成活链）', () => {
   it('[n] 是灰的、不可点，并写清"源文献已删，仅存快照"', async () => {
     const draft = draftFixture({ citations: [CITATION, DEAD_CITATION] })
     const { impl, calls } = stubWriteFetch({ drafts: [draft], materials: [MATERIAL, DEAD_MATERIAL] })
@@ -548,7 +548,7 @@ describe('起草页：源文献已删的引文（死链不许做成活链）', (
   })
 })
 
-describe('⭐ 起草页：点 [1] 回原文并高亮（app 级端到端）', () => {
+describe('⭐ 写作页：点 [1] 回原文并高亮（app 级端到端）', () => {
   it('预览里点 [1] → 打开原文那一篇，并高亮那一句', async () => {
     const { impl, calls } = stubWriteFetch({ drafts: [draftFixture()], materials: [MATERIAL] })
     globalThis.fetch = impl
@@ -558,7 +558,7 @@ describe('⭐ 起草页：点 [1] 回原文并高亮（app 级端到端）', () 
     const wrapper = mount(App, { attachTo: document.body })
     await flushPromises()
 
-    // 冷启动直接落在起草页（起草可直达，不依赖读懂）
+    // 冷启动直接落在写作页（写作可直达，不依赖读懂）
     expect(wrapper.find('.wr-body').exists()).toBe(true)
 
     // 切到预览：textarea 里的 [1] 点不了，预览里的能点
@@ -585,7 +585,7 @@ describe('⭐ 起草页：点 [1] 回原文并高亮（app 级端到端）', () 
   })
 })
 
-describe('起草页：保存', () => {
+describe('写作页：保存', () => {
   it('改了字之后点「保存」→ PATCH 带 title 与 body_md', async () => {
     const { impl, calls } = stubWriteFetch({ drafts: [draftFixture()], materials: [] })
     globalThis.fetch = impl

@@ -135,9 +135,9 @@ describe('出现位置：至少三处可见标注', () => {
     expect(terms.indexOf('kind="terms"')).toBeLessThan(terms.indexOf('class="termlist"'))
   })
 
-  it('起草页不代写正文（一个字都不生成），所以那里不该出现 AI 标识', () => {
+  it('写作页不代写正文（一个字都不生成），所以那里不该出现 AI 标识', () => {
     expect(readSrc('src/views/WriteView.vue')).not.toContain('AiBadge')
-    // 顺带锁住那句红线注释：起草页没有任何"生成/续写/润色"入口
+    // 顺带锁住那句红线注释：写作页没有任何"生成/续写/润色"入口
     expect(readSrc('src/views/WriteView.vue')).toContain('本页一个字都不替用户生成正文')
   })
 })
