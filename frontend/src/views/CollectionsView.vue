@@ -7,7 +7,7 @@
       <div>
         <h1 class="kn-t">集合</h1>
         <p class="kn-sub">
-          把文献按项目 / 主题分组。**一篇文献可以同时在多个集合里**，不会复制一份。
+          把文献按项目 / 主题分组。<strong>一篇文献可以同时在多个集合里</strong>，不会复制一份。
         </p>
       </div>
       <div class="kn-ops">
@@ -64,6 +64,27 @@
         </button>
         <div class="kn-row-ops">
           <button type="button" class="btn ghost sm" @click="startRename(item)">改名</button>
+          <!-- 排序（N3 的 sort）：与同一个父下面的邻居交换；到边界就不给点 -->
+          <span class="kn-order">
+            <button
+              type="button"
+              class="btn ghost sm kn-order-btn"
+              :disabled="busy || !canMoveOrder(item, -1)"
+              title="上移一位"
+              @click="moveOrder(item, -1)"
+            >
+              ↑
+            </button>
+            <button
+              type="button"
+              class="btn ghost sm kn-order-btn"
+              :disabled="busy || !canMoveOrder(item, 1)"
+              title="下移一位"
+              @click="moveOrder(item, 1)"
+            >
+              ↓
+            </button>
+          </span>
           <!-- 移父级（N3 的 `parent_id`）：不许移到自己或自己的子集合，所以选项里先排除 -->
           <select
             class="kn-move"
@@ -275,6 +296,61 @@ function parentOptionsFor(item) {
     }))
 }
 
+/** 同一个父下面的兄弟（按界面显示顺序：后端已按 `sort, id` 排好）。 */
+function siblingsOf(item) {
+  return treeRows.value.filter((row) => (row.parentId ?? null) === (item.parentId ?? null))
+}
+
+/** 能不能往那个方向移（边界不给点，别让人点了没反应）。 */
+function canMoveOrder(item, delta) {
+  const siblings = siblingsOf(item)
+  const index = siblings.findIndex((row) => row.id === item.id)
+  if (index < 0) return false
+  return index + delta >= 0 && index + delta < siblings.length
+}
+
+/**
+ * 上移 / 下移：与同父邻居**交换 `sort`**。
+ *
+ * ⚠️ 两个坑：
+ * 1. 后端排序键是 `sort, id`——`sort` 全相等时就退化成按 id 排，交换看不出来。
+ *    所以这里**整组重排成 10/20/30…**，保证顺序是显式的；
+ * 2. 只 PATCH 变了的那两个（别为了排序把整组都写一遍）。
+ */
+async function moveOrder(item, delta) {
+  if (!canMoveOrder(item, delta)) return
+  const siblings = siblingsOf(item)
+  const index = siblings.findIndex((row) => row.id === item.id)
+  const target = index + delta
+  const reordered = [...siblings]
+  ;[reordered[index], reordered[target]] = [reordered[target], reordered[index]]
+
+  busy.value = true
+  error.value = ''
+  try {
+    const changed = []
+    for (const [position, row] of reordered.entries()) {
+      const nextSort = (position + 1) * 10
+      if ((row.sort ?? 0) === nextSort) continue
+      changed.push(
+        apiJson(`/api/collections/${row.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sort: nextSort }),
+        }),
+      )
+    }
+    await Promise.all(changed)
+    toast.value = delta < 0 ? `「${item.name}」上移了一位` : `「${item.name}」下移了一位`
+    await load()
+  } catch (err) {
+    error.value = `没调整成（${messageOf(err, '网络或服务异常')}）`
+    await load() // 失败要把顺序弹回真实值，别停在假顺序上
+  } finally {
+    busy.value = false
+  }
+}
+
 /** 移动（N3 的 `parent_id`；传空 = 移到顶层）。 */
 async function moveTo(item, rawParent) {
   const parentId = rawParent === '' ? null : Number(rawParent)
@@ -356,9 +432,18 @@ async function remove(item) {
   busy.value = true
   error.value = ''
   try {
+    // ⚠️ 子集合的数量要在删之前数（删完就查不到了）
+    const childCount = collections.value.filter(
+      (row) => (row.parentId ?? null) === item.id,
+    ).length
     await apiJson(`/api/collections/${item.id}`, { method: 'DELETE' })
     confirmingId.value = null
-    toast.value = `已删除集合「${item.name}」——里面的文献还在，只是回到了「未归类」`
+    // ⭐ 说清三件事：文献没删、子集合去哪了、能不能找回
+    const childNote =
+      childCount > 0
+        ? `它的 ${childCount} 个子集合已挂到上一级（${item.parentId ? '原父集合' : '顶层'}），不会跟着消失；`
+        : ''
+    toast.value = `已删除集合「${item.name}」——${childNote}里面的文献还在，只是回到了「未归类」`
     await load()
   } catch (err) {
     error.value = `没删掉（${messageOf(err, '网络或服务异常')}）`

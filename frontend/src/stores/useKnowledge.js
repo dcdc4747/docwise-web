@@ -45,6 +45,8 @@ export function mapCollection(row) {
     name: String(row?.name ?? '').trim(),
     parentId: row?.parent_id ?? null,
     count: toCount(row?.doc_count),
+    // 排序号：后端按 `sort, id` 排；界面靠它做"上移 / 下移"
+    sort: Number(row?.sort ?? 0),
     // ⚠️ 两个计数别混：`count` 只数**直接成员**，`deepCount` 才是含子集合（后端两个都给了）
     deepCount: toCount(row?.doc_count_deep),
   }

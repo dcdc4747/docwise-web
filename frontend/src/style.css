@@ -3030,6 +3030,10 @@ svg.ic-inl {
 .dw .kn-select { max-width: 200px; flex: none; }
 /* 树：分支符号与移到下拉（集合嵌套，2026-10-18） */
 .dw .kn-branch { color: var(--muted); margin-right: 4px; }
+/* 排序（↑↓）：与「移到」并排，窄一点，别把一行挤爆 */
+.dw .kn-order { display: inline-flex; gap: 2px; }
+.dw .kn-order-btn { min-width: 28px; padding: 2px 6px; }
+.dw .kn-order-btn:disabled { opacity: 0.35; cursor: not-allowed; }
 .dw .kn-move { max-width: 150px; padding: 3px 6px; font: inherit; font-size: var(--fs-meta); border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface); }
 .dw .lib-assign { display: flex; align-items: center; gap: var(--sp-1); margin-top: var(--sp-2); font-size: var(--fs-meta); color: var(--muted); }
 .dw .lib-assign-select { padding: 3px 6px; border: 1px solid var(--line); border-radius: var(--r-sm); font: inherit; font-size: var(--fs-meta); background: var(--surface); }
