@@ -61,7 +61,7 @@ const text = computed(() => {
 const title = computed(() => {
   if (!ready.value) return '这一段没有块坐标，存不了素材'
   if (failed.value) return saveState.value.message || '没存上'
-  if (saved.value) return '已存到起草页左栏的素材里'
+  if (saved.value) return '已存到写作页左栏的素材里'
   return '把这一段存成素材卡（原文与出处由服务端按快照记下）'
 })
 

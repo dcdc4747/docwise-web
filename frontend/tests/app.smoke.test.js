@@ -1607,7 +1607,7 @@ describe('App.vue 页面渲染', () => {
     expect(readItem().classes()).toContain('on')
   })
 
-  it('左栏：点「起草」进起草页（M3 已接上），地址落到 #/write 且「起草」高亮', async () => {
+  it('左栏：点「写作」进写作页（M3 已接上），地址落到 #/write 且「写作」高亮', async () => {
     const { task, detail } = completedFixture()
     globalThis.fetch = stubFetch({ tasks: [task], detail })
     // 从 `#/read/:id` 出发，才看得出"地址真的被挪过去了"（本来就在 `#/` 的话不写也是对的）
@@ -1616,13 +1616,13 @@ describe('App.vue 页面渲染', () => {
     await flushPromises()
     expect(window.location.hash).toBe(`#/read/${task.id}`)
 
-    await wrapper.findAll('button.rail-item').find((b) => b.text() === '起草').trigger('click')
+    await wrapper.findAll('button.rail-item').find((b) => b.text() === '写作').trigger('click')
     await flushPromises()
 
     expect(window.location.hash).toBe('#/write')
     expect(wrapper.find('.wr-body').exists()).toBe(true)
     expect(wrapper.find('.screen-reader').exists()).toBe(false)
-    const writeItem = () => wrapper.findAll('button.rail-item').find((b) => b.text() === '起草')
+    const writeItem = () => wrapper.findAll('button.rail-item').find((b) => b.text() === '写作')
     expect(writeItem().classes()).toContain('on')
   })
 
@@ -1700,7 +1700,7 @@ describe('App.vue 页面渲染', () => {
   // ============================================================ R6 手机端底部标签栏
   //
   // 形态 v2 §2.3：手机档（**<720px**）把左栏换成**底部标签栏 5 个** ——
-  // **库 / 起草 / 检查 / 记忆 / 我的**（命名口径：桌面叫「收口」、手机显示「检查」；
+  // **库 / 写作 / 检查 / 记忆 / 我的**（命名口径：桌面叫「校对」、手机显示「检查」；
   // 第一个叫「库」不叫「读懂」）。
   // ⚠️ 阈值：标签栏按文档那一档 **<720**，而 `stores/useUi.js` 的 `isNarrow` 是 **<1024** ——
   // 两者不一致是**已知问题**（由外壳负责人拍板），本卡按文档实现、**不动 `isNarrow`**，
@@ -1717,10 +1717,10 @@ describe('App.vue 页面渲染', () => {
     expect(tabbar.exists()).toBe(true)
     expect(tabbar.attributes('aria-label')).toBe('底部导航')
     expect(tabbar.findAll('button.tabbar-item')).toHaveLength(5)
-    // ⚠️ 逐字对文档：第一个是「库」不是「读懂」；桌面叫「收口」、这里显示「检查」
+    // ⚠️ 逐字对文档：第一个是「库」不是「读懂」；桌面叫「校对」、这里显示「检查」
     expect(tabbar.findAll('.tabbar-lbl').map((n) => n.text())).toEqual([
       '库',
-      '起草',
+      '写作',
       '检查',
       '记忆',
       '我的',
@@ -1769,7 +1769,7 @@ describe('App.vue 页面渲染', () => {
     expect(section).toMatch(/\.dw \.tabbar-item \{[^}]*min-height: 44px/)
   })
 
-  it('R6：点「检查」真切页（进起草页并当场拉开检查抽屉），点「我的」进个人中心', async () => {
+  it('R6：点「检查」真切页（进写作页并当场拉开检查抽屉），点「我的」进个人中心', async () => {
     const { task, detail } = completedFixture()
     globalThis.fetch = stubFetch({ tasks: [task], detail })
     setViewportWidth(390)
@@ -1779,12 +1779,12 @@ describe('App.vue 页面渲染', () => {
     const tabByLabel = (label) =>
       wrapper.findAll('button.tabbar-item').find((b) => b.text().includes(label))
 
-    // 形态 §3.3：收口是**起草页里的抽屉**、不是独立页面 —— 所以一条用例同时验两件事
+    // 形态 §3.3：校对是**写作页里的抽屉**、不是独立页面 —— 所以一条用例同时验两件事
     await tabByLabel('检查').trigger('click')
     await flushPromises()
     expect(wrapper.find('.screen-write').exists()).toBe(true)
     expect(wrapper.find('.wr-check').exists()).toBe(true)
-    // 亮的是「检查」不是「起草」（两者都在起草页，靠抽屉开没开来分辨）
+    // 亮的是「检查」不是「写作」（两者都在写作页，靠抽屉开没开来分辨）
     expect(tabByLabel('检查').classes()).toContain('on')
 
     await tabByLabel('我的').trigger('click')

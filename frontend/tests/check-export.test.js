@@ -1,5 +1,5 @@
 /**
- * 收口报告导出（E11 尾）的用例。
+ * 校对报告导出（E11 尾）的用例。
  *
  * 分两张桌子测，因为责任不同：
  * ① **纯函数层**（`src/checkExport.js`）——序列化最会"看起来对"：少导一段、
@@ -120,7 +120,7 @@ describe('checkExport：报告 → Markdown', () => {
   it('⭐ 含全部条目 + 筛子账，而且不报百分比', () => {
     const md = markdownOf()
 
-    expect(md).toContain('# 收口检查报告 · 开题报告')
+    expect(md).toContain('# 校对检查报告 · 开题报告')
     expect(md).toContain(`- 导出时间：${STAMP}`)
     expect(md).toContain('- 判语言：中文')
     expect(md).toContain('- 引用制式：顺序编码制（[n]）')
@@ -227,14 +227,14 @@ describe('checkExport：报告 → CSV', () => {
 })
 
 describe('checkExport：文件名与格式分发', () => {
-  it('⭐ 文件名 = 收口检查 + 草稿名 + 时间戳；草稿名里的路径符号不落进文件名', () => {
+  it('⭐ 文件名 = 校对检查 + 草稿名 + 时间戳；草稿名里的路径符号不落进文件名', () => {
     const at = new Date(2026, 9, 16, 14, 5)
     expect(exportFilename('开题报告/初稿:v2', 'csv', at)).toBe(
-      '收口检查-开题报告-初稿-v2-20261016-1405.csv',
+      '校对检查-开题报告-初稿-v2-20261016-1405.csv',
     )
-    expect(exportFilename('   ', 'md', at)).toBe('收口检查-未命名草稿-20261016-1405.md')
+    expect(exportFilename('   ', 'md', at)).toBe('校对检查-未命名草稿-20261016-1405.md')
     // 不认识的格式退回 md，不生成一个没扩展名的文件
-    expect(exportFilename('开题报告', 'docx', at)).toBe('收口检查-开题报告-20261016-1405.md')
+    expect(exportFilename('开题报告', 'docx', at)).toBe('校对检查-开题报告-20261016-1405.md')
     expect(formatStamp(at)).toBe('2026-10-16 14:05')
     expect(fileStamp(at)).toBe('20261016-1405')
     expect(exportMimeType('csv')).toContain('text/csv')
@@ -250,10 +250,10 @@ describe('checkExport：文件名与格式分发', () => {
 
   it('按格式取文本：一个入口，别让调用方自己 switch', () => {
     const options = { report: REPORT, step: STEP, groups: GROUPS, title: '开题报告', stamp: STAMP }
-    expect(reportToText('md', options)).toContain('# 收口检查报告')
+    expect(reportToText('md', options)).toContain('# 校对检查报告')
     expect(reportToText('csv', options)).toContain('"类型"')
     // 传了没见过的格式时按 Markdown 走（与文件名同一条兜底）
-    expect(reportToText('pdf', options)).toContain('# 收口检查报告')
+    expect(reportToText('pdf', options)).toContain('# 校对检查报告')
   })
 })
 
@@ -374,7 +374,7 @@ describe('WriteView：报告导出（E11 尾）', () => {
     await wrapper.find('.wr-checkexport button[data-format="md"]').trigger('click')
 
     expect(anchors).toHaveLength(1)
-    expect(anchors[0].download).toMatch(/^收口检查-开题报告-\d{8}-\d{4}\.md$/)
+    expect(anchors[0].download).toMatch(/^校对检查-开题报告-\d{8}-\d{4}\.md$/)
     expect(blobs).toHaveLength(1)
     expect(blobs[0].type).toContain('text/markdown')
     // 导出的是这份报告本身（不是空文件、也不是一句"已导出"）

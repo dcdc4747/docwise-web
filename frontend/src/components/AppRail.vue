@@ -38,15 +38,15 @@ defineEmits(['toggle', 'select'])
  */
 const ACTIONS = [
   { key: 'read', label: '读懂', tip: '读懂 · 读文献、存素材', icon: 'book' },
-  { key: 'write', label: '起草', tip: '起草 · 攒稿、插引文', icon: 'pen' },
-  { key: 'check', label: '收口', tip: '收口 · 检稿、出报告', icon: 'check-search' },
+  { key: 'write', label: '写作', tip: '写作 · 攒稿、插引文', icon: 'pen' },
+  { key: 'check', label: '校对', tip: '校对 · 检稿、出报告', icon: 'check-search' },
 ]
 
 /**
  * 下段：**历史记录**（名词 · 我有什么 / 我读过什么）。
  *
  * ⭐ 2026-10-17 知识库重构，两处改动：
- * - **「草稿」「引用」从这一组拿掉**：它们是**写作资产**，入口在「起草」页里
+ * - **「草稿」「引用」从这一组拿掉**：它们是**写作资产**，入口在「写作」页里
  *   （草稿在左上角下拉、引文在「引用」页签）。放在这里点了只能弹一句"还没做"，
  *   那是全站最伤的一种体验——**能力不在，就别给入口**。
  * - **新增「未归类」**：没进任何集合的文献（N8 的 `unfiled`），Zotero 的 Unfiled Items 同一件事。

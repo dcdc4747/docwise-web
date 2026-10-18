@@ -1,5 +1,5 @@
 /**
- * 收口检查报告的导出层 —— **纯函数**（无状态、不发请求、不碰 DOM）。
+ * 校对检查报告的导出层 —— **纯函数**（无状态、不发请求、不碰 DOM）。
  *
  * 为什么单独一个文件：序列化最容易"看起来对"——少导一段、CSV 里的引号没转义、
  * 草稿名里的 `/` 被带进文件名，这几种都不会崩、只会悄悄错，所以单独一层 + 单测钉住。
@@ -63,7 +63,7 @@ export function fileStamp(date = new Date()) {
 }
 
 /**
- * 导出文件名：`收口检查-<草稿名>-<时间戳>.<ext>`。
+ * 导出文件名：`校对检查-<草稿名>-<时间戳>.<ext>`。
  *
  * ⚠️ **草稿名是用户自己起的**，里面可能有 `/` `\` `:` 这类字符——直接拼进
  * `download` 属性会被浏览器当路径切掉，所以这里先把它们换成 `-`，再截到 40 字。
@@ -74,7 +74,7 @@ export function exportFilename(title, format = 'md', date = new Date()) {
       .replace(/[\\/:*?"<>|\u0000-\u001f]/g, '-')
       .slice(0, TITLE_MAX) || '未命名草稿'
   const ext = EXPORT_FORMATS.includes(format) ? format : 'md'
-  return `收口检查-${safe}-${fileStamp(date)}.${ext}`
+  return `校对检查-${safe}-${fileStamp(date)}.${ext}`
 }
 
 /** 各格式的 MIME（Blob 的类型，Excel 那边靠它认 CSV）。 */
@@ -151,7 +151,7 @@ export function reportToMarkdown({ report, step, groups, title, stamp, sourceNam
   const rows = flattenRows({ report, groups })
 
   const lines = []
-  lines.push(`# 收口检查报告 · ${draftTitle}`)
+  lines.push(`# 校对检查报告 · ${draftTitle}`)
   lines.push('')
   lines.push(`- 导出时间：${at}`)
   lines.push(`- 判语言：${clean(step?.lang) || '未能识别'}`)

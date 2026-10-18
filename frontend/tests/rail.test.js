@@ -62,8 +62,8 @@ describe('AppRail 左栏形状（R4 判据①）', () => {
     const wrapper = mount(AppRail)
     const items = wrapper.findAll('button.rail-item')
 
-    // 3（读懂/起草/收口）+ 6（全部文献/集合/标签/待读/未归类/素材）+ 2（记忆/处理过程）
-    // ⚠️ 2026-10-17：草稿/引用从这一组**拿掉**了（它们是写作资产，入口在「起草」页），
+    // 3（读懂/写作/校对）+ 6（全部文献/集合/标签/待读/未归类/素材）+ 2（记忆/处理过程）
+    // ⚠️ 2026-10-17：草稿/引用从这一组**拿掉**了（它们是写作资产，入口在「写作」页），
     //    换来「未归类」——点了只弹"还没做"的入口，比没有这个入口更伤。
     expect(items).toHaveLength(11)
     for (const item of items) {
@@ -73,7 +73,7 @@ describe('AppRail 左栏形状（R4 判据①）', () => {
     }
 
     const labels = items.map((i) => i.find('.rail-lbl').text())
-    expect(labels.slice(0, 3)).toEqual(['读懂', '起草', '收口'])
+    expect(labels.slice(0, 3)).toEqual(['读懂', '写作', '校对'])
     expect(labels.slice(3, 9)).toEqual(['全部文献', '集合', '标签', '待读', '未归类', '素材'])
     expect(labels.slice(9)).toEqual(['记忆', '处理过程'])
   })
@@ -86,7 +86,7 @@ describe('AppRail 左栏形状（R4 判据①）', () => {
 
   it('点一项 → emit select，带的是稳定 key（不是显示名）', async () => {
     const wrapper = mount(AppRail)
-    const write = wrapper.findAll('button.rail-item').find((b) => b.text() === '起草')
+    const write = wrapper.findAll('button.rail-item').find((b) => b.text() === '写作')
 
     await write.trigger('click')
 

@@ -18,7 +18,7 @@
  * 打开后走 `mockResponse()`：**是 N1–N29（或 N8 / N30 两处追加）的请求**返回假数据，
  * **其余（基线端点）原样放行**（基线端点必须继续打真后端，否则整个应用没法用）。
  *
- * ⚠️ 契约没写形状、这里替它定的收口（都只是"最省事的合理取值"，契约一改这里就跟着改）：
+ * ⚠️ 契约没写形状、这里替它定的校对（都只是"最省事的合理取值"，契约一改这里就跟着改）：
  * - `N4.moved_to_parent`：被上移到父集合的条目数（直接文献 + 子集合），契约只给了字段名；
  * - `N14 / N21 / N27 / N29` 的 DELETE：`200 {deleted: true, ...}`（契约只写了 200）；
  * - `N19` 的 DELETE：返回被删掉的那条 `Draft`（契约这一行写的是 `200 Draft`）；
@@ -1039,7 +1039,7 @@ const HANDLERS = {
     return ok({ terms, cite, counts: { term: Object.keys(terms).length, cite: cite ? 1 : 0 } })
   },
 
-  // ---- §2.6 起草
+  // ---- §2.6 写作
   'GET /api/drafts': () => ok({ items: state.drafts.map(draftView) }),
 
   'POST /api/drafts': ({ body }) => {
@@ -1151,7 +1151,7 @@ const HANDLERS = {
     })
   },
 
-  // ---- §2.7 收口检查
+  // ---- §2.7 校对检查
   'POST /api/check': ({ body }) => {
     if (!body.draft_id || typeof body.doc_text !== 'string') return fail(400, '要 {draft_id, doc_text}')
     const runId = state.next_id.check_runs

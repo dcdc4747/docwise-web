@@ -134,7 +134,7 @@ describe('形态 v2 集成：地址与偏好的接线', () => {
     await new Promise((r) => setTimeout(r, 0))
     await flushPromises()
     expect(wrapper.find('.admin-page').exists()).toBe(true)
-    const railItem = wrapper.findAll('button.rail-item').find((b) => b.text() === '起草')
+    const railItem = wrapper.findAll('button.rail-item').find((b) => b.text() === '写作')
     // 后台盖住时左栏不在 DOM 里，所以这里直接改地址模拟"点左栏"的最终效果
     setHash('#/write')
     await new Promise((r) => setTimeout(r, 0))

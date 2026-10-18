@@ -54,7 +54,7 @@ const mockKeys = MOCK_ROUTES.map((route) => asKey(route.method, route.path))
 const anchorKeys = (manifest.anchors || []).map((item) => asKey(item.method, item.path))
 
 /**
- * ⚠️ **对账清单不能只用 `expected_new`**（集成时真踩到，CI 直接红在起草接口那条 PR 上）。
+ * ⚠️ **对账清单不能只用 `expected_new`**（集成时真踩到，CI 直接红在写作接口那条 PR 上）。
  *
  * 两条规矩本身都对，一叠加就必然漂移：
  * - **契约闸（后端进度口径）**：端点一实现，就要求把它从 `expected_new` **搬进 `anchors`**；
@@ -62,8 +62,8 @@ const anchorKeys = (manifest.anchors || []).map((item) => asKey(item.method, ite
  *   不然前端就失去"后端一行没写也能把界面做完"那条路。
  *
  * 于是"只用 `expected_new` 对账"，在**第一个端点被实现的那天**就会红：
- * 起草那一组（N18–N21）实现并搬进 `anchors` 之后，mock 这边就成了"多余的 8 条"；
- * 收口检查那一组（N22–N23）实现之后同理（2026-10-16 加的前缀）。
+ * 写作那一组（N18–N21）实现并搬进 `anchors` 之后，mock 这边就成了"多余的 8 条"；
+ * 校对检查那一组（N22–N23）实现之后同理（2026-10-16 加的前缀）。
  * 这里显式列出「**已实现但仍要 mock**」的资源前缀，对账时把这几组从 `anchors` 里补回来。
  * （新实现一组就加一个前缀；**基线端点绝不在列** —— 基线必须继续打真后端。）
  */

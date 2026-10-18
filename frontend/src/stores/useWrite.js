@@ -1,5 +1,5 @@
 /**
- * 起草（M3 / `#/write`）—— 草稿、素材、引文，以及**点 `[1]` 回原文**这条主线。
+ * 写作（M3 / `#/write`）—— 草稿、素材、引文，以及**点 `[1]` 回原文**这条主线。
  *
  * 三条口径（都来自契约，别自己发明）：
  *
@@ -323,7 +323,7 @@ export async function newDraft({ title: draftTitle, templateId = null, seed = ''
 /**
  * 存当前稿（N19 `PATCH /api/drafts/{id}`）。
  *
- * ⚠️ **跳回原文之前一定要先 await 它**：跳转会把起草页卸载，
+ * ⚠️ **跳回原文之前一定要先 await 它**：跳转会把写作页卸载，
  * 没存上的字只活在内存里（本会话内还在，刷新就没了）。
  */
 export async function saveNow() {
@@ -448,7 +448,7 @@ export async function jumpToMaterial(material) {
     return false
   }
 
-  // 跳走之前先把稿存了：起草页会被卸载，不存就等于丢字
+  // 跳走之前先把稿存了：写作页会被卸载，不存就等于丢字
   await saveNow().catch(() => {})
 
   let task = findTask(material.task_id)
@@ -508,10 +508,10 @@ export async function jumpByOrder(order) {
   return jumpToSource(hit)
 }
 
-// ============================================================ 收口检查（M4）
+// ============================================================ 校对检查（M4）
 
 /**
- * 收口检查（形态 §3.3 / 契约 §2.7 的 N22–N23）。
+ * 校对检查（形态 §3.3 / 契约 §2.7 的 N22–N23）。
  *
  * ⚠️ **它是"看"，不是"改"**：这里只把报告取回来摆出来，
  * **一个"一键修好/自动改写"都没有**（形态 §3.3 ②：并列摆出两处，不自动改）。
@@ -605,7 +605,7 @@ export async function runCheck() {
     })
     checkReport.value = report
     const { reported, unknown } = checkSummary.value
-    logEvent(`收口检查：报出 ${reported} 处，另有 ${unknown} 处判不出`)
+    logEvent(`校对检查：报出 ${reported} 处，另有 ${unknown} 处判不出`)
     return true
   } catch (err) {
     checkReport.value = null

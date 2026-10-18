@@ -269,15 +269,15 @@ async function syncFromRoute() {
     return
   }
 
-  // M3 起草页（`#/write`）：**不依赖读懂**，可直达（契约 §2.6 / 形态 §3.2）。
-  // 起草页自己管取数（草稿 / 素材 / 引文），所以这里只切屏，不预加载任何东西。
+  // M3 写作页（`#/write`）：**不依赖读懂**，可直达（契约 §2.6 / 形态 §3.2）。
+  // 写作页自己管取数（草稿 / 素材 / 引文），所以这里只切屏，不预加载任何东西。
   if (route.name === 'write') {
     if (view.value !== 'write') view.value = 'write'
     return
   }
 
   // M5 处理过程（`#/process`）：整页，自己取台账（契约 N17）。
-  // 与起草页同理：**这里只切屏**，取数归页面自己（它还要管筛选与下钻）。
+  // 与写作页同理：**这里只切屏**，取数归页面自己（它还要管筛选与下钻）。
   if (route.name === 'process') {
     if (view.value !== 'process') view.value = 'process'
     return
@@ -351,7 +351,7 @@ async function applyBootRoute() {
 
 /**
  * 左栏每一项落到哪。`go` 给 `navigateToHash` 的目标；`note` 是**还没做的页**的诚实说法
- * （形态 v2 的分期任务：M1 知识库 / M3 起草 / M4 收口 / M5 处理过程 / M7 记忆）。
+ * （形态 v2 的分期任务：M1 知识库 / M3 写作 / M4 校对 / M5 处理过程 / M7 记忆）。
  * ⚠️ 两者**必须给一个**：既没有 `go` 也没有 `note` 的项点了会像没反应（判据①是"都能点"）。
  */
 const RAIL_TARGETS = {
@@ -371,7 +371,7 @@ const RAIL_TARGETS = {
   'lib-unfiled': { go: { name: 'library' }, filter: { unfiled: 1 } },
   // ⭐ 素材库（E2）：真跳 `#/materials`（吃 N13 的 `?collection_id?` / `&tag?`）
   'lib-materials': { go: { name: 'materials' } },
-  // ⚠️「草稿」「引用」**不再放在历史记录这一组**：它们是写作资产，入口在「起草」页里
+  // ⚠️「草稿」「引用」**不再放在历史记录这一组**：它们是写作资产，入口在「写作」页里
   //    （草稿在左上角下拉、引文在「引用」页签）——放这儿点了只能弹一句"还没做"，最伤。
   // ⭐ 记忆页（M7）：真跳 `#/memory`（N35–N39，自己的表、不是台账）
   memory: { go: { name: 'memory' } },
@@ -402,15 +402,15 @@ function onRailSelect(key) {
   // `navigateToHash` 会把目标 hash 记进 `expectedHash`，紧接着到达的 `hashchange`
   // 一看目标一致，就断定"这是我们自己写的那次、状态早就改好了" → **直接 return，不调 `syncFromRoute`**。
   // 所以"只写地址、不设状态"会让界面**停在原地**（地址变了、屏没变）—— 第一次实现就踩了，
-  // 靠"点起草之后 `#/` 变了但 `.lib-wrap` 还不存在"这条用例抓出来。
+  // 靠"点写作之后 `#/` 变了但 `.lib-wrap` 还不存在"这条用例抓出来。
   //
-  // 现在左栏能真正打开的有两处（库页与起草页），所以两样状态都在这一处显式设对：
+  // 现在左栏能真正打开的有两处（库页与写作页），所以两样状态都在这一处显式设对：
   // `view` 决定渲染哪一屏，`activeNav` 决定左栏哪一项亮着（那次 hashchange 被吞了，
   // `syncFromRoute` 不会替我们做这件事）。
   const go = target.go || { name: 'readHome' }
-  // ⭐「收口」= 进起草页**并当场拉开检查抽屉**（形态 §3.3：收口是起草页里的抽屉，不是新页面）
+  // ⭐「校对」= 进写作页**并当场拉开检查抽屉**（形态 §3.3：校对是写作页里的抽屉，不是新页面）
   if (target.opens === 'check') openCheck()
-  // ⭐ 整页只有这几张（读懂工作台 / 历史记录 / 起草 / 素材库 / 集合 / 标签 / 个人中心 / 处理过程 / 记忆）
+  // ⭐ 整页只有这几张（读懂工作台 / 历史记录 / 写作 / 素材库 / 集合 / 标签 / 个人中心 / 处理过程 / 记忆）
   const PAGES = {
     readHome: 'readHome',
     library: 'library',
@@ -433,7 +433,7 @@ function onRailSelect(key) {
 // ============================================================ 手机底部标签栏（R6）
 //
 // 形态 v2 §2.3：**手机端（<720px）左栏换成底部标签栏 5 个** ——
-// **库 / 起草 / 检查 / 记忆 / 我的**。命名口径（§2.3 原文）：桌面叫「收口」、
+// **库 / 写作 / 检查 / 记忆 / 我的**。命名口径（§2.3 原文）：桌面叫「校对」、
 // 手机标签因字数显示「检查」；第一个叫「**库**」不叫「读懂」（窄屏用户看到"读懂"会以为进的是阅读页）。
 // ⚠️ 形态 §2.3 的产品判断：**不在手机上做精读**；⚠️ 不许在手机上照搬"左下角头像"。
 
@@ -452,7 +452,7 @@ function syncPhone() {
 /** 5 个标签。图标名都取自 `index.html` 的 sprite（5 个都已存在，不是新画的）。 */
 const MOBILE_TABS = [
   { key: 'library', label: '库', icon: 'layers' },
-  { key: 'write', label: '起草', icon: 'pen' },
+  { key: 'write', label: '写作', icon: 'pen' },
   { key: 'check', label: '检查', icon: 'check-search' },
   { key: 'memory', label: '记忆', icon: 'gear' },
   { key: 'me', label: '我的', icon: 'user' },
@@ -466,7 +466,7 @@ const MOBILE_TABS = [
 const TAB_TARGETS = {
   library: 'lib-all', // 「库」= 回库页**并清筛选**（与左栏「全部文献」同一条路）
   write: 'write',
-  check: 'check', // 「检查」= 进起草页并当场拉开检查抽屉（形态 §3.3：收口是抽屉不是新页面）
+  check: 'check', // 「检查」= 进写作页并当场拉开检查抽屉（形态 §3.3：校对是抽屉不是新页面）
   memory: 'memory',
   me: 'me',
 }
@@ -609,7 +609,7 @@ async function onLogout() {
   authUser.value = null
   currentTask.value = null
   clearTasks()
-  // 起草页的状态也要清：不清的话，换个人登录会先看到上一个人的草稿（哪怕一秒）
+  // 写作页的状态也要清：不清的话，换个人登录会先看到上一个人的草稿（哪怕一秒）
   resetWrite()
   showAdmin.value = false
   stopProgress()
@@ -725,16 +725,16 @@ function handleUnauthorized() {
             <LibraryView />
           </section>
 
-          <!-- ==================== M3 起草页（#/write 三栏） ====================
+          <!-- ==================== M3 写作页（#/write 三栏） ====================
                ⚠️ 必须排在阅读区**前面**判断：`view` 是唯一真源，
-               而从起草页点 [1] 跳回原文之后 `currentTask` 还在，
+               而从写作页点 [1] 跳回原文之后 `currentTask` 还在，
                若先判 `currentTask` 就会"地址是 #/write、屏停在阅读区"。 -->
           <section v-else-if="view === 'write'" class="screen-write">
             <WriteView />
           </section>
 
           <!-- ==================== M5 个人中心（#/me 整页） ====================
-               与起草页同理：**必须排在阅读区前面判断**（`view` 是唯一真源），
+               与写作页同理：**必须排在阅读区前面判断**（`view` 是唯一真源），
                否则"在读一篇 + 点 #/me"会被 `currentTask` 那条分支吃掉、屏停不动。 -->
           <section v-else-if="view === 'me'" class="screen-me">
             <MeView />
@@ -785,7 +785,7 @@ function handleUnauthorized() {
         </div>
       </div>
 
-      <!-- ⭐ 手机底部标签栏（R6 已接线：形态 v2 §2.3 的 **库 / 起草 / 检查 / 记忆 / 我的**）。
+      <!-- ⭐ 手机底部标签栏（R6 已接线：形态 v2 §2.3 的 **库 / 写作 / 检查 / 记忆 / 我的**）。
            ⚠️ 放在 `.dw-layout` **之外**是**必须的两件事之一**：
            ① 留在布局之外 → 不被 `height:100dvh; overflow:hidden` 裁掉；
            ② 样式里 `position:fixed` → 真的贴视口底（留在外面但在正常流里，它会排到

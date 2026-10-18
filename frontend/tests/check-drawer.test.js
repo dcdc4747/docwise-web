@@ -1,5 +1,5 @@
 /**
- * 收口检查抽屉（M4）的用例。
+ * 校对检查抽屉（M4）的用例。
  *
  * 这一包盯五件"做错了看不出来"的事：
  *
@@ -155,7 +155,7 @@ afterEach(() => {
   document.body.innerHTML = ''
 })
 
-describe('收口检查抽屉（M4 / 形态 §3.3）', () => {
+describe('校对检查抽屉（M4 / 形态 §3.3）', () => {
   it('⭐ 抽屉里摆出「筛子账」：为什么只报这么少要看得见', async () => {
     const wrapper = mountWrite()
     // ⚠️ 先等首屏（草稿/素材）就绪：不等就点「开始检查」，此时还没有草稿 id、跑不出报告
@@ -175,7 +175,7 @@ describe('收口检查抽屉（M4 / 形态 §3.3）', () => {
     expect(ledger.text()).not.toContain('引用制式：')
   })
 
-  it('默认不出现；点顶栏「收口检查」才拉开（它是抽屉，不是独立页面）', async () => {
+  it('默认不出现；点顶栏「校对检查」才拉开（它是抽屉，不是独立页面）', async () => {
     const wrapper = mountWrite()
     await flushPromises()
     expect(wrapper.find('.wr-check').exists()).toBe(false)
