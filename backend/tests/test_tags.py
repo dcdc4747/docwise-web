@@ -132,3 +132,32 @@ def test_others_task_is_404():
     )
     assert response.status_code == 404
     assert client.get("/api/tags").json()["items"] == []
+
+
+def test_task_responses_include_tags() -> None:
+    """⭐ 列表与详情都要带 `tags`——前端靠它渲染 chips、并按"当前 + 新"发 N7。"""
+    task_id = _task()
+    client.put(
+        f"/api/tasks/{task_id}/tags",
+        json={
+            "tags": [
+                {"name": "RAG", "kind": "topic"},
+                {"name": "双塔", "kind": "method"},
+            ]
+        },
+    )
+
+    listed = client.get("/api/tasks").json()
+    row = next(item for item in listed if item["id"] == task_id)
+    assert sorted(row["tags"]) == ["RAG", "双塔"]
+
+    detail = client.get(f"/api/tasks/{task_id}").json()
+    assert sorted(detail["tags"]) == ["RAG", "双塔"]
+
+
+def test_task_without_tags_returns_empty_list() -> None:
+    """没标签必须是 `[]`，不是 `null`（前端直接 `.map()`，null 会炸）。"""
+    task_id = _task()
+    listed = client.get("/api/tasks").json()
+    row = next(item for item in listed if item["id"] == task_id)
+    assert row["tags"] == []

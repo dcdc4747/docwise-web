@@ -157,6 +157,7 @@ def _serialize_task(
     task: Task,
     blocks: list[TaskBlock] | None = None,
     collection_ids: list[int] | None = None,
+    tags: list[str] | None = None,
 ) -> dict:
     data = {
         "id": task.id,
@@ -184,6 +185,9 @@ def _serialize_task(
         # ⭐ 归属（N5 是**全量替换**，前端必须先知道当前在哪几个集合里，
         # 否则一发请求就把别人的归属抹了）。没归集就是空数组。
         "collection_ids": collection_ids or [],
+        # ⭐ 标签（与 collection_ids 同理：N7 是**全量替换**，不给当前标签，
+        #    前端一边编辑就把别人的标签全抹了）。没标签就是空数组。
+        "tags": tags or [],
         # 诚实性：这批字是文字层抽的还是 OCR 认的（扫描件要在界面上说清楚）
         "text_source": task.text_source,
     }
@@ -315,16 +319,28 @@ def list_tasks(
 
     page = rows[:50]
     memberships: dict[int, list[int]] = {}
+    tag_names: dict[int, list[str]] = {}
     if page:
-        pairs = db.execute(
+        ids = [task.id for task in page]
+        for task_id, collection_id in db.execute(
             select(TaskCollection.task_id, TaskCollection.collection_id).where(
-                TaskCollection.task_id.in_([task.id for task in page])
+                TaskCollection.task_id.in_(ids)
             )
-        ).all()
-        for task_id, collection_id in pairs:
+        ).all():
             memberships.setdefault(task_id, []).append(collection_id)
+        # ⭐ 标签也要批量取：前端靠它渲染标签 chips、并按"当前 + 新"发 N7
+        for task_id, name in db.execute(
+            select(TaskTag.task_id, Tag.name)
+            .join(Tag, Tag.id == TaskTag.tag_id)
+            .where(TaskTag.task_id.in_(ids))
+        ).all():
+            tag_names.setdefault(task_id, []).append(name)
     return [
-        _serialize_task(task, collection_ids=memberships.get(task.id, []))
+        _serialize_task(
+            task,
+            collection_ids=memberships.get(task.id, []),
+            tags=tag_names.get(task.id, []),
+        )
         for task in page
     ]
 
@@ -410,7 +426,26 @@ def get_task(
     blocks = db.scalars(
         select(TaskBlock).where(TaskBlock.task_id == task.id).order_by(TaskBlock.id)
     ).all()
-    data = _serialize_task(task, blocks)
+    # 详情也要带标签与集合归属：编辑面板是"看当前、再改"，缺一个就会把已有标签/归属抹掉
+    detail_tags = [
+        name
+        for (name,) in db.execute(
+            select(Tag.name)
+            .join(TaskTag, TaskTag.tag_id == Tag.id)
+            .where(TaskTag.task_id == task.id)
+        ).all()
+    ]
+    detail_collections = [
+        cid
+        for (cid,) in db.execute(
+            select(TaskCollection.collection_id).where(
+                TaskCollection.task_id == task.id
+            )
+        ).all()
+    ]
+    data = _serialize_task(
+        task, blocks, collection_ids=detail_collections, tags=detail_tags
+    )
     understanding = db.scalars(
         select(TaskUnderstanding).where(TaskUnderstanding.task_id == task.id)
     ).first()

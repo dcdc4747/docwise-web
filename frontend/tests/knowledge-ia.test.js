@@ -211,8 +211,10 @@ describe('左栏与外壳接线（结构断言）', () => {
   it('⭐ 标签页：点一个标签就按它筛（N8 的 tag[]）', () => {
     const view = readSrc('src/views/TagsView.vue')
     expect(view).toContain('loadTasksAndSync({ tag: [item.name] })')
-    // 诚实：这一版只有看与筛
-    expect(view).toContain('只能看和筛')
+    // ⚠️ 2026-10-18：贴标签已经能做了（历史记录卡片上的「＋ 标签」），
+    // 这条文案随之改成「贴标签去卡片上，改名/删除还没有」
+    expect(view).toContain('贴标签')
+    expect(view).toContain('改名 / 删除标签暂时没有')
   })
 
   it('⭐ 历史记录页：筛选条接真选项 + 归集认得当前归属', () => {
