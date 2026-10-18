@@ -41,6 +41,13 @@ def _bearer_token(request: Request) -> str | None:
     return None
 
 
+def current_session_hash(request: Request) -> str | None:
+    """当前请求令牌对应的会话哈希——用来在"登录设备"里标出「本机」。"""
+    from .auth import token_hash_of
+
+    return token_hash_of(_bearer_token(request))
+
+
 def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
     user = resolve_session(db, _bearer_token(request))
     if user is None:

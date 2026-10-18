@@ -24,6 +24,7 @@ from datetime import timedelta
 
 from fastapi.testclient import TestClient
 from helpers import TEST_USER_ID, create_user_row
+from sqlalchemy import select
 
 import app.storage as storage
 from app.db import SessionLocal
@@ -275,10 +276,18 @@ def test_sessions_list_only_mine_and_only_unexpired() -> None:
     with TestClient(app) as client:
         body = client.get("/api/me/sessions").json()
 
-    assert set(body) == {"items"}
+    # ⚠️ 2026-10-18：响应多了 `total`（"还能用的会话一共几台"），条目多了 `current`
+    assert set(body) == {"items", "total"}
     assert [row["id"] for row in body["items"]] == [fresh]
     row = body["items"][0]
-    assert set(row) == {"id", "created_at", "expires_at", "last_seen_at", "user_agent"}
+    assert set(row) == {
+        "id",
+        "created_at",
+        "expires_at",
+        "last_seen_at",
+        "user_agent",
+        "current",
+    }
     assert row["user_agent"] == "Chrome / Windows"
     assert row["expires_at"].endswith("+00:00")
     assert row["last_seen_at"].endswith("+00:00")
@@ -397,3 +406,41 @@ def test_delete_me_purges_my_data_and_keeps_others() -> None:
         assert session.get(MemoryEvent, other_event) is not None
 
     assert not mine_file.exists()  # 磁盘产物按任务清掉了
+
+
+def test_sessions_are_capped_when_logging_in() -> None:
+    """⭐ 登录不封顶会一直涨（实测一个账号 132 条）→ 现在每建一条就裁到 20。"""
+    from app.auth import MAX_SESSIONS_PER_USER, create_session
+
+    with SessionLocal() as db:
+        user = db.get(User, TEST_USER_ID)
+        for _ in range(MAX_SESSIONS_PER_USER + 3):
+            create_session(db, user, "封顶测试")
+        alive = db.scalars(
+            select(AuthSession).where(AuthSession.user_id == TEST_USER_ID)
+        ).all()
+
+    assert len(alive) <= MAX_SESSIONS_PER_USER
+
+
+def test_current_session_is_marked() -> None:
+    """⭐ 必须能认出"哪台是我现在用的"——否则吊销按钮长得一样，容易把自己踢下线。"""
+    from app.auth import create_session
+
+    with SessionLocal() as db:
+        user = db.get(User, TEST_USER_ID)
+        token = create_session(db, user, "本机浏览器")
+    _make_session(agent="另一台")
+
+    client = TestClient(app)
+    rows = client.get(
+        "/api/me/sessions", headers={"Authorization": f"Bearer {token}"}
+    ).json()["items"]
+
+    marked = [row for row in rows if row["current"]]
+    assert len(marked) == 1, "同时只能有一台是当前设备"
+    assert marked[0]["user_agent"] == "本机浏览器"
+    # ⚠️ **不置顶**：按**登录时间**新→旧（与表格第一列一致）；
+    # 本机靠 `current` 标记与底色认。
+    stamps = [row["created_at"] for row in rows]
+    assert stamps == sorted(stamps, reverse=True), "会话应当按登录时间新→旧排"
