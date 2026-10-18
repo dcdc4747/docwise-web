@@ -70,13 +70,21 @@ afterEach(() => {
 })
 
 describe('字段映射（照接口，不照文档猜）', () => {
-  it('集合：`doc_count` → `count`，`parent_id` → `parentId`', () => {
-    expect(mapCollection({ id: 1, name: '化学组', parent_id: null, doc_count: 3 })).toEqual({
-      id: 1,
-      name: '化学组',
-      parentId: null,
-      count: 3,
-    })
+  it('集合：`doc_count`→`count`、`doc_count_deep`→`deepCount`、`parent_id`→`parentId`', () => {
+    // ⚠️ 2026-10-18：多了 deepCount（含子集合的总数）。两个数**不许混**——
+    //    count 只数直接成员，deepCount 才是含子集合（后端两个都给）。
+    expect(
+      mapCollection({
+        id: 1,
+        name: '化学组',
+        parent_id: null,
+        doc_count: 3,
+        doc_count_deep: 5,
+        sort: 20,
+      }),
+    ).toEqual({ id: 1, name: '化学组', parentId: null, count: 3, deepCount: 5, sort: 20 })
+    // 后端没给 deep 时是 null（不编成 0）
+    expect(mapCollection({ id: 2, name: '空集合', doc_count: 0 }).deepCount).toBeNull()
   })
 
   it('标签：`doc_count` → `count`，保住 kind', () => {
@@ -211,8 +219,10 @@ describe('左栏与外壳接线（结构断言）', () => {
   it('⭐ 标签页：点一个标签就按它筛（N8 的 tag[]）', () => {
     const view = readSrc('src/views/TagsView.vue')
     expect(view).toContain('loadTasksAndSync({ tag: [item.name] })')
-    // 诚实：这一版只有看与筛
-    expect(view).toContain('只能看和筛')
+    // ⚠️ 2026-10-18：贴标签已经能做了（历史记录卡片上的「＋ 标签」），
+    // 这条文案随之改成「贴标签去卡片上，改名/删除还没有」
+    expect(view).toContain('贴标签')
+    expect(view).toContain('改名 / 删除标签暂时没有')
   })
 
   it('⭐ 历史记录页：筛选条接真选项 + 归集认得当前归属', () => {

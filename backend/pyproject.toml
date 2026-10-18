@@ -10,6 +10,8 @@ dependencies = [
     "sqlalchemy>=2.0",
     "pydantic-settings>=2.6",
     "httpx>=0.28",
+    # Agent 引擎（B 方案）：只装 slim + openai 兼容客户端，**不装 meta 包**
+    "pydantic-ai-slim[openai]==2.57.*",
 ]
 
 [dependency-groups]

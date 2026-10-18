@@ -163,6 +163,46 @@
           </select>
         </label>
 
+        <!-- ⭐ 标签（N7）：在卡片上直接贴，不跳页。N7 是全量替换，
+             所以每次发的是"当前这组 + 新加的一个"。 -->
+        <div class="lib-tags">
+          <button
+            v-for="name in card.task.tags || []"
+            :key="name"
+            type="button"
+            class="lib-tag-chip"
+            :title="`点掉标签「${name}」`"
+            :disabled="taskActionBusy"
+            @click="removeTag(card.task, name)"
+          >
+            {{ name }}<span class="lib-tag-x">×</span>
+          </button>
+
+          <template v-if="tagEditingId === card.task.id">
+            <input
+              ref="tagInputEl"
+              v-model="tagDraft"
+              class="lib-tag-input"
+              type="text"
+              maxlength="24"
+              list="lib-tag-suggest"
+              placeholder="标签名，回车加上"
+              @keydown.enter.prevent="commitTag(card.task)"
+              @keydown.esc.prevent="cancelTag"
+              @blur="commitTag(card.task)"
+            />
+          </template>
+          <button
+            v-else
+            type="button"
+            class="lib-tag-add"
+            :disabled="taskActionBusy"
+            @click="startTag(card.task)"
+          >
+            ＋ 标签
+          </button>
+        </div>
+
         <div class="actions">
           <button
             v-if="card.retryable"
@@ -191,8 +231,14 @@
          ⚠️ 拿不到整块就仍走诚实档（不摆一排 0 冒充"统计好了"）。 -->
     <LibOverview :stats="overviewStats" :tags="tags" @pick-tag="pickTag" />
 
+    <!-- 已有标签做输入建议：贴过的名字不该让人再手打一遍（打错就是新标签） -->
+    <datalist id="lib-tag-suggest">
+      <option v-for="item in tags" :key="item.id" :value="item.name" />
+    </datalist>
+
     <div class="footline">
       <span v-if="taskActionError" style="color: var(--danger)">{{ taskActionError }}</span>
+      <span v-if="tagError" style="color: var(--danger)">{{ tagError }}</span>
       <span class="spacer" />
       <span>docwise · 学术文献理解智能体</span>
     </div>
@@ -212,7 +258,7 @@
  * ⚠️ 筛选状态的主人是这一页：`LibFilters` 走"`filters` 进、`change`/`clear` 出"，
  * 这里把条件交给 `loadTasksAndSync()`（**服务端筛**，契约 N8）。
  */
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 
 import {
   activeBars,
@@ -290,6 +336,82 @@ const overviewStats = computed(() => {
 /** 点标签云 = 按这个标签筛（与筛选条上的标签芯片同一条路）。 */
 function pickTag(name) {
   applyFilters({ tag: [name] })
+}
+
+// ---------------------------------------------------------------- 标签（N7）
+//
+// ⚠️ N7 是**全量替换**：`PUT /api/tasks/{id}/tags` 传什么就只剩什么。
+// 所以"加一个"= 当前这组 + 新的那一个；"删一个"= 当前这组减掉它。
+// 前端绝不能只发新加的那个——那会把别的标签全抹了。
+
+const tagEditingId = ref(null)
+const tagDraft = ref('')
+const tagInputEl = ref(null)
+const tagError = ref('')
+
+/** 已有标签的 kind（新标签沿用同名标签的 kind，没有就 topic）。 */
+function tagKindOf(name) {
+  const hit = tags.value.find((item) => item.name === name)
+  return hit?.kind || 'topic'
+}
+
+function startTag(task) {
+  tagEditingId.value = task.id
+  tagDraft.value = ''
+  tagError.value = ''
+  nextTick(() => {
+    const el = Array.isArray(tagInputEl.value) ? tagInputEl.value[0] : tagInputEl.value
+    el?.focus?.()
+  })
+}
+
+function cancelTag() {
+  tagEditingId.value = null
+  tagDraft.value = ''
+}
+
+/** 发一整组标签（N7），成功后刷新列表与标签计数。 */
+async function saveTags(task, names) {
+  const unique = [...new Set(names.map((name) => name.trim()).filter(Boolean))]
+  try {
+    await apiJson(`/api/tasks/${task.id}/tags`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tags: unique.map((name) => ({ name, kind: tagKindOf(name) })),
+      }),
+    })
+    tagError.value = ''
+    await loadTasksAndSync(filters.value)
+    await loadKnowledge()
+    return true
+  } catch (err) {
+    tagError.value = `标签没存上（${err.message || '网络或服务异常'}）`
+    return false
+  }
+}
+
+async function commitTag(task) {
+  const name = tagDraft.value.trim()
+  if (!name) {
+    cancelTag()
+    return
+  }
+  const current = task.tags || []
+  if (current.includes(name)) {
+    cancelTag()
+    return
+  }
+  const ok = await saveTags(task, [...current, name])
+  if (ok) cancelTag()
+}
+
+async function removeTag(task, name) {
+  const current = task.tags || []
+  await saveTags(
+    task,
+    current.filter((item) => item !== name),
+  )
 }
 
 function applyFilters(next) {
