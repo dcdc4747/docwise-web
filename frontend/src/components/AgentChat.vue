@@ -19,6 +19,17 @@
       >
         轨迹 · {{ totalSteps }}
       </button>
+      <span class="agent-views-spacer" />
+      <!-- 开新对话：只清当前场景（读懂/写作各一条，互不影响） -->
+      <button
+        type="button"
+        class="agent-new-thread"
+        :disabled="busy"
+        :title="busy ? '等这轮答完再开新对话' : '清空当前对话，重新开始'"
+        @click="startNewThread"
+      >
+        ＋ 新对话
+      </button>
     </div>
 
     <!-- 轨迹页：把这一串对话里所有工具调用按顺序列出来 -->
@@ -332,6 +343,7 @@ import {
   saveAgentConfig,
   retryTurn,
   sendAgentStream,
+  newThread,
   setScene,
   toolStepsOf,
 } from '../stores/useAgent'
@@ -772,6 +784,13 @@ function segments(text) {
   return out
 }
 
+/** 开新对话：清空当前场景的线程（别的场景不动），并回到对话页。 */
+function startNewThread() {
+  if (busy.value) return
+  newThread()
+  viewMode.value = 'chat'
+}
+
 onMounted(async () => {
   await Promise.all([loadScenes(), loadConfig()])
   // ⚠️ 必须**在 loadScenes 之后**切场景：反过来会被默认场景顶掉，
@@ -787,6 +806,28 @@ onMounted(async () => {
   这里不引阴影、不加大色块：状态只用左侧一道细色条 + 小字标签。
 -->
 <style scoped>
+.agent-views-spacer {
+  flex: 1 1 auto;
+}
+.agent-new-thread {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--fs-micro);
+  padding: 2px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.agent-new-thread:hover:not(:disabled) {
+  background: #f1f3f7;
+  color: var(--ink);
+}
+.agent-new-thread:disabled {
+  color: #c2c8d2;
+  cursor: default;
+}
+
 .agent-revs-head {
   display: flex;
   align-items: center;

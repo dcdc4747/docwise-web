@@ -16,10 +16,16 @@ const state = reactive({
   sceneId: 'read_ask',
   scenes: [],
   config: null,
-  // 每条：{ role: 'user' | 'assistant', text, steps, sources, dropped, usage, error }
-  messages: [],
-  busy: false,
-  error: '',
+  /**
+   * **每个场景一条独立线程**：`{ [sceneId]: { messages, busy, error } }`。
+   *
+   * ⚠️ 2026-10-19 用户指出两件事，都出在这里：
+   * ① 读懂和写作共用一条对话（`messages` 只有一份）——两个模块问的是完全不同的东西，
+   *    混在一条里既看不懂也会互相干扰上下文；
+   * ② 没有"开新对话"的入口，聊歪了只能刷新页面。
+   * 现在按场景隔离，切走再切回来历史还在；`newThread()` 只清当前场景。
+   */
+  threads: {},
   configOpen: false,
   // 设置弹窗：自定义类配置（接口地址 / API Key / 强度 / 厂商）都收在这里，
   // 输入框旁边只负责「选模型」——两件事不混在一个按钮里。
@@ -28,9 +34,18 @@ const state = reactive({
   saveNote: '',
 })
 
-export const agentMessages = computed(() => state.messages)
-export const agentBusy = computed(() => state.busy)
-export const agentError = computed(() => state.error)
+/** 取（必要时建）某个场景的线程。 */
+export function threadOf(sceneId = state.sceneId) {
+  const key = sceneId || 'read_ask'
+  if (!state.threads[key]) {
+    state.threads[key] = { messages: [], busy: false, error: '' }
+  }
+  return state.threads[key]
+}
+
+export const agentMessages = computed(() => threadOf().messages)
+export const agentBusy = computed(() => threadOf().busy)
+export const agentError = computed(() => threadOf().error)
 export const agentConfig = computed(() => state.config)
 export const agentConfigOpen = computed(() => state.configOpen)
 export const agentSaveNote = computed(() => state.saveNote)
@@ -95,19 +110,33 @@ export async function saveAgentConfig({ baseUrl, model, tier, apiKey }) {
   }
 }
 
+/**
+ * 开一条新对话：**只清当前场景**，别的场景的历史不动。
+ *
+ * 为什么不清全局：读懂聊到一半去写作问一句，回来还该看到原来的对话——
+ * 这是"两个模块"该有的样子（用户 2026-10-19 指出）。
+ */
+export function newThread(sceneId = state.sceneId) {
+  const thread = threadOf(sceneId)
+  thread.messages = []
+  thread.error = ''
+  thread.busy = false
+}
+
+/** 旧名字，保留兼容（等价于 `newThread()`）。 */
 export function resetAgentThread() {
-  state.messages = []
-  state.error = ''
+  newThread()
 }
 
 /**
  * 发一个问题。`scope` 是页面上下文（如 `{ task_id }`），后端只收白名单字段。
  */
 export async function sendAgent(question, scope = {}) {
+  const thread = threadOf()
   const text = String(question || '').trim()
-  if (!text || state.busy) return
-  state.error = ''
-  state.messages.push({ role: 'user', text })
+  if (!text || thread.busy) return
+  thread.error = ''
+  thread.messages.push({ role: 'user', text })
   const turn = reactive({
     role: 'assistant',
     text: '',
@@ -129,8 +158,8 @@ export async function sendAgent(question, scope = {}) {
     elapsedMs: 0,
     model: '',
   })
-  state.messages.push(turn)
-  state.busy = true
+  thread.messages.push(turn)
+  thread.busy = true
   try {
     const res = await authFetch('/api/agent/chat', {
       method: 'POST',
@@ -152,7 +181,7 @@ export async function sendAgent(question, scope = {}) {
   } catch (exc) {
     turn.error = `请求失败：${exc && exc.message ? exc.message : exc}`
   } finally {
-    state.busy = false
+    thread.busy = false
   }
 }
 
@@ -172,10 +201,11 @@ export function toolStepsOf(turn) {
  * EventSource 只能 GET、也带不了 `Authorization` 头。
  */
 export async function sendAgentStream(question, scope = {}) {
+  const thread = threadOf()
   const text = String(question || '').trim()
-  if (!text || state.busy) return
-  state.error = ''
-  state.messages.push({ role: 'user', text })
+  if (!text || thread.busy) return
+  thread.error = ''
+  thread.messages.push({ role: 'user', text })
   const turn = reactive({
     role: 'assistant',
     text: '',
@@ -193,8 +223,8 @@ export async function sendAgentStream(question, scope = {}) {
     elapsedMs: 0,
     model: '',
   })
-  state.messages.push(turn)
-  state.busy = true
+  thread.messages.push(turn)
+  thread.busy = true
   try {
     const res = await authFetch('/api/agent/chat/stream', {
       method: 'POST',
@@ -237,7 +267,7 @@ export async function sendAgentStream(question, scope = {}) {
   } catch (exc) {
     turn.error = `请求失败：${exc && exc.message ? exc.message : exc}`
   } finally {
-    state.busy = false
+    thread.busy = false
   }
 }
 
@@ -284,9 +314,10 @@ export const agentSettingsOpen = computed(() => state.settingsOpen)
 
 /** 重试一条失败的回答：把那条撤掉，用原问题再问一次。 */
 export function retryTurn(turn, scope = {}) {
-  const index = state.messages.indexOf(turn)
+  const thread = threadOf()
+  const index = thread.messages.indexOf(turn)
   const question = turn && turn.question
-  if (index >= 0) state.messages.splice(index, 1)
+  if (index >= 0) thread.messages.splice(index, 1)
   if (question) return sendAgentStream(question, scope)
 }
 

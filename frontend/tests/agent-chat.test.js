@@ -27,7 +27,13 @@ vi.mock('../src/auth', () => ({
 
 import AgentChat from '../src/components/AgentChat.vue'
 import WriteView from '../src/views/WriteView.vue'
-import { agentMessages, toolStepsOf } from '../src/stores/useAgent'
+import {
+  agentMessages,
+  newThread,
+  setScene,
+  threadOf,
+  toolStepsOf,
+} from '../src/stores/useAgent'
 import { body as writeBody, resetWrite } from '../src/stores/useWrite'
 
 describe('AgentChat（读懂侧）', () => {
@@ -446,5 +452,53 @@ describe('AgentChat（读懂侧）', () => {
 
     wrapper.unmount()
     resetWrite()
+  })
+
+  it('每个场景一条独立对话：读懂与写作不串，切回来还在', async () => {
+    setScene('read_ask')
+    newThread('read_ask')
+    newThread('write_compose')
+    threadOf('read_ask').messages.push({ role: 'user', text: '读懂的问题' })
+    threadOf('write_compose').messages.push({ role: 'user', text: '写作的问题' })
+
+    // 当前在读懂：只看到读懂那条
+    expect(agentMessages.value.map((m) => m.text)).toEqual(['读懂的问题'])
+
+    setScene('write_compose')
+    await flushPromises()
+    expect(agentMessages.value.map((m) => m.text)).toEqual(['写作的问题'])
+
+    // 切回读懂：原来那条还在（不是被清空）
+    setScene('read_ask')
+    await flushPromises()
+    expect(agentMessages.value.map((m) => m.text)).toEqual(['读懂的问题'])
+  })
+
+  it('「新对话」只清当前场景，另一个场景的历史不动', async () => {
+    setScene('read_ask')
+    newThread('read_ask')
+    newThread('write_compose')
+    threadOf('read_ask').messages.push({ role: 'user', text: 'A' })
+    threadOf('write_compose').messages.push({ role: 'user', text: 'B' })
+
+    newThread() // 当前是 read_ask
+    expect(agentMessages.value).toHaveLength(0)
+    expect(threadOf('write_compose').messages.map((m) => m.text)).toEqual(['B'])
+  })
+
+  it('头部有「新对话」按钮：点一下清空当前对话', async () => {
+    setScene('read_ask')
+    newThread('read_ask')
+    const wrapper = mount(AgentChat, { props: { scope: {} } })
+    await flushPromises()
+    agentMessages.value.push({ role: 'user', text: '旧问题' })
+    await flushPromises()
+
+    const btn = wrapper.find('.agent-new-thread')
+    expect(btn.exists()).toBe(true)
+    await btn.trigger('click')
+    await flushPromises()
+    expect(agentMessages.value).toHaveLength(0)
+    expect(wrapper.find('.agent-new-thread').exists()).toBe(false)
   })
 })
