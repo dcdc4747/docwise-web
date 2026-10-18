@@ -214,11 +214,14 @@ import {
   saveAgentConfig,
   retryTurn,
   sendAgentStream,
+  setScene,
   toolStepsOf,
 } from '../stores/useAgent'
 
 const props = defineProps({
   scope: { type: Object, default: () => ({}) },
+  // 场景：读懂 = read_ask（默认），写作 = write_compose
+  scene: { type: String, default: 'read_ask' },
 })
 const emit = defineEmits(['quick'])
 

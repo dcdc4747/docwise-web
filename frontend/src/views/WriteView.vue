@@ -245,8 +245,16 @@
         </div>
 
         <div class="wr-helper-body">
+          <!-- 对话：写作侧 agent（读草稿 / 查素材 / 找依据） -->
+          <div v-if="helperTab === 'chat'" class="wr-chat">
+            <AgentChat
+              scene="write_compose"
+              :scope="{ draft_id: currentDraft ? currentDraft.id : null }"
+            />
+          </div>
+
           <!-- 提纲：跟着正文的标题走，不另存一份 -->
-          <div v-if="helperTab === 'outline'">
+          <div v-else-if="helperTab === 'outline'">
             <ol v-if="outline.length" class="wr-outline">
               <li v-for="item in outline" :key="item.key" :class="'wr-lv-' + item.level">
                 <button @click="focusOutline(item)">{{ item.text }}</button>
@@ -524,6 +532,7 @@
  */
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 
+import AgentChat from '../components/AgentChat.vue'
 import CiteChip from '../components/CiteChip.vue'
 import EmptyState from '../components/EmptyState.vue'
 import HonestNote from '../components/HonestNote.vue'
@@ -615,6 +624,7 @@ const BUILTIN_TEMPLATES = [
 ]
 
 const HELPER_TABS = [
+  { key: 'chat', label: '对话' },
   { key: 'outline', label: '提纲' },
   { key: 'cites', label: '引用' },
   { key: 'log', label: '过程' },

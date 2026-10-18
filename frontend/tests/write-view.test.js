@@ -208,6 +208,14 @@ function stubWriteFetch(options = {}) {
   return { impl, calls, state }
 }
 
+async function pickTab(wrapper, label) {
+  const tab = wrapper.findAll('.wr-helper .tabs button').find((b) => b.text() === label)
+  if (tab) {
+    await tab.trigger('click')
+    await flushPromises()
+  }
+}
+
 function mountWrite() {
   return mount(WriteView, { attachTo: document.body })
 }
@@ -244,9 +252,11 @@ describe('写作页：三栏骨架与红线', () => {
     expect(wrapper.find('.wr-materials').exists()).toBe(true)
     expect(wrapper.find('.wr-doc').exists()).toBe(true)
     expect(wrapper.find('.wr-helper').exists()).toBe(true)
-    // 三栏各有自己的头（素材 · N / 稿件标题 / 三个页签）
+    // 四栏各有自己的头（素材 · N / 稿件标题 / 四个页签）。2026-10-18 加了「对话」：
+    // 写作侧 agent 就挂在这个页签里。
     expect(wrapper.find('.wr-materials .wr-colhead').text()).toContain('素材')
     expect(wrapper.findAll('.wr-helper .tabs button').map((b) => b.text())).toEqual([
+      '对话',
       '提纲',
       '引用',
       '过程',
@@ -508,7 +518,7 @@ describe('写作页：插入引文', () => {
     const wrapper = mountWrite()
     await flushPromises()
 
-    await wrapper.findAll('.wr-helper .tabs button')[1].trigger('click')
+    await pickTab(wrapper, '引用')
     await flushPromises()
     await wrapper.findAll('button').find((b) => b.text() === '清空引文…').trigger('click')
     await flushPromises()
@@ -531,7 +541,7 @@ describe('写作页：源文献已删的引文（死链不许做成活链）', (
     const wrapper = mountWrite()
     await flushPromises()
 
-    await wrapper.findAll('.wr-helper .tabs button')[1].trigger('click')
+    await pickTab(wrapper, '引用')
     await flushPromises()
 
     const nums = wrapper.findAll('.wr-cite-no')

@@ -1,13 +1,13 @@
-"""🕳 写作场景（口子，先不实现）。
+"""✍️ 写作场景：与助手一起改稿。
 
-以后要开写作助手时，**只需要**：
-1. 把 `packs` 换成 `("library", "writing")`，并在 `packs/writing.py` 里加工具；
-2. 写好 `system_prompt` 与 `output_type`；
-3. 前端某处挂一行 `<AgentPanel scene="write_compose" :scope="{ draftId }" />`。
+它和「读懂」共用同一套引擎（`runtime.py` 一行不改），差别只在：
 
-`runtime.py` 不需要动——这就是"加一个文件就能接"的判据。
-现在 `status="planned"`：`GET /api/agent/scenes` 会把它列出来（前端显示"即将开放"），
-但 `POST /api/agent/chat` 会拒绝（400），免得用户点了没反应还不知道为什么。
+- **pack**：多了 `writing`（列草稿 / 读草稿 / 查素材），保留 `library`（跨文献找依据）；
+- **system_prompt**：不代写整篇，只做"改写 / 补依据 / 查一致性"；
+- **scope**：带上 `draft_id`，工具默认读正在编辑的那一篇。
+
+⚠️ 学术诚信边界（写在 prompt 里，也写在这里）：
+**产出的是建议与依据，不是可直接提交的正文**。
 """
 
 from __future__ import annotations
@@ -15,18 +15,33 @@ from __future__ import annotations
 from ..contracts import Scene
 from ..outputs import AskAnswer
 
+SYSTEM = (
+    "你是写作助手，帮用户改自己的稿子。规则："
+    "① 不代写整篇、不生成可直接提交的正文，只给**具体到句**的修改建议与依据；"
+    "② 需要依据时先查（read_draft / search_materials / search_library），"
+    "引用必须带 block_id 或 material_id；"
+    "③ 指出问题要说清「哪一句、为什么、怎么改」；"
+    "④ 拿不准就说不确定，不要编造文献结论；"
+    "⑤ 若 read_draft 返回 empty=true，就直说「这篇草稿还没有正文」，"
+    "并请用户先写一段或贴一段，不要说自己看不到稿件。"
+)
 
-def _not_ready(*_args, **_kwargs) -> str:
-    return ""
+
+def build_context(ctx) -> str:
+    """把「正在写哪一篇」带给模型；没有 draft_id 就让它自己调 list_drafts。"""
+    draft_id = (ctx.scope or {}).get("draft_id")
+    if not draft_id:
+        return ""
+    return f"用户正在编辑草稿 draft_id={draft_id}（可用 read_draft 读取）。"
 
 
 SCENE = Scene(
     id="write_compose",
-    title="写作 · 与助手一起写（即将开放）",
-    system_prompt="（占位）写作助手：读草稿、插引文、查术语一致性。",
+    title="写作 · 与助手一起改稿",
+    system_prompt=SYSTEM,
     output_type=AskAnswer,
-    packs=(),
+    packs=("writing", "library"),
     default_tier="standard",
-    build_context=_not_ready,
-    status="planned",
+    build_context=build_context,
+    status="ready",
 )

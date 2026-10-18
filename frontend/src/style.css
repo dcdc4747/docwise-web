@@ -659,6 +659,11 @@ body {
   border: 1px solid var(--line); border-radius: 10px;
 }
 .dw .menu.open { display: block; }
+/* ⚠️ 写作页「新建」菜单：默认是 
+ight: 0（右对齐）+ z-index 8，
+   260px 宽的菜单会向左伸出内容区、钻到左侧导航栏底下（用户截图报的遮挡）。
+   这里改成**左对齐按钮**并抬高层级。 */
+.dw .wr .wr-top .menu { left: 0; right: auto; z-index: 60; }
 .dw .menu button {
   display: block; width: 100%; text-align: left; font: inherit; font-size: 13px;
   padding: 8px 10px; border: 0; background: transparent; border-radius: 6px; cursor: pointer;

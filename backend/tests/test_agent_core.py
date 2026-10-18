@@ -18,6 +18,7 @@ import re
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+from helpers import TEST_USER_ID
 
 from app.agent import config_store, registry, runtime
 from app.agent.scenes.read_ask import SCENE as READ_SCENE
@@ -29,12 +30,14 @@ AGENT_DIR = Path("app/agent")
 
 
 # ============================================================ ① 场景自描述
-def test_scenes_endpoint_lists_ready_and_planned() -> None:
+def test_scenes_endpoint_lists_ready_scenes() -> None:
     body = client.get("/api/agent/scenes").json()
     items = {item["id"]: item for item in body["items"]}
+    # 读懂与写作**都已开放**（写作 2026-10-18 上线）
     assert items["read_ask"]["status"] == "ready"
-    # 写作的口子：列出来但标 planned（前端据此显示"即将开放"）
-    assert items["write_compose"]["status"] == "planned"
+    assert items["write_compose"]["status"] == "ready"
+    # 写作场景要同时带两类工具：写作（草稿/素材）+ 查库（找依据）
+    assert set(items["write_compose"]["packs"]) == {"writing", "library"}
 
 
 # ============================================================ ② 密钥只写不读
@@ -274,11 +277,125 @@ def test_chat_stream_emits_sse_frames(monkeypatch) -> None:
     assert payloads[4]["sources"] == ["p0_b3"]
 
 
-def test_chat_stream_rejects_unready_scene_before_streaming() -> None:
-    """计划中的场景：**开流之前**就 400（不是流到一半才断）。"""
+def test_chat_stream_rejects_unready_scene_before_streaming(monkeypatch) -> None:
+    """未开放的场景：**开流之前**就 400（不是流到一半才断）。
+
+    ⚠️ 现在所有场景都 ready 了，所以这里注入一个 planned 场景来守规则——
+    **不删这条**：以后再加新场景时，忘改 status 就靠它兜住。
+    """
+    from app.agent import registry
+    from app.agent.contracts import Scene
+    from app.agent.outputs import AskAnswer
+
+    planned = Scene(
+        id="not_yet",
+        title="还没做的场景",
+        system_prompt="",
+        output_type=AskAnswer,
+        packs=(),
+        default_tier="standard",
+        build_context=None,
+        status="planned",
+    )
+    monkeypatch.setattr(registry, "scene_or_404", lambda scene_id: planned)
     resp = client.post(
         "/api/agent/chat/stream",
-        json={"scene": "write_compose", "question": "试试"},
+        json={"scene": "not_yet", "question": "试试"},
     )
     assert resp.status_code == 400
     assert "还没开放" in resp.json()["detail"]
+
+
+# ============================================================ ⑥ 写作工具
+def test_writing_pack_lists_and_reads_drafts() -> None:
+    from app.agent.contracts import ToolContext
+    from app.agent.packs import writing
+    from app.db import SessionLocal
+    from app.models import Draft
+
+    with SessionLocal() as session:
+        draft = Draft(
+            user_id=TEST_USER_ID, title="手性论文初稿", body_md="第一段。" * 40
+        )
+        session.add(draft)
+        session.commit()
+        session.refresh(draft)
+        draft_id = draft.id
+
+    ctx = ToolContext(db=None, user_id=TEST_USER_ID, scene_id="write_compose", scope={})
+    listed = writing.list_drafts(ctx)
+    assert any(item["draft_id"] == draft_id for item in listed.data)
+
+    # 不传 draft_id 时读 scope 里那篇
+    ctx2 = ToolContext(
+        db=None,
+        user_id=TEST_USER_ID,
+        scene_id="write_compose",
+        scope={"draft_id": draft_id},
+    )
+    got = writing.read_draft(ctx2)
+    assert got.data["draft_id"] == draft_id
+    assert got.data["title"] == "手性论文初稿"
+    assert got.data["chars"] > 0
+
+    with SessionLocal() as session:
+        session.delete(session.get(Draft, draft_id))
+        session.commit()
+
+
+def test_writing_pack_refuses_other_users_draft() -> None:
+    """别人的草稿读不到——越权不能靠前端拦。"""
+    from app.agent.contracts import ToolContext
+    from app.agent.packs import writing
+    from app.db import SessionLocal
+    from app.models import Draft
+
+    with SessionLocal() as session:
+        other = Draft(user_id=TEST_USER_ID + 999, title="别人的稿", body_md="不该看到")
+        session.add(other)
+        session.commit()
+        session.refresh(other)
+        other_id = other.id
+
+    ctx = ToolContext(db=None, user_id=TEST_USER_ID, scene_id="write_compose", scope={})
+    got = writing.read_draft(ctx, other_id)
+    assert "找不到" in str(got.data)
+
+    with SessionLocal() as session:
+        session.delete(session.get(Draft, other_id))
+        session.commit()
+
+
+def test_writing_pack_searches_materials_by_keyword() -> None:
+    from app.agent.contracts import ToolContext
+    from app.agent.packs import writing
+    from app.db import SessionLocal
+    from app.models import Material
+
+    with SessionLocal() as session:
+        hit = Material(
+            user_id=TEST_USER_ID,
+            text_quote="手性时间结构可以分成两部分",
+            source_name="chem.pdf",
+            page=3,
+        )
+        miss = Material(
+            user_id=TEST_USER_ID,
+            text_quote="稀疏线性系统的 Dixon 提升",
+            source_name="math.pdf",
+            page=7,
+        )
+        session.add_all([hit, miss])
+        session.commit()
+        hit_id, miss_id = hit.id, miss.id
+
+    ctx = ToolContext(db=None, user_id=TEST_USER_ID, scene_id="write_compose", scope={})
+    got = writing.search_materials(ctx, query="手性")
+    assert len(got.data) == 1
+    assert got.data[0]["source"] == "chem.pdf"
+    assert got.data[0]["page"] == 3
+
+    with SessionLocal() as session:
+        for material_id in (hit_id, miss_id):
+            session.delete(session.get(Material, material_id))
+        session.commit()
