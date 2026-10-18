@@ -52,13 +52,12 @@ describe('写作页 · 三栏可拖', () => {
     localStorage.clear()
   })
 
-  it('两条分隔条都在，且标了 role=separator（可拖的要有语义）', () => {
+  it('素材并入助手后只剩一条分隔条（写作 | 助手），且标了 role=separator', () => {
     const wrapper = mountWrite()
-    const mats = wrapper.find('.wr-split-mats')
+    // 2026-10-19：素材栏从独立一栏改成助手里的页签，所以"素材 | 写作"那条边界没有了
+    expect(wrapper.find('.wr-split-mats').exists()).toBe(false)
     const helper = wrapper.find('.wr-split-helper')
-    expect(mats.exists()).toBe(true)
     expect(helper.exists()).toBe(true)
-    expect(mats.attributes('role')).toBe('separator')
     expect(helper.attributes('role')).toBe('separator')
     wrapper.unmount()
   })
@@ -66,13 +65,8 @@ describe('写作页 · 三栏可拖', () => {
   it('拖动会改宽度并记住（localStorage）', async () => {
     const wrapper = mountWrite()
     const body = wrapper.find('.wr-body')
-    // 默认 320 / 340
-    expect(body.attributes('style')).toContain('--mats-w: 320px')
+    // 现在只有助手宽度可调（素材栏没了）
     expect(body.attributes('style')).toContain('--helper-w: 340px')
-
-    await drag(wrapper, '.wr-split-mats', 60)
-    expect(localStorage.getItem(MATS_KEY)).not.toBeNull()
-    expect(Number(localStorage.getItem(MATS_KEY))).toBeGreaterThan(320)
 
     await drag(wrapper, '.wr-split-helper', -50)
     expect(Number(localStorage.getItem(HELPER_KEY))).toBeGreaterThan(340)
@@ -81,18 +75,16 @@ describe('写作页 · 三栏可拖', () => {
   })
 
   it('双击复位回默认宽度', async () => {
-    localStorage.setItem(MATS_KEY, '500')
     localStorage.setItem(HELPER_KEY, '600')
     const wrapper = mountWrite()
     const body = wrapper.find('.wr-body')
-    expect(body.attributes('style')).toContain('--mats-w: 500px')
+    expect(body.attributes('style')).toContain('--helper-w: 600px')
 
-    await wrapper.find('.wr-split-mats').trigger('dblclick')
+    await wrapper.find('.wr-split-helper').trigger('dblclick')
     await flushPromises()
 
-    expect(body.attributes('style')).toContain('--mats-w: 320px')
     expect(body.attributes('style')).toContain('--helper-w: 340px')
-    expect(localStorage.getItem(MATS_KEY)).toBe('320')
+    expect(localStorage.getItem(HELPER_KEY)).toBe('340')
     wrapper.unmount()
   })
 })

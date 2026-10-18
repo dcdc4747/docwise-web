@@ -247,19 +247,21 @@ afterEach(() => {
 })
 
 describe('写作页：三栏骨架与红线', () => {
-  it('渲染素材 ｜ 写作 ｜ 助手三栏，且页面上没有源码痕迹', async () => {
+  it('渲染写作 ｜ 助手两栏（素材在助手页签里），且页面上没有源码痕迹', async () => {
     const { impl } = stubWriteFetch({ drafts: [draftFixture()], materials: [MATERIAL] })
     globalThis.fetch = impl
     const wrapper = mountWrite()
     await flushPromises()
 
-    expect(wrapper.find('.wr-materials').exists()).toBe(true)
+    // 2026-10-19：素材不再是独立一栏，而是助手里的第一个页签
+    expect(wrapper.find('.wr-materials').exists()).toBe(false)
     expect(wrapper.find('.wr-doc').exists()).toBe(true)
     expect(wrapper.find('.wr-helper').exists()).toBe(true)
-    // 四栏各有自己的头（素材 · N / 稿件标题 / 四个页签）。2026-10-18 加了「对话」：
-    // 写作侧 agent 就挂在这个页签里。
-    expect(wrapper.find('.wr-materials .wr-colhead').text()).toContain('素材')
+    // 每栏各有自己的头（稿件标题 / 五个页签）。2026-10-18 加了「对话」（写作 agent 挂在这里），
+    // 2026-10-19 又把「素材」从独立一栏搬进来，成为第一个页签。
+    expect(wrapper.find('.wr-matpane .wr-colhead').text()).toContain('素材')
     expect(wrapper.findAll('.wr-helper .tabs button').map((b) => b.text())).toEqual([
+      '素材',
       '对话',
       '提纲',
       '引用',

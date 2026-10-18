@@ -34,6 +34,7 @@ import {
 } from './useMaterials'
 import { fetchTaskDetail, openTask, traceTo } from './useReader'
 import { showToast } from './useUi'
+import { htmlToMd, mdToHtml } from '../writeRich'
 
 /** 停了多久没有输入就自动存一次（毫秒）。手动「保存」与跳转前都会立刻存，不靠它。 */
 const SAVE_DEBOUNCE_MS = 1200
@@ -54,6 +55,11 @@ export { loadMaterials, materials, materialsError, materialsLoading } from './us
 export const currentDraftId = ref(null)
 export const title = ref('')
 export const body = ref('')
+/**
+ * 富文本源（2026-10-19）：编辑器是 TipTap，**逐段字号/行距只能存在 HTML 里**。
+ * `body` 仍是 Markdown —— 由它转出来（引文 `[n]`、提纲、导出、AI 锚点校验都读 md）。
+ */
+export const bodyHtml = ref('')
 
 /** `idle`（没改动）/ `dirty`（改了没存）/ `saving` / `saved` / `error`。 */
 export const saveState = ref('idle')
@@ -218,7 +224,7 @@ function markDirty(delay = SAVE_DEBOUNCE_MS) {
  * 所以不会被判成"用户改了字"。用一个 `applying` 布尔标记反而会漏——
  * Vue 的 watcher 是异步派发的，赋值当下把它设成 false，回调跑的时候已经太晚了。
  */
-watch([title, body], ([nextTitle, nextBody]) => {
+watch([title, body, bodyHtml], ([nextTitle, nextBody]) => {
   const draft = currentDraft.value
   if (!draft) return
   if (nextTitle === (draft.title || '') && nextBody === (draft.body_md || '')) return
@@ -235,6 +241,7 @@ function mergeDraftMeta(saved) {
           ...item,
           title: saved.title,
           body_md: saved.body_md,
+          body_html: saved.body_html,
           template_id: saved.template_id,
           updated_at: saved.updated_at,
         }
@@ -249,6 +256,8 @@ export function selectDraft(id) {
   currentDraftId.value = draft.id
   title.value = draft.title || ''
   body.value = draft.body_md || ''
+  // 富文本优先：老稿没有 html 就从 md 转一份（保证编辑器能显示已有内容）
+  bodyHtml.value = draft.body_html || mdToHtml(draft.body_md || '')
   if (saveTimer) {
     clearTimeout(saveTimer)
     saveTimer = null
@@ -337,6 +346,7 @@ export async function saveNow() {
   const id = currentDraftId.value
   const shotTitle = title.value.trim() || '未命名草稿'
   const shotBody = body.value
+  const shotHtml = bodyHtml.value
   saveState.value = 'saving'
   saveError.value = ''
   inFlight = (async () => {
@@ -344,7 +354,7 @@ export async function saveNow() {
       const saved = await apiJson(`/api/drafts/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: shotTitle, body_md: shotBody }),
+        body: JSON.stringify({ title: shotTitle, body_md: shotBody, body_html: shotHtml }),
       })
       mergeDraftMeta(saved)
       if (title.value.trim() === shotTitle && body.value === shotBody) {
@@ -408,6 +418,8 @@ export async function insertCitation(material, offset) {
 
   const { text, caret } = insertMarker(body.value, anchorOffset, citation.order)
   body.value = text // → watch → markDirty（正文变了就要落库）
+  // 编辑器看的是 html：md 变了要跟着转一份，否则界面不会出现刚插进去的 [n]
+  bodyHtml.value = mdToHtml(text)
   drafts.value = drafts.value.map((item) =>
     item.id === draftId ? { ...item, citations: [...(item.citations || []), citation] } : item,
   )

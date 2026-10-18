@@ -56,8 +56,9 @@
       <label class="we-field" title="正文字号">
         字号
         <select
-          :value="typography.fontSize"
-          @change="setTypo('fontSize', Number($event.target.value))"
+          :value="currentFontSize"
+          title="选中一段后设为该字号（作用于选区）"
+          @change="setFontSize(Number($event.target.value))"
         >
           <option v-for="size in FONT_SIZES" :key="size" :value="size">{{ size }}</option>
         </select>
@@ -100,9 +101,10 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Editor, EditorContent } from '@tiptap/vue-3'
+import { Extension } from '@tiptap/core'
 import StarterKit from '@tiptap/starter-kit'
 import TextAlign from '@tiptap/extension-text-align'
-import { htmlToMd, mdToHtml } from '../writeRich'
+import { TextStyle } from '@tiptap/extension-text-style'
 
 const props = defineProps({
   /** Markdown 正文（唯一的存储形态） */
@@ -116,7 +118,48 @@ const props = defineProps({
 
 const emit = defineEmits(['update:modelValue', 'update:typography', 'save'])
 
-const FONT_SIZES = [14, 15, 16, 17, 18, 20]
+/**
+ * 逐处字号（TextStyle + `font-size` 属性）。
+ *
+ * 为什么要自己写：TipTap 官方没有独立的 FontSize 扩展，
+ * 而"选中这段设成 18px"必须落到 **mark**（内联 span 的 style）里，
+ * 才能在 HTML 往返后仍然存在。
+ */
+const FontSize = Extension.create({
+  name: 'fontSize',
+  addOptions() {
+    return { types: ['textStyle'] }
+  },
+  addGlobalAttributes() {
+    return [
+      {
+        types: this.options.types,
+        attributes: {
+          fontSize: {
+            default: null,
+            parseHTML: (element) => element.style.fontSize || null,
+            renderHTML: (attributes) =>
+              attributes.fontSize ? { style: `font-size: ${attributes.fontSize}` } : {},
+          },
+        },
+      },
+    ]
+  },
+  addCommands() {
+    return {
+      setFontSize:
+        (size) =>
+        ({ chain }) =>
+          chain().setMark('textStyle', { fontSize: size }).run(),
+      unsetFontSize:
+        () =>
+        ({ chain }) =>
+          chain().setMark('textStyle', { fontSize: null }).removeEmptyTextStyle().run(),
+    }
+  },
+})
+
+const FONT_SIZES = [12, 14, 16, 18, 20, 22, 24]
 const LINE_HEIGHTS = [1.5, 1.65, 1.8, 2.0]
 const PARA_SPACINGS = [0, 6, 10, 14, 18]
 
@@ -137,7 +180,8 @@ const pageStyle = computed(() => {
 
 function buildEditor() {
   return new Editor({
-    content: mdToHtml(props.modelValue),
+    // v-model 收发的是 HTML（逐段字号都在里面），Markdown 由页面从 HTML 派生
+    content: props.modelValue || '<p></p>',
     extensions: [
       StarterKit.configure({
         heading: { levels: [1, 2, 3] },
@@ -145,6 +189,8 @@ function buildEditor() {
         codeBlock: false,
       }),
       TextAlign.configure({ types: ['heading', 'paragraph'] }),
+      TextStyle,
+      FontSize,
     ],
     editorProps: {
       attributes: {
@@ -155,14 +201,17 @@ function buildEditor() {
     },
     onUpdate: ({ editor: instance }) => {
       syncing = true
-      emit('update:modelValue', htmlToMd(instance.getHTML()))
+      emit('update:modelValue', instance.getHTML())
       syncHeading()
       // 下一拍放开，避免父级回写又触发一次 setContent
       Promise.resolve().then(() => {
         syncing = false
       })
     },
-    onSelectionUpdate: () => syncHeading(),
+    onSelectionUpdate: () => {
+        syncHeading()
+        syncFontSize()
+      },
   })
 }
 
@@ -192,6 +241,21 @@ function setHeading(level) {
   headingLevel.value = level
   if (level === 0) chain.setParagraph().run()
   else chain.toggleHeading({ level }).run()
+}
+
+function setFontSize(size) {
+  const chain = editor.value?.chain().focus()
+  if (!chain) return
+  if (!size) chain.unsetFontSize().run()
+  else chain.setFontSize(`${size}px`).run()
+  syncFontSize()
+}
+
+/** 选区当前字号（没有内联 mark 时显示文档默认） */
+const currentFontSize = ref(props.typography?.fontSize || 16)
+function syncFontSize() {
+  const size = editor.value?.getAttributes('textStyle')?.fontSize
+  currentFontSize.value = size ? Number(String(size).replace('px', '')) : (props.typography?.fontSize || 16)
 }
 
 function setAlign(value) {
@@ -231,10 +295,10 @@ watch(
   () => props.modelValue,
   (next) => {
     if (!editor.value || syncing) return
-    const currentMd = htmlToMd(editor.value.getHTML())
-    if (String(next || '') === currentMd) return
+    const currentHtml = editor.value.getHTML()
+    if (String(next || '') === currentHtml) return
     const { from } = editor.value.state.selection
-    editor.value.commands.setContent(mdToHtml(next), { emitUpdate: false })
+    editor.value.commands.setContent(next || '<p></p>', { emitUpdate: false })
     // 光标尽量留在原处（外部插入/撤销时体验更连续）
     try {
       const size = editor.value.state.doc.content.size

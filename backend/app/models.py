@@ -338,6 +338,9 @@ class Draft(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     title: Mapped[str] = mapped_column(String(200))
     body_md: Mapped[str] = mapped_column(Text, default="")
+    # 富文本源（2026-10-19）：编辑器是 TipTap，逐段字号/行距只能存在 HTML 里。
+    # `body_md` 由它转换而来（派生视图），老功能（引文/提纲/导出/AI 锚点）继续读 md。
+    body_html: Mapped[str | None] = mapped_column(Text, nullable=True)
     # 期刊 / 学位论文模板标识：**本期只存标识，不做模板渲染**
     template_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
@@ -601,6 +604,8 @@ class DraftVersion(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     draft_id: Mapped[int] = mapped_column(ForeignKey("drafts.id"), index=True)
     body_md: Mapped[str] = mapped_column(Text, default="")
+    # 富文本快照（2026-10-19）：回滚要连"逐段字号"一起回来
+    body_html: Mapped[str | None] = mapped_column(Text, nullable=True)
     title: Mapped[str] = mapped_column(String(200), default="")
     source: Mapped[str] = mapped_column(String(16), default="user")
     note: Mapped[str | None] = mapped_column(String(200), nullable=True)

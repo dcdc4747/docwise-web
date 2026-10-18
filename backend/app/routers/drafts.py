@@ -32,6 +32,8 @@ router = APIRouter(prefix="/api/drafts", tags=["drafts"])
 
 # 正文长度上限：够写长稿，又不至于让单行 JSON 撑爆（M4 的 doc_text 会整篇送检查）
 _BODY_MAX = 200_000
+# HTML 比 Markdown 长不少（标签），给 2 倍余量
+_HTML_MAX = _BODY_MAX * 2
 
 
 # ============================================================ 序列化
@@ -52,12 +54,15 @@ def _serialize_citation(row: Citation) -> dict:
 
 def _serialize_draft(row: Draft, citations: list[Citation]) -> dict:
     """`Draft` 对象（契约 §2.6）：
-    `{id, title, body_md, template_id, updated_at, citations[]}`。
+    `{id, title, body_md, body_html, template_id, updated_at, citations[]}`。
+
+    `body_html` 是富文本源（逐段字号/行距），`body_md` 是由它转出来的派生视图。
     """
     return {
         "id": row.id,
         "title": row.title,
         "body_md": row.body_md,
+        "body_html": row.body_html,
         "template_id": row.template_id,
         "updated_at": iso_utc(row.updated_at),
         "citations": [_serialize_citation(item) for item in citations],
@@ -100,6 +105,8 @@ class DraftCreate(BaseModel):
 class DraftPatch(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=200)
     body_md: str | None = Field(default=None, max_length=_BODY_MAX)
+    # 富文本源（2026-10-19）：编辑器是 TipTap，逐段字号只能在 HTML 里存
+    body_html: str | None = Field(default=None, max_length=_HTML_MAX)
     template_id: str | None = Field(default=None, max_length=64)
 
 
@@ -221,6 +228,9 @@ def patch_draft(
         # ⭐ 版本只在**正文内容真的变了**时才记（只改标题 / 连点保存不长版本）
         body_changed = patch["body_md"] != (row.body_md or "")
         row.body_md = patch["body_md"]
+    if "body_html" in patch:
+        # 富文本源跟着一起存；只传 html 不传 md 时，md 视为不变（老功能仍读 md）
+        row.body_html = patch["body_html"]
     if "template_id" in patch:
         row.template_id = patch["template_id"]
     if body_changed:
@@ -349,6 +359,7 @@ def _serialize_version(row: DraftVersion) -> dict:
     return {
         "id": row.id,
         "body_md": row.body_md,
+        "body_html": row.body_html,
         "title": row.title,
         "source": row.source,
         "created_at": iso_utc(row.created_at),
@@ -404,6 +415,7 @@ def _record_version(
     row = DraftVersion(
         draft_id=draft.id,
         body_md=body,
+        body_html=draft.body_html,
         title=draft.title or "",
         source=source,
         note=note,
@@ -488,6 +500,8 @@ def restore_version(
     draft, row = _load_owned_version(db, user, draft_id, version_id)
     _record_version(db, draft, source="restore", dedupe=False)
     draft.body_md = row.body_md
+    # 样式也要一起回来（只回 md 会让"回滚后字号全变默认"这种更迷惑）
+    draft.body_html = row.body_html
     db.commit()
     db.refresh(draft)
     return _serialize_draft(draft, _citations_of(db, draft.id))

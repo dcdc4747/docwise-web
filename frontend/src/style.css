@@ -1812,9 +1812,8 @@ svg.ic-inl {
 .dw .wr-body {
   flex: 1; min-height: 0;
   display: grid;
-  /* 两条 6px 轨道给分隔条；宽度由 `--mats-w` / `--helper-w` 控制（可拖、可记忆） */
-  grid-template-columns:
-    var(--mats-w, 320px) 6px minmax(0, 1fr) 6px var(--helper-w, 340px);
+  /* 2026-10-19：素材并入右侧助手后只剩两栏（写作 | 助手），正文因此宽了一整列 */
+  grid-template-columns: minmax(0, 1fr) 6px var(--helper-w, 340px);
 }
 /* 写作页的分隔条用通用 .splitter 外观，但要能撑满网格轨道 */
 .dw .wr-body > .splitter { display: block; height: 100%; }
@@ -1938,7 +1937,7 @@ svg.ic-inl {
 
 /* ---------- 断点①：1024–1100px —— 助手改抽屉（形态 §2.4） ---------- */
 @media (min-width: 1024px) and (max-width: 1099px) {
-  .dw .wr-body { grid-template-columns: var(--mats-w, 300px) minmax(0, 1fr); }
+  .dw .wr-body { grid-template-columns: minmax(0, 1fr); }
   .dw .wr-body > .splitter { display: none; }
   .dw .wr-helper-toggle { display: inline-flex; }
   .dw .wr-helper {
@@ -4022,6 +4021,20 @@ svg.ic-inl {
   min-height: 0;
 }
 
+
+/* 素材页签（从原左栏搬进来的）：撑满助手内容区、自己滚 */
+.dw .wr-matpane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1 1 auto;
+  height: 100%;
+}
+.dw .wr-matpane > .wr-colbody {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
 
 /* ---- 右栏助手骨架（AssistPane.vue）：高度链只此一处 ----
    读懂 / 写作两个页面共用。规则写在这里而不是各页，

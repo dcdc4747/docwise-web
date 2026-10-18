@@ -35,6 +35,14 @@ const turndown = new TurndownService({
 // `[n]` 这类文本不能被转义成 `\[n\]`（引文标记要逐字保留）
 turndown.escape = (value) => String(value)
 
+// 带 `style` 的 span（逐处字号）**原样保留**成内联 HTML ——
+// 这正是"不同字号能存住"的关键：turndown 默认会把它拆成纯文本，样式就丢了。
+turndown.addRule('keepInlineStyle', {
+  filter: (node) =>
+    node.nodeName === 'SPAN' && Boolean(node.getAttribute && node.getAttribute('style')),
+  replacement: (content, node) => `<span style="${node.getAttribute('style')}">${content}</span>`,
+})
+
 // 空段落（TipTap 的空行）转成空行，而不是 `<p></p>` 残留
 turndown.addRule('emptyParagraph', {
   filter: (node) =>

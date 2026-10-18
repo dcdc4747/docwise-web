@@ -125,6 +125,16 @@ def _ensure_schema() -> None:
                     conn.execute(
                         text(f"ALTER TABLE task_blocks ADD COLUMN {column} {ddl}")
                     )
+        # 富文本源（2026-10-19）：写作页换成 TipTap 之后，逐段字号/行距只能存 HTML。
+        # 老库补列，`body_md` 继续当派生视图（引文/提纲/导出/AI 锚点都还读它）。
+        for table in ("drafts", "draft_versions"):
+            if table not in tables:
+                continue
+            columns = {col["name"] for col in inspector.get_columns(table)}
+            if "body_html" not in columns:
+                conn.execute(
+                    text(f"ALTER TABLE {table} ADD COLUMN body_html TEXT")
+                )
 
 
 def _assign_legacy_tasks() -> None:
