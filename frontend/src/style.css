@@ -3325,14 +3325,43 @@ svg.ic-inl {
 }
 
 /* 设置面板 */
+/* 设置做成**浮层**：贴在输入框上方，像菜单一样出现，不把输入区撑成一整页表单 */
+/* 设置 = 面板内的"设置页"：覆盖消息区，够高、能滚、有关闭。
+   （试过贴输入框上方的浮层，但表单比可用高度高，上半截会被裁掉 —— 那样更糟。） */
+.dw .agent-pane { position: relative; }
 .dw .agent-config {
+  position: absolute;
+  inset: 8px;
+  z-index: 30;
+  overflow: auto;
   border: 1px solid var(--line);
-  border-radius: var(--r-md);
-  padding: 10px 12px;
-  margin-bottom: 10px;
-  background: #fbfdff;
+  border-radius: 14px;
+  padding: 12px 14px 14px;
+  background: #fff;
+  box-shadow: 0 18px 44px rgba(15, 23, 42, 0.16);
+  display: grid;
+  gap: 6px;
+  align-content: start;
 }
-.dw .agent-config label { display: grid; gap: 3px; margin-bottom: 8px; }
+.dw .agent-config-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+}
+.dw .agent-config-head b { font-size: var(--fs-meta); }
+.dw .agent-config-head button {
+  border: 0;
+  background: none;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--muted);
+  cursor: pointer;
+}
+.dw .agent-config-head button:hover { color: var(--ink); }
+.dw .agent-config label { display: grid; gap: 3px; margin-bottom: 6px; }
 .dw .agent-config label > span { font-size: var(--fs-micro); color: var(--muted); }
 .dw .agent-config input,
 .dw .agent-config select {
@@ -3585,10 +3614,21 @@ svg.ic-inl {
 .dw .agent-send svg { width: 16px; height: 16px; }
 
 /* 面板撑满：消息区自己滚、输入框吸底（不然输入框会跟着内容往上跑） */
+/* ⭐ 高度链路：让 tabbody 只管撑满、由 agent 面板自己滚，输入框才真能贴底。
+   之前用 `min-height: 100%` 不行——tabbody 是滚动容器且带 padding，百分比高度撑不出来，
+   输入框就"跟着内容跑"，看起来贴在顶部。 */
+.dw .tabbody:has(.agent-pane) {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+}
 .dw .agent-pane {
   display: flex;
   flex-direction: column;
-  min-height: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 14px 14px 10px;
 }
 .dw .agent-flow {
   flex: 1 1 auto;
@@ -3600,6 +3640,30 @@ svg.ic-inl {
   overflow: auto;
 }
 
+
+/* 预设问句：药丸形（原来是用矩形硬框住的，看着突兀） */
+.dw .agent-quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+.dw .agent-quick button {
+  border: 1px solid var(--line);
+  background: #f8fafc;
+  color: var(--ink);
+  border-radius: 999px;
+  padding: 7px 14px;
+  font: inherit;
+  font-size: var(--fs-meta);
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease, color 120ms ease;
+}
+.dw .agent-quick button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft, #eef2ff);
+}
 /* 对话 / 轨迹 分段（对齐主流 agent 工具的"轨迹单独一页"） */
 .dw .agent-views {
   display: flex;

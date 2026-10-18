@@ -120,9 +120,13 @@
     </div>
 
     <!-- ⭐ 输入框那一行：模型选择在这里（和 DS Harness 一样，不占消息区顶部） -->
-    <div class="agent-composer">
+    <div v-if="viewMode === 'chat'" class="agent-composer">
       <!-- 设置面板 -->
       <div v-if="configOpen" class="agent-config">
+        <div class="agent-config-head">
+          <b>模型设置</b>
+          <button type="button" title="关闭" @click="toggleConfig()">×</button>
+        </div>
         <label>
           <span>厂商</span>
           <select :value="currentProvider" @change="pickProvider($event.target.value)">

@@ -110,6 +110,31 @@ describe('AgentChat（读懂侧）', () => {
     expect(wrapper.find('.agent-process').exists()).toBe(true)
   })
 
+
+  it('轨迹页不显示输入框（没人会跟轨迹说话）', async () => {
+    const wrapper = mount(AgentChat, { props: { scope: {} } })
+    await flushPromises()
+    agentMessages.value.push({
+      role: 'user',
+      text: '这篇讲了什么',
+    })
+    agentMessages.value.push({
+      role: 'assistant',
+      text: '讲了稀疏线性系统',
+      steps: [{ kind: 'tool_call', name: 'read_blocks', args: { task_id: 46 } }],
+      sources: [],
+      dropped: [],
+      done: true,
+    })
+    await flushPromises()
+    expect(wrapper.find('.agent-composer').exists()).toBe(true)
+    const traceBtn = wrapper.findAll('.agent-views button').find((b) => b.text().includes('轨迹'))
+    expect(traceBtn).toBeTruthy()
+    await traceBtn.trigger('click')
+    expect(wrapper.find('.agent-composer').exists()).toBe(false)
+    expect(wrapper.find('.agent-trace-view').exists()).toBe(true)
+  })
+
   it('轨迹只算工具调用：`final_result` 那条被剔掉', () => {
     const turn = {
       steps: [
