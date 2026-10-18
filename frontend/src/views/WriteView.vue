@@ -642,18 +642,75 @@ const REVISION_UNDO_MS = 6000
 let applyBatch = null
 
 /**
+ * 换行归一：草稿可能是 `\r\n`，模型给的是 `\n`。
+ * **后端 `verify_revisions` 已按同一口径比对**（不归一会把能用的建议剔掉），
+ * 前端定位也必须归一——否则后端留下的建议在页面上"原文没找到"，属于假失败。
+ */
+function normalizeEol(text) {
+  return String(text == null ? '' : text).replace(/\r\n?/g, '\n')
+}
+
+/** 正文是不是 CRLF 风格（插入的改后文本要跟着它，别把半篇稿子变成另一种换行）。 */
+function usesCrlf(text) {
+  return String(text || '').includes('\r\n')
+}
+
+function withEol(text, crlf) {
+  return crlf ? String(text).replace(/\n/g, '\r\n') : String(text)
+}
+
+/**
+ * 在**归一化后的正文**里找 `needle`，再把命中段映射回原文的下标与长度。
+ *
+ * 只处理 `\r\n` → `\n` 这一种差异（单独的 `\r` 也是 1:1），**不碰其他任何一个字**；
+ * 映射完还会逐字核对，对不上就返回 null（宁可说没找到，也不改错地方）。
+ */
+function findInBody(raw, needle) {
+  const atNormalized = normalizeEol(raw).indexOf(needle)
+  if (atNormalized < 0) return null
+  // 归一化后的第 atNormalized 个字符，对应原文的哪个下标
+  let at = 0
+  let produced = 0
+  while (produced < atNormalized && at < raw.length) {
+    at += raw[at] === '\r' && raw[at + 1] === '\n' ? 2 : 1
+    produced += 1
+  }
+  // 从 at 起量出命中段的原文长度（同一个字在原文里可能占 2 个字符：\r\n）
+  let consumed = 0
+  let matched = 0
+  while (matched < needle.length && at + consumed < raw.length) {
+    const pair = raw[at + consumed] === '\r' && raw[at + consumed + 1] === '\n'
+    const ch = pair ? '\n' : raw[at + consumed]
+    if (ch !== needle[matched]) return null
+    consumed += pair ? 2 : 1
+    matched += 1
+  }
+  if (matched < needle.length) return null
+  return { at, length: consumed }
+}
+
+/**
  * 在正文里做**一次逐字替换**；找不到原句返回 `null`（**正文一个字都不改**）。
  * 绝不"模糊替换"——改错一句比不改更糟。
  * 返回的记录带着替换发生的位置，撤销时靠它把原文放回原处。
+ *
+ * ⭐ 段落级建议（`original` 是一整段、含多句）走同一条路，只是命中段更长：
+ * 对齐前先 `trim`（后端比对也是 `strip()` 过的），换行按 `\n` 归一，
+ * 命中后**只替换那一段原文**，前后空白与全篇换行风格都保持原样。
  */
 function replaceInBody(rev) {
-  const original = String(rev && rev.original ? rev.original : '')
-  const revised = String(rev && rev.revised ? rev.revised : '')
+  const original = normalizeEol(rev && rev.original ? rev.original : '').trim()
+  const revised = normalizeEol(rev && rev.revised ? rev.revised : '')
   if (!original || !body.value) return null
-  const at = body.value.indexOf(original)
-  if (at < 0) return null
-  body.value = body.value.slice(0, at) + revised + body.value.slice(at + original.length)
-  return { at, original, revised }
+  const raw = body.value
+  const hit = findInBody(raw, original)
+  if (!hit) return null
+  // 插进去的文本跟随正文的换行风格（CRLF 稿子插 LF 会把换行弄花）
+  const insert = withEol(revised, usesCrlf(raw))
+  // 撤销记录里的 `original` 是**原文里真实的那一段**（含它自己的换行），不是归一化后的
+  const replaced = raw.slice(hit.at, hit.at + hit.length)
+  body.value = raw.slice(0, hit.at) + insert + raw.slice(hit.at + hit.length)
+  return { at: hit.at, original: replaced, revised: insert }
 }
 
 /**

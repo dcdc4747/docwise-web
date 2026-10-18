@@ -111,6 +111,15 @@
               <div class="agent-revs-head">
                 <span class="agent-revs-count">{{ turn.revisions.length }} 条建议</span>
                 <span class="spacer" />
+                <!-- ⭐ 复制全部：只拼**未忽略**的改后文本（已忽略的不算数） -->
+                <button
+                  type="button"
+                  class="agent-revs-copy"
+                  :disabled="!copyableCount(i, turn)"
+                  @click="copyAll(i, turn)"
+                >
+                  复制全部改后文本
+                </button>
                 <button
                   type="button"
                   class="agent-revs-all"
@@ -128,14 +137,43 @@
                   忽略全部
                 </button>
               </div>
+              <p
+                v-if="copyHints[i + ':all']"
+                class="agent-revs-hint"
+                :class="{ bad: copyHints[i + ':all'].bad }"
+                role="status"
+                aria-live="polite"
+              >
+                {{ copyHints[i + ':all'].text }}
+              </p>
+              <!--
+                ⭐ 段落级建议（`original` 可能是一整段）：正文最多 3 行，超出折起来。
+                折叠是**按字数估 + 模板里真的截断**（不靠浏览器量高度——happy-dom 不排版，
+                量不出来），再用 CSS 的 3 行钳兜一层。**不用 v-html**：这里全是文本插值。
+              -->
               <div
                 v-for="(rev, k) in turn.revisions"
                 :key="k"
                 class="agent-rev"
-                :class="revisionClass(i, k)"
+                :class="[revisionClass(i, k), { 'is-long': isLongRevision(rev) }]"
               >
-                <div class="agent-rev-orig">{{ rev.original }}</div>
-                <div class="agent-rev-new">{{ rev.revised }}</div>
+                <div
+                  class="agent-rev-orig"
+                  :class="{ 'is-clamped': isClamped(i, k, rev.original) }"
+                >{{ bodyText(i, k, rev.original) }}</div>
+                <div
+                  class="agent-rev-new"
+                  :class="{ 'is-clamped': isClamped(i, k, rev.revised) }"
+                >{{ bodyText(i, k, rev.revised) }}</div>
+                <button
+                  v-if="isCollapsible(rev)"
+                  type="button"
+                  class="agent-rev-expand"
+                  :aria-expanded="isExpanded(i, k) ? 'true' : 'false'"
+                  @click="toggleExpand(i, k)"
+                >
+                  {{ isExpanded(i, k) ? '收起' : '展开全文' }}
+                </button>
                 <div class="agent-rev-foot">
                   <span class="agent-rev-reason">{{ rev.reason }}</span>
                   <span
@@ -145,6 +183,13 @@
                   >
                     {{ revisionStatusText(i, k) }}
                   </span>
+                  <button
+                    type="button"
+                    class="agent-rev-copy"
+                    @click="copyOne(i, k, rev)"
+                  >
+                    复制改后文本
+                  </button>
                   <button
                     type="button"
                     class="agent-rev-apply"
@@ -162,6 +207,15 @@
                     忽略
                   </button>
                 </div>
+                <p
+                  v-if="copyHints[i + ':' + k]"
+                  class="agent-rev-hint"
+                  :class="{ bad: copyHints[i + ':' + k].bad }"
+                  role="status"
+                  aria-live="polite"
+                >
+                  {{ copyHints[i + ':' + k].text }}
+                </p>
               </div>
             </div>
             <div v-if="turn.notes && turn.notes.length" class="agent-notes">
@@ -553,12 +607,147 @@ function ignoreAll(turnIndex, turn) {
   })
 }
 
-// 清空对话（重新开一轮）时把处置状态一起清掉，免得新一轮的建议继承旧状态
+// ============================================================ 改写建议：长文折叠 / 复制
+
+/**
+ * 折叠阈值：窄侧栏一行约 25–30 个汉字，3 行 ≈ 80 字。
+ *
+ * ⚠️ 不在模板里量 `scrollHeight`：happy-dom（测试环境）不做排版，量出来恒为 0，
+ * 那个判断在测试里永远是"没超出"——测不出来的东西不敢当唯一依据。
+ * 所以这里**按字数估 + 真的把显示文本截断**，CSS 再按 3 行钳一次兜底。
+ */
+const FOLD_AT = 80
+/** 超过这个字数算「长建议」：正文小一号、行高收紧（120 字基本就是一整段了）。 */
+const LONG_AT = 120
+/** 剪贴板被拒 / 非安全上下文 / 没有这个 API 时的兜底文案（不许静默失败）。 */
+const COPY_FAILED = '复制失败，请手动选中'
+
+const expanded = reactive({})
+const copyHints = reactive({})
+
+function lengthOf(value) {
+  return String(value == null ? '' : value).trim().length
+}
+
+/** 这一段要不要折：超过 3 行的字数，或硬换了 3 行以上（段落级建议常带换行）。 */
+function needsFold(value) {
+  const text = String(value == null ? '' : value)
+  return lengthOf(text) > FOLD_AT || text.split('\n').length > 3
+}
+
+function isCollapsible(rev) {
+  if (!rev) return false
+  return needsFold(rev.original) || needsFold(rev.revised)
+}
+
+function isLongRevision(rev) {
+  if (!rev) return false
+  return Math.max(lengthOf(rev.original), lengthOf(rev.revised)) > LONG_AT
+}
+
+function isExpanded(turnIndex, revIndex) {
+  return Boolean(expanded[`${turnIndex}:${revIndex}`])
+}
+
+function toggleExpand(turnIndex, revIndex) {
+  const key = `${turnIndex}:${revIndex}`
+  expanded[key] = !expanded[key]
+}
+
+/** 折叠时只显示前 3 行 / 前 80 字（截过才加省略号，没截就不加）。 */
+function foldText(value) {
+  const text = String(value == null ? '' : value)
+  const lines = text.split('\n').slice(0, 3)
+  let out = lines.join('\n')
+  if (out.length > FOLD_AT) out = out.slice(0, FOLD_AT).trimEnd()
+  return out === text ? text : `${out.trimEnd()}…`
+}
+
+function bodyText(turnIndex, revIndex, value) {
+  return isExpanded(turnIndex, revIndex) ? String(value == null ? '' : value) : foldText(value)
+}
+
+/** 折叠态才挂 3 行钳（CSS），展开后整段铺开。 */
+function isClamped(turnIndex, revIndex, value) {
+  return needsFold(value) && !isExpanded(turnIndex, revIndex)
+}
+
+/**
+ * 未忽略的条目（「复制全部」的作用范围）。
+ * `applied` / `missing` 都算——只有被用户**明确忽略**的才不复制。
+ */
+function copyableRevisions(turnIndex, turn) {
+  return ((turn && turn.revisions) || []).filter(
+    (rev, revIndex) =>
+      rev &&
+      revisionStatus(turnIndex, revIndex) !== 'ignored' &&
+      Boolean(String(rev.revised || '').trim()),
+  )
+}
+
+function copyableCount(turnIndex, turn) {
+  return copyableRevisions(turnIndex, turn).length
+}
+
+function setCopyHint(key, text, bad = false) {
+  copyHints[key] = { text, bad }
+}
+
+function copyHintKey(turnIndex, revIndex) {
+  return `${turnIndex}:${revIndex}`
+}
+
+async function writeClipboard(text) {
+  if (
+    typeof navigator === 'undefined' ||
+    !navigator.clipboard ||
+    typeof navigator.clipboard.writeText !== 'function'
+  ) {
+    throw new Error('clipboard-unavailable')
+  }
+  await navigator.clipboard.writeText(text)
+}
+
+/** 复制一条改后文本；成功/失败都写在卡片下方（失败给手动复制的兜底）。 */
+async function copyOne(turnIndex, revIndex, rev) {
+  const key = copyHintKey(turnIndex, revIndex)
+  const text = String((rev && rev.revised) || '')
+  if (!text.trim()) {
+    setCopyHint(key, COPY_FAILED, true)
+    return
+  }
+  try {
+    await writeClipboard(text)
+    setCopyHint(key, '已复制改后文本')
+  } catch {
+    setCopyHint(key, COPY_FAILED, true)
+  }
+}
+
+/** 复制全部：**未忽略**的 revised 按换行拼起来（忽略掉的不算）。 */
+async function copyAll(turnIndex, turn) {
+  const key = `${turnIndex}:all`
+  const rows = copyableRevisions(turnIndex, turn)
+  if (!rows.length) {
+    setCopyHint(key, '没有可复制的建议（都忽略了）')
+    return
+  }
+  try {
+    await writeClipboard(rows.map((rev) => String(rev.revised || '')).join('\n'))
+    setCopyHint(key, `已复制 ${rows.length} 条改后文本`)
+  } catch {
+    setCopyHint(key, COPY_FAILED, true)
+  }
+}
+
+// 清空对话（重新开一轮）时把处置 / 展开 / 复制提示一起清掉，免得新一轮继承旧状态
 watch(
   () => turns.value.length,
   (len) => {
     if (len) return
     for (const key of Object.keys(revStates)) delete revStates[key]
+    for (const key of Object.keys(expanded)) delete expanded[key]
+    for (const key of Object.keys(copyHints)) delete copyHints[key]
   },
 )
 
@@ -593,8 +782,9 @@ onMounted(async () => {
 </script>
 
 <!--
-  只补"批量操作行 + 三种处置状态"这几条，**建议卡本体的样式仍走 style.css 里那套**
-  （`.dw .agent-rev*`）。这里不引阴影、不加大色块：状态只用左侧一道细色条 + 小字标签。
+  只补"批量操作行 + 三种处置状态 + 长文折叠 + 复制提示"这几条，
+  **建议卡本体的样式仍走 style.css 里那套**（`.dw .agent-rev*`）。
+  这里不引阴影、不加大色块：状态只用左侧一道细色条 + 小字标签。
 -->
 <style scoped>
 .agent-revs-head {
@@ -602,6 +792,8 @@ onMounted(async () => {
   align-items: center;
   gap: 6px;
   padding: 0 2px;
+  /* 窄栏里「复制全部 + 全部采用 + 忽略全部」放不下一行：允许换行，别把按钮压扁 */
+  flex-wrap: wrap;
 }
 
 .agent-revs-count {
@@ -699,5 +891,79 @@ onMounted(async () => {
 
 .agent-rev-foot button:disabled:hover {
   background: #fff;
+}
+
+/* ---------- 段落级建议：长文折叠 ---------- */
+
+/* 折叠态：CSS 兜一层 3 行（真截断在脚本里，这里防不同宽度下多出一行） */
+.agent-rev-orig.is-clamped,
+.agent-rev-new.is-clamped {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+
+/* 「展开全文 / 收起」：做成文字链，不跟底下的采用/忽略抢视觉 */
+.agent-rev-expand {
+  justify-self: start;
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: var(--fs-micro);
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.agent-rev-expand:hover {
+  text-decoration: underline;
+}
+
+/* 长建议（>120 字）视觉降噪：正文小一号、行高略紧（整段阅读时不再像一堵墙） */
+.agent-rev.is-long .agent-rev-orig,
+.agent-rev.is-long .agent-rev-new {
+  font-size: var(--fs-micro);
+  line-height: 1.55;
+}
+
+/* `reason` 始终小字灰（全局那份是 `.dw .agent-rev-reason`，这里加一层组件作用域钉死） */
+.agent-rev .agent-rev-reason {
+  font-size: var(--fs-micro);
+  color: var(--muted);
+}
+
+/* ---------- 复制：成功 / 失败都当面说（失败给手动选中的兜底） ---------- */
+
+.agent-revs-hint,
+.agent-rev-hint {
+  margin: 0;
+  font-size: var(--fs-micro);
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.agent-revs-hint.bad,
+.agent-rev-hint.bad {
+  color: #b45309;
+}
+
+/* 复制按钮与「忽略」同色：它不改变建议的处置状态 */
+.agent-rev-foot button.agent-rev-copy {
+  border-color: var(--line);
+  color: var(--muted);
+}
+
+.agent-rev-foot button.agent-rev-copy:hover:not(:disabled) {
+  background: #f8fafc;
+}
+
+.agent-revs-head button.agent-revs-copy {
+  border-color: var(--line);
+  color: var(--muted);
+}
+
+.agent-revs-head button.agent-revs-copy:hover:not(:disabled) {
+  background: #f8fafc;
 }
 </style>

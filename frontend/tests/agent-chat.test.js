@@ -5,7 +5,7 @@
  */
 
 import { flushPromises, mount } from '@vue/test-utils'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../src/auth', () => ({
   authFetch: vi.fn(async () => ({
@@ -26,11 +26,18 @@ vi.mock('../src/auth', () => ({
 }))
 
 import AgentChat from '../src/components/AgentChat.vue'
+import WriteView from '../src/views/WriteView.vue'
 import { agentMessages, toolStepsOf } from '../src/stores/useAgent'
+import { body as writeBody, resetWrite } from '../src/stores/useWrite'
 
 describe('AgentChat（读懂侧）', () => {
   beforeEach(() => {
     agentMessages.value.length = 0
+  })
+
+  // 剪贴板是全局对象：每个用例自己 stub，跑完必须还回去（别污染后面的用例）
+  afterEach(() => {
+    vi.unstubAllGlobals()
   })
 
   it('没配模型时，**输入框那一行**直接说「未配置模型」（不是等打完字才 500）', async () => {
@@ -304,5 +311,140 @@ describe('AgentChat（读懂侧）', () => {
     const steps = toolStepsOf(turn)
     expect(steps).toHaveLength(2)
     expect(steps.every((s) => s.name === 'search_library')).toBe(true)
+  })
+
+  // ============================================================ 段落级建议：折叠 / 复制
+  // 后端即将支持「一段话级别」的改写建议（`original` 是一整段、含多句），
+  // 卡片上不能把整段铺出来，也不能让复制失败静默。
+
+  /** 一整段原文（> 120 字，既是长建议、也超过 3 行折叠阈值）。 */
+  const LONG_ORIGINAL =
+    '手性可以分成时间与空间两部分，这一句只是开头。' +
+    '时间反演对称性在宏观尺度上怎么表现，取决于实验装置与测量口径，' +
+    '这一段里还交代了两个可观测量的定义与取值范围。' +
+    '空间反演对称性改变分子轨道的排布，进而影响反应路径的选择。' +
+    '最后一句是整段的收尾，只有点开「展开全文」之后才应该看得见。'
+
+  it('段落级长 original：默认折到 3 行，点「展开全文」才显示整段', async () => {
+    const wrapper = mount(AgentChat, { props: { scope: { draft_id: 3 } } })
+    await flushPromises()
+    pushRevisions([
+      { original: LONG_ORIGINAL, revised: '手性可分解为时间与空间两个维度。', reason: '整段更贴学科用语' },
+    ])
+    await flushPromises()
+
+    const card = wrapper.find('.agent-rev')
+    const orig = card.find('.agent-rev-orig')
+    // 超过 120 字 → 挂上降噪用的 is-long
+    expect(card.classes()).toContain('is-long')
+    expect(orig.classes()).toContain('is-clamped')
+    // 折起时是截断后的文本：收尾那句一定看不到
+    expect(orig.text()).not.toContain('最后一句是整段的收尾')
+    expect(orig.text().endsWith('…')).toBe(true)
+
+    const expand = card.find('.agent-rev-expand')
+    expect(expand.exists()).toBe(true)
+    expect(expand.text()).toContain('展开')
+
+    await expand.trigger('click')
+    // 展开后：全文都在，3 行钳撤掉，按钮变成「收起」
+    expect(orig.text()).toBe(LONG_ORIGINAL)
+    expect(orig.classes()).not.toContain('is-clamped')
+    expect(card.find('.agent-rev-expand').text()).toBe('收起')
+  })
+
+  it('「复制改后文本」把这条的 revised 写进剪贴板（内容逐字一致）', async () => {
+    const writeText = vi.fn(async () => {})
+    vi.stubGlobal('navigator', { clipboard: { writeText } })
+    const wrapper = mount(AgentChat, { props: { scope: { draft_id: 3 } } })
+    await flushPromises()
+    pushRevisions([REVS[0]])
+    await flushPromises()
+
+    await wrapper.find('.agent-rev-foot .agent-rev-copy').trigger('click')
+    await flushPromises()
+
+    expect(writeText).toHaveBeenCalledTimes(1)
+    expect(writeText).toHaveBeenCalledWith('甲句（改）。')
+    expect(wrapper.find('.agent-rev-hint').text()).toContain('已复制')
+  })
+
+  it('「复制全部改后文本」只拼未忽略的条目（换行分隔）', async () => {
+    const writeText = vi.fn(async () => {})
+    vi.stubGlobal('navigator', { clipboard: { writeText } })
+    const wrapper = mount(AgentChat, { props: { scope: { draft_id: 3 } } })
+    await flushPromises()
+    pushRevisions([
+      ...REVS,
+      { original: '丙句。', revised: '丙句（改）。', reason: '更短' },
+    ])
+    await flushPromises()
+
+    // 忽略第二条（乙），它就不该出现在「复制全部」里
+    await wrapper.findAll('.agent-rev')[1].find('.agent-rev-ignore').trigger('click')
+    expect(wrapper.find('.agent-revs-copy').text()).toContain('复制全部改后文本')
+    await wrapper.find('.agent-revs-copy').trigger('click')
+    await flushPromises()
+
+    expect(writeText).toHaveBeenCalledTimes(1)
+    expect(writeText).toHaveBeenCalledWith('甲句（改）。\n丙句（改）。')
+    expect(wrapper.find('.agent-revs-hint').text()).toContain('2 条')
+  })
+
+  it('剪贴板不给用：兜底提示「复制失败，请手动选中」（不静默）', async () => {
+    const writeText = vi.fn(async () => {
+      throw new Error('denied')
+    })
+    vi.stubGlobal('navigator', { clipboard: { writeText } })
+    const wrapper = mount(AgentChat, { props: { scope: { draft_id: 3 } } })
+    await flushPromises()
+    pushRevisions([REVS[0]])
+    await flushPromises()
+
+    await wrapper.find('.agent-rev-foot .agent-rev-copy').trigger('click')
+    await flushPromises()
+
+    expect(writeText).toHaveBeenCalled()
+    expect(wrapper.find('.agent-rev-hint').text()).toBe('复制失败，请手动选中')
+    // 失败也不该把建议标成已采用 / 已忽略（复制与处置无关）
+    expect(wrapper.find('.agent-rev').classes()).not.toContain('is-applied')
+  })
+
+  // ============================================================ 写作页：段落级建议真的能落进正文
+  // 后端 `verify_revisions` 已按「归一化换行」比对；前端定位必须同口径，
+  // 否则后端留下的建议在页面上会"原文没找到"（假失败），一个字都不敢改。
+
+  it('写作页：段落级建议在 CRLF 稿子里能逐字替换（多句 + 换行风格不变）', async () => {
+    resetWrite()
+    const wrapper = mount(WriteView)
+    await flushPromises()
+    // 助手默认在「提纲」，切到「对话」才挂 AgentChat
+    const chatTab = wrapper.findAll('.wr-helper .tabs button').find((b) => b.text() === '对话')
+    await chatTab.trigger('click')
+    await flushPromises()
+
+    // 后端比对的是「归一化换行」后的正文（模型可能给 \r\n，稿子也可能是）
+    const apply = (rev) => {
+      let outcome = null
+      wrapper.findComponent(AgentChat).vm.$emit('apply-revision', rev, {
+        report: (ok) => {
+          outcome = ok
+        },
+      })
+      return outcome
+    }
+
+    // ① 一整段（多句）能被替换，插回去的文本跟随稿子的 CRLF
+    writeBody.value = '开头。\r\n第一句。\r\n第二句。\r\n结尾。'
+    expect(apply({ original: '第一句。\r\n第二句。', revised: '改后第一句。\n改后第二句。' })).toBe(true)
+    expect(writeBody.value).toBe('开头。\r\n改后第一句。\r\n改后第二句。\r\n结尾。')
+
+    // ② 真的对不上：一个字都不改，如实回报 false（不模糊替换）
+    const before = writeBody.value
+    expect(apply({ original: '稿子里没有这句。', revised: '改成这样。' })).toBe(false)
+    expect(writeBody.value).toBe(before)
+
+    wrapper.unmount()
+    resetWrite()
   })
 })
