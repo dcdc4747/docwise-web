@@ -3566,7 +3566,7 @@ svg.ic-inl {
 
 .dw .agent-model-btn {
   flex: 0 1 auto;
-  max-width: 52%;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3728,13 +3728,22 @@ svg.ic-inl {
 
 /* 模型列表（只选模型）：贴着输入框往上弹 */
 .dw .agent-composer { position: relative; }
+/* 锚点用**输入框容器**而不是按钮：这样下拉浮在整个输入框上方，
+   不会盖住用户正在打的字（按钮那一行在文本框下面）。 */
+.dw .agent-model-wrap {
+  position: static;
+  flex: 0 1 auto;
+  max-width: 52%;
+}
 .dw .agent-models {
   position: absolute;
-  left: 0;
-  right: 0;
-  bottom: calc(100% + 8px);
+  left: 12px;
+  bottom: calc(100% + 10px);
+  /* 小下拉：宽 280 封顶，不铺满对话区 */
+  width: 280px;
+  max-width: 88vw;
   z-index: 30;
-  max-height: 58vh;
+  max-height: 300px;
   overflow: auto;
   background: #fff;
   border: 1px solid var(--line);

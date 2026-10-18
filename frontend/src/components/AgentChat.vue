@@ -122,27 +122,6 @@
     <!-- ⭐ 输入框那一行：模型选择在这里（和 DS Harness 一样，不占消息区顶部） -->
     <div v-if="viewMode === 'chat'" class="agent-composer">
       <!-- 设置面板 -->
-      <!-- ⭐ 只选模型：一个列表，点一下换；自定义配置在「设置」里 -->
-      <div v-if="modelOpen" class="agent-models">
-        <div class="agent-models-head">选择模型</div>
-        <button
-          v-for="item in modelChoices"
-          :key="item.provider + ':' + item.model"
-          type="button"
-          class="agent-models-item"
-          :class="{ on: item.active }"
-          @click="chooseModel(item)"
-        >
-          <span class="agent-models-name">{{ item.model }}</span>
-          <span class="agent-models-provider">{{ item.providerName }}</span>
-          <span v-if="item.active" class="agent-models-check">✓</span>
-        </button>
-        <button class="agent-models-more" type="button" @click="openSettingsFromPicker()">
-          更多设置（接口地址 / API Key / 强度）
-        </button>
-      </div>
-
-
       <textarea
         ref="inputEl"
         v-model="input"
@@ -153,16 +132,37 @@
         @keydown.enter.exact.prevent="submit"
       />
       <div class="agent-composer-foot">
-        <button
-          class="agent-model-btn"
-          :class="{ warn: !modelReady }"
-          type="button"
-          :title="modelReady ? '点这里换模型 / 厂商 / 强度' : '还没配模型，点这里配'"
-          @click="toggleModels()"
-        >
-          {{ modelReady ? modelLabel : '未配置模型' }}
-          <span class="agent-model-hint">▾</span>
-        </button>
+        <div class="agent-model-wrap">
+          <button
+            class="agent-model-btn"
+            :class="{ warn: !modelReady }"
+            type="button"
+            :title="modelReady ? '选模型' : '还没配模型，先去设置里配'"
+            @click="toggleModels()"
+          >
+            {{ modelReady ? modelLabel : '未配置模型' }}
+            <span class="agent-model-hint">▾</span>
+          </button>
+        <!-- ⭐ 只选模型：一个列表，点一下换；自定义配置在「设置」里 -->
+          <div v-if="modelOpen" class="agent-models">
+          <div class="agent-models-head">选择模型</div>
+          <button
+            v-for="item in modelChoices"
+            :key="item.provider + ':' + item.model"
+            type="button"
+            class="agent-models-item"
+            :class="{ on: item.active }"
+            @click="chooseModel(item)"
+          >
+            <span class="agent-models-name">{{ item.model }}</span>
+            <span class="agent-models-provider">{{ item.providerName }}</span>
+            <span v-if="item.active" class="agent-models-check">✓</span>
+          </button>
+          <button class="agent-models-more" type="button" @click="openSettingsFromPicker()">
+            更多设置（接口地址 / API Key / 强度）
+          </button>
+        </div>
+        </div>
         <span class="agent-kbd-hint">Enter 发送 · Shift+Enter 换行</span>
         <button
           class="agent-send"
