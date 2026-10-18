@@ -1676,7 +1676,7 @@ describe('App.vue 页面渲染', () => {
     await flushPromises()
 
     const keys = wrapper.findAll('button.rail-item')
-    expect(keys).toHaveLength(11)
+    expect(keys).toHaveLength(12)
 
     for (const item of keys) {
       await item.trigger('click')
@@ -1688,6 +1688,7 @@ describe('App.vue 页面渲染', () => {
           '#/read',
           '#/collections',
           '#/tags',
+          '#/trash',
           '#/write',
           '#/memory',
           '#/process',
@@ -1701,6 +1702,7 @@ describe('App.vue 页面渲染', () => {
           '#/read',
           '#/collections',
           '#/tags',
+          '#/trash',
           '#/write',
           '#/memory',
           '#/process',

@@ -104,8 +104,8 @@ def test_create_material_deep_copies_provenance() -> None:
     assert body["created_at"].endswith("+00:00")  # 时间一律带时区
 
 
-def test_m2_judgement_card_survives_source_task_deletion() -> None:
-    """⭐⭐ **M2 的判据本体**：删掉源任务，素材卡仍显示出处，`task_id` 变 null。"""
+def test_m2_card_keeps_link_while_task_is_in_trash() -> None:
+    """⭐ 软删（进回收站）时**不脱开** `task_id`：恢复之后「回跳原文」还得能用。"""
     task_id = _make_task(filename="chem_arXiv.pdf")
     _make_block(task_id=task_id, block_id="p2_b7")
 
@@ -114,8 +114,31 @@ def test_m2_judgement_card_survives_source_task_deletion() -> None:
         assert created.status_code == 201, created.text
         material_id = created.json()["id"]
 
-        deleted = client.delete(f"/api/tasks/{task_id}")
-        assert deleted.status_code == 200, deleted.text
+        trashed = client.delete(f"/api/tasks/{task_id}")
+        assert trashed.status_code == 200, trashed.text
+        assert trashed.json()["restorable"] is True
+
+        listed = client.get("/api/materials")
+
+    rows = [row for row in listed.json()["items"] if row["id"] == material_id]
+    assert len(rows) == 1
+    assert rows[0]["task_id"] == task_id, "回收站里链接不该断（恢复后要能回跳）"
+
+
+def test_m2_judgement_card_survives_source_task_purge() -> None:
+    """⭐⭐ **M2 判据本体**：源文献彻底删除后，素材卡仍有出处，`task_id` 变 null。"""
+    task_id = _make_task(filename="chem_arXiv.pdf")
+    _make_block(task_id=task_id, block_id="p2_b7")
+
+    with TestClient(app) as client:
+        created = _create(client, task_id, "p2_b7")
+        assert created.status_code == 201, created.text
+        material_id = created.json()["id"]
+
+        # 两步：先进回收站，再彻底删除（2026-10-18 起 DElETE 是软删）
+        assert client.delete(f"/api/tasks/{task_id}").status_code == 200
+        purged = client.delete(f"/api/tasks/{task_id}/purge")
+        assert purged.status_code == 200, purged.text
 
         listed = client.get("/api/materials")
 
@@ -126,7 +149,7 @@ def test_m2_judgement_card_survives_source_task_deletion() -> None:
     assert card["source_name"] == "chem_arXiv.pdf"  # 快照，不是 JOIN 出来的
     assert card["page"] == 3  # `p2` → 第 3 页
     assert card["text_quote"] == "the chiral measures are conserved"
-    assert card["task_id"] is None, "源文献已删：task_id 要脱开，界面据此说「仅存快照」"
+    assert card["task_id"] is None, "彻底删除后 task_id 脱开（界面据此说「仅存快照」）"
 
 
 def test_create_material_404_when_block_or_task_is_not_ours() -> None:
