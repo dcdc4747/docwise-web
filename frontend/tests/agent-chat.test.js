@@ -38,7 +38,7 @@ describe('AgentChat（读懂侧）', () => {
     await flushPromises()
     // ⚠️ 2026-10-18：模型选择从"顶部"搬到"输入框那一行"（与主流 agent 工具一致），
     // 所以断言的目标从 `.agent-model` 改成输入行里的那个按钮。
-    const modelBtn = wrapper.find('.agent-composer-row .agent-model-btn')
+    const modelBtn = wrapper.find('.agent-composer .agent-model-btn')
     expect(modelBtn.exists()).toBe(true)
     expect(modelBtn.text()).toContain('未配置模型')
     expect(modelBtn.classes()).toContain('warn')

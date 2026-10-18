@@ -3495,34 +3495,49 @@ svg.ic-inl {
 
 .dw .agent-composer {
   margin-top: auto;
-  padding-top: 10px;
-  border-top: 1px solid var(--line);
-  background: #fff;
-  display: grid;
-  gap: 8px;
-}
-.dw .agent-composer-row {
-  display: flex;
-  align-items: flex-end;
-  gap: 8px;
-}
-.dw .agent-composer-row textarea {
-  flex: 1 1 auto;
-  min-height: 52px;
-  line-height: 1.5;
-  max-height: 120px;
-  resize: none;
+  padding: 10px 12px 8px;
   border: 1px solid var(--line);
-  border-radius: var(--r-md);
-  padding: 12px 12px;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+  display: grid;
+  gap: 6px;
+}
+/* 聚焦时**整块**亮起来（而不是只有输入框亮） */
+.dw .agent-composer:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft, #eef2ff);
+}
+
+.dw .agent-composer textarea {
+  width: 100%;
+  min-height: 26px;
+  max-height: 150px;
+  border: 0;
+  outline: none;
+  resize: none;
+  padding: 2px 2px 0;
   font: inherit;
   font-size: var(--fs-meta);
+  line-height: 1.6;
   color: var(--ink);
-  background: #fff;
+  background: transparent;
+  overflow-y: auto;
+  scrollbar-width: none;
 }
+/* 隐藏原生滚动条（那对上下箭头就是"裂开感"的来源之一） */
+.dw .agent-composer textarea::-webkit-scrollbar { width: 0; height: 0; }
+
+.dw .agent-composer-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .dw .agent-model-btn {
-  flex: 0 0 auto;
-  max-width: 46%;
+  flex: 0 1 auto;
+  max-width: 52%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3530,14 +3545,44 @@ svg.ic-inl {
   background: #f8fafc;
   color: var(--ink);
   border-radius: 999px;
-  padding: 6px 10px;
+  padding: 4px 10px;
   font: inherit;
   font-size: var(--fs-micro);
   cursor: pointer;
+  transition: border-color 120ms ease, color 120ms ease;
 }
 .dw .agent-model-btn:hover { border-color: var(--accent); color: var(--accent); }
 .dw .agent-model-btn.warn { background: #fef3c7; border-color: #fde68a; color: #92400e; }
-.dw .agent-send { flex: 0 0 auto; }
+
+.dw .agent-kbd-hint {
+  margin-left: auto;
+  font-size: var(--fs-micro);
+  color: var(--muted);
+  opacity: 0;
+  transition: opacity 160ms ease;
+}
+.dw .agent-composer:focus-within .agent-kbd-hint { opacity: 1; }
+
+.dw .agent-send {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: #e2e8f0;
+  color: #94a3b8;
+  cursor: not-allowed;
+  transition: background 140ms ease, color 140ms ease, transform 100ms ease;
+}
+.dw .agent-send.ready {
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+}
+.dw .agent-send.ready:hover { transform: translateY(-1px); }
+.dw .agent-send svg { width: 16px; height: 16px; }
 
 /* 面板撑满：消息区自己滚、输入框吸底（不然输入框会跟着内容往上跑） */
 .dw .agent-pane {

@@ -572,7 +572,7 @@ describe('App.vue 页面渲染', () => {
     // 模型选择也搬进这一行（和主流 agent 工具一致，不占消息区顶部）
     expect(wrapper.find('.assist .agent-composer textarea').exists()).toBe(true)
     expect(wrapper.find('.assist .agent-composer .agent-model-btn').exists()).toBe(true)
-    expect(wrapper.find('.assist .agent-composer button.btn.primary').text()).toBe('↑')
+    expect(wrapper.find('.assist .agent-composer .agent-send').exists()).toBe(true)
 
     // 完成后的页数胶囊说总页数（引擎没在跑就不编进度）
     expect(top.text()).toContain('共 2 页')

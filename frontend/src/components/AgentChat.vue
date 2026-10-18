@@ -174,14 +174,16 @@
         </p>
       </div>
 
-      <div class="agent-composer-row">
-        <textarea
-          v-model="input"
-          rows="1"
-          placeholder="问它点什么…"
-          :disabled="busy"
-          @keydown.enter.exact.prevent="submit"
-        />
+      <textarea
+        ref="inputEl"
+        v-model="input"
+        rows="1"
+        placeholder="问它点什么…"
+        :disabled="busy"
+        @input="autoGrow"
+        @keydown.enter.exact.prevent="submit"
+      />
+      <div class="agent-composer-foot">
         <button
           class="agent-model-btn"
           :class="{ warn: !modelReady }"
@@ -192,12 +194,19 @@
           {{ modelReady ? `${modelLabel} · ${tierLabel}` : '未配置模型' }}
           <span class="agent-model-hint">▾</span>
         </button>
+        <span class="agent-kbd-hint">Enter 发送 · Shift+Enter 换行</span>
         <button
-          class="btn primary agent-send"
+          class="agent-send"
+          :class="{ ready: input.trim() && !busy }"
+          type="button"
           :disabled="busy || !input.trim()"
+          :title="busy ? '正在回答…' : '发送'"
           @click="submit"
         >
-          ↑
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 19V5M6 11l6-6 6 6" fill="none" stroke="currentColor"
+                  stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
         </button>
       </div>
     </div>
@@ -210,7 +219,7 @@
  *   <AgentChat :scope="{ task_id }" />
  * 页面只给上下文，不碰内部状态（状态在 `stores/useAgent`）。
  */
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 
 import AiBadge from './AiBadge.vue'
 
@@ -253,11 +262,23 @@ const traceOpen = reactive({})
 const form = reactive({ baseUrl: '', model: '', tier: 'standard', apiKey: '' })
 const input = ref('')
 
+// 输入框自动长高：一行起步，最多 6 行再滚（避免出现原生滚动条与上下箭头）
+const inputEl = ref(null)
+const MAX_INPUT_H = 150
+
+function autoGrow() {
+  const el = inputEl.value
+  if (!el) return
+  el.style.height = 'auto'
+  el.style.height = `${Math.min(el.scrollHeight, MAX_INPUT_H)}px`
+}
+
 function submit() {
   const text = input.value.trim()
   if (!text || busy.value) return
   sendAgentStream(text, props.scope)
   input.value = ''
+  nextTick(autoGrow)
 }
 const customModel = ref(false)
 const viewMode = ref('chat')
