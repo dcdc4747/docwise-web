@@ -276,6 +276,71 @@ async def run_scene(
     }
 
 
+
+# ============================================================ 流式 JSON → 文本
+# JSON 字符串转义 → 真实字符（`\uXXXX` 单独处理）
+_ESCAPES = {
+    '"': '"',
+    "\\": "\\",
+    "/": "/",
+    "b": "\b",
+    "f": "\f",
+    "n": "\n",
+    "r": "\r",
+    "t": "\t",
+}
+
+
+def _partial_json_string(raw: str, key: str) -> str:
+    """从**可能还没写完**的 JSON 文本里，抽出 `key` 对应字符串的已收到部分。
+
+    为什么要写这个：结构化输出时答案是 JSON 参数流（`{"answer": "……"`），
+    直接等整条 JSON 收完再显示 = 用户看到"憋一大坨"。这里按字符扫，
+    遇到不完整的转义（例如 `\\` 后面还没来字符、`\\u12` 还差两位）就停住，
+    等下一批数据再继续——**只返回已经能确定的那部分**。
+
+    ⚠️ 不处理 `key` 出现在别处（嵌套）的情况：我们只认第一个 `"answer"`，
+    因为 `WriteAnswer` / `AskAnswer` 的 answer 都是顶层字段。
+    """
+    marker = f'"{key}"'
+    at = raw.find(marker)
+    if at < 0:
+        return ""
+    i = at + len(marker)
+    # 跳过空白与冒号
+    while i < len(raw) and raw[i] in " \t\r\n:":
+        i += 1
+    if i >= len(raw) or raw[i] != '"':
+        return ""
+    i += 1
+    out: list[str] = []
+    while i < len(raw):
+        ch = raw[i]
+        if ch == '"':
+            break  # 字符串收尾
+        if ch == "\\":
+            if i + 1 >= len(raw):
+                break  # 转义还没写完
+            nxt = raw[i + 1]
+            if nxt == "u":
+                hex_part = raw[i + 2 : i + 6]
+                if len(hex_part) < 4 or any(
+                    c not in "0123456789abcdefABCDEF" for c in hex_part
+                ):
+                    break
+                out.append(chr(int(hex_part, 16)))
+                i += 6
+                continue
+            if nxt not in _ESCAPES:
+                break
+            out.append(_ESCAPES[nxt])
+            i += 2
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
 def _run_verify(scene: Scene, ctx: ToolContext, output):
     """跑场景的收尾校验（没挂钩子就原样返回）。返回 (output, notes)。"""
     hook = getattr(scene, "verify", None)
@@ -310,6 +375,7 @@ async def stream_scene(
         RetryPromptPart,
         TextPartDelta,
         ThinkingPartDelta,
+        ToolCallPartDelta,
     )
     from pydantic_ai.usage import UsageLimits
 
@@ -326,6 +392,10 @@ async def stream_scene(
     agent = build_agent(scene, cfg, model=model)
     yield {"type": "start", "scene": scene.id, "model": cfg.model}
 
+    # `final_result` 的 args 流累加器（按 tool_call_id 隔离，避免多轮串味）
+    final_args: dict[str, str] = {}
+    final_sent: dict[str, str] = {}
+
     try:
         async with agent.run_stream_events(
             prompt,
@@ -338,7 +408,8 @@ async def stream_scene(
                 if isinstance(event, FunctionToolCallEvent):
                     part = event.part
                     if str(part.tool_name).endswith("final_result"):
-                        continue  # 收尾不是"查"
+                        # 收尾不是"查"；正文另走 args 流（见下面的 Delta 分支）
+                        continue
                     yield {
                         "type": "tool_call",
                         "name": part.tool_name,
@@ -363,6 +434,21 @@ async def stream_scene(
                         yield {"type": "thinking", "text": delta.content_delta}
                     elif isinstance(delta, TextPartDelta) and delta.content_delta:
                         yield {"type": "delta", "text": delta.content_delta}
+                    elif isinstance(delta, ToolCallPartDelta):
+                        # ⭐ 结构化输出：答案是 `final_result` 的 **JSON 参数流**。
+                        # 这里边收边剥 `answer`，把"新增的那几个字"当 delta 发出去，
+                        # 前端才会像 ChatGPT / DeepSeek 那样逐字长出来。
+                        args_delta = getattr(delta, "args_delta", None)
+                        if args_delta:
+                            key = getattr(delta, "tool_call_id", "") or "final"
+                            acc = final_args.get(key, "") + str(args_delta)
+                            final_args[key] = acc
+                            if '"answer"' in acc:
+                                now = _partial_json_string(acc, "answer")
+                                sent = final_sent.get(key, "")
+                                if len(now) > len(sent) and now.startswith(sent):
+                                    yield {"type": "delta", "text": now[len(sent) :]}
+                                    final_sent[key] = now
                 elif isinstance(event, AgentRunResultEvent):
                     result = event.result
                     output, verify_notes = _run_verify(scene, ctx, result.output)

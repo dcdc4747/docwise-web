@@ -964,3 +964,44 @@ def test_run_scene_carries_write_ops() -> None:
     with SessionLocal() as session:
         session.delete(session.get(Draft, draft_id))
         session.commit()
+
+
+def test_partial_json_string_grows_with_the_stream() -> None:
+    """流式 JSON 里逐段长出 `answer`（前端靠它做打字机效果）。
+
+    这是"憋一大坨"那个体验问题的根：结构化输出下答案是 `final_result` 的 JSON 参数流，
+    必须先能**边收边剥**，否则只能等最后一次性显示。
+    """
+    from app.agent.runtime import _partial_json_string
+
+    # 逐段喂，每次都应该拿到"目前能确定的那部分"
+    chunks = [
+        '{"ans',
+        '{"answer"',
+        '{"answer": "手性',
+        '{"answer": "手性可以从',
+        '{"answer": "手性可以从空间反演',
+    ]
+    seen = [_partial_json_string(text, "answer") for text in chunks]
+    assert seen[0] == ""  # key 还没到
+    assert seen[1] == ""
+    assert seen[2] == "手性"
+    assert seen[3] == "手性可以从"
+    assert seen[4] == "手性可以从空间反演"
+    # 单调递增（前端按"新增部分"发 delta，必须只增不减）
+    assert all(len(a) <= len(b) for a, b in zip(seen, seen[1:]))
+
+
+def test_partial_json_string_handles_escapes_and_partial_escape() -> None:
+    """转义要正确解码，且**没写完的转义**不许吐出半个字。"""
+    from app.agent.runtime import _partial_json_string
+
+    line = _partial_json_string('{"answer": "第一行\\n第二行"}', "answer")
+    assert line == "第一行\n第二行"
+    quoted = _partial_json_string('{"answer": "引号\\"在里面"}', "answer")
+    assert quoted == '引号"在里面'
+    # `\u` 还差字符时停住，等下一批
+    assert _partial_json_string('{"answer": "a\\u4e2"}', "answer") == "a"
+    assert _partial_json_string('{"answer": "a\\u4e2d"}', "answer") == "a中"
+    # 结尾停在反斜杠上（转义还没写完）也不许吐半个字
+    assert _partial_json_string('{"answer": "abc\\', "answer") == "abc"

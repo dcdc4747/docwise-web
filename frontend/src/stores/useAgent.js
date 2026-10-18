@@ -275,13 +275,20 @@ export async function sendAgentStream(question, scope = {}) {
 /** 把一帧事件并到这一轮回答里（后端形状见 `app/agent/runtime.stream_scene`）。 */
 function applyEvent(turn, event) {
   if (event.type === 'tool_call') {
-    turn.steps.push({ kind: 'tool_call', name: event.name, args: event.args })
+    turn.steps.push({
+      kind: 'tool_call',
+      name: event.name,
+      args: event.args,
+      // 到达时间：界面用它算"这一步用了多久"（没有时间感 = 像卡住）
+      ts: Date.now(),
+    })
   } else if (event.type === 'tool_result') {
     turn.steps.push({
       kind: 'tool_result',
       name: event.name,
       ok: event.ok !== false,
       excerpt: event.excerpt || '',
+      ts: Date.now(),
     })
   } else if (event.type === 'thinking') {
     // 思考片段：只进"过程"，不进正文

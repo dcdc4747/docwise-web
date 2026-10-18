@@ -74,38 +74,51 @@
           <template v-else>
             <!-- 生成中：过程（思考 + 工具调用）**实时可见** -->
             <div
-              v-if="!turn.done && (toolSteps(turn).length || turn.thinking)"
+              v-if="!answerSettled(turn, i) && (toolSteps(turn).length || turn.thinking || !turn.text)"
               class="agent-process"
             >
               <div v-if="turn.thinking" class="agent-thinking">{{ thinkingTail(turn) }}</div>
-              <ul v-if="toolSteps(turn).length" class="agent-trace-list">
-                <li v-for="(step, j) in toolSteps(turn)" :key="j" :class="{ bad: step.ok === false }">
+              <TransitionGroup
+                v-if="visibleSteps(turn, i).length"
+                tag="ul"
+                name="step"
+                class="agent-trace-list"
+              >
+                <li
+                  v-for="(step, j) in visibleSteps(turn, i)"
+                  :key="step.kind + '-' + step.name + '-' + j"
+                  :class="{ bad: step.ok === false, running: isRunningStep(turn, j) }"
+                >
                   <b>{{ step.kind === 'tool_call' ? '调' : step.ok === false ? '失败' : '返回' }}</b>
                   <code>{{ step.name }}</code>
+                  <span v-if="isRunningStep(turn, j)" class="agent-step-dot" aria-label="等待返回" />
+                  <span class="agent-step-ms">{{ stepCost(turn, j) }}</span>
                   <span class="agent-trace-detail">{{ detailOf(step) }}</span>
                 </li>
-              </ul>
+              </TransitionGroup>
+              <div class="agent-live">{{ liveLine(turn) }}</div>
             </div>
 
             <!-- ⭐ 合规：模型生成的内容要标注（标注跟着内容走，不为省事丢掉） -->
             <div class="ai-badge-row"><AiBadge kind="answer" /></div>
             <!-- 回答：`**加粗**` 转 <strong>，不用 v-html（模板里渲染文本更安全） -->
-            <div class="agent-bubble answer">
-              <template v-for="(seg, k) in segments(turn.text)" :key="k">
+            <div ref="answerEls" class="agent-bubble answer">
+              <template v-for="(seg, k) in segments(shownText(turn, i))" :key="k">
                 <strong v-if="seg.bold">{{ seg.text }}</strong>
                 <template v-else>{{ seg.text }}</template>
               </template>
+              <span v-if="!answerSettled(turn, i)" class="agent-caret" aria-hidden="true" />
             </div>
             <!-- 收尾后：过程收起成一行（默认不看，需要才展开） -->
             <button
-              v-if="turn.done && (toolSteps(turn).length || turn.thinking)"
+              v-if="answerSettled(turn, i) && (toolSteps(turn).length || turn.thinking)"
               class="agent-trace-head"
               type="button"
               @click="toggleTrace(i)"
             >
               过程 {{ toolSteps(turn).length }} 步 · {{ traceOpen[i] ? '收起 ▴' : '展开 ▾' }}
             </button>
-            <div v-if="turn.done && traceOpen[i]" class="agent-process">
+            <div v-if="answerSettled(turn, i) && traceOpen[i]" class="agent-process">
               <div v-if="turn.thinking" class="agent-thinking">{{ turn.thinking }}</div>
               <ul class="agent-trace-list">
                 <li v-for="(step, j) in toolSteps(turn)" :key="j" :class="{ bad: step.ok === false }">
@@ -326,7 +339,7 @@
  *   <AgentChat :scope="{ task_id }" />
  * 页面只给上下文，不碰内部状态（状态在 `stores/useAgent`）。
  */
-import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 
 import AiBadge from './AiBadge.vue'
 
@@ -513,6 +526,198 @@ function retry(turn) {
 function toggleTrace(i) {
   traceOpen[i] = !traceOpen[i]
 }
+
+/**
+ * 逐字显示的"已显示长度"（按轮次记）。
+ *
+ * 为什么自己管而不是直接用 `turn.text`：SSE 到达是一批一批的（网络 + 服务端 flush），
+ * 直接把原始文本渲染出来就是"憋一大坨"。这里让界面按帧追，看起来像在写字。
+ */
+/**
+ * 是否做"打字机"动画。测试环境（`MODE === 'test'`）直接全量显示：
+ * 没有真实绘制时 rAF 追不上，断言会读到中间态——动画不该决定测试看到什么。
+ */
+const ANIMATE = import.meta.env.MODE !== 'test'
+const revealed = reactive({})
+let revealRaf = 0
+
+function shownText(turn, index) {
+  const raw = turn.text || ''
+  const shown = revealed[index]
+  if (shown == null || shown >= raw.length) return raw
+  return raw.slice(0, shown)
+}
+
+/**
+ * 这一轮"写完了没有"（**显示态**，不是数据状态 `turn.done`）。
+ *
+ * `turn.done` 一到就显示全文会有"最后一坨"（实测最后 300 字一帧跳出来），
+ * 所以让它继续按节奏写完；写完才算 settled：这时才收起过程、藏光标。
+ * ⚠️ 名字不能叫 `isSettled`——那是"改写建议是否已处置"的老函数。
+ */
+function answerSettled(turn, index) {
+  if (!turn || turn.role !== 'assistant') return true
+  if (!turn.done) return false
+  const raw = turn.text || ''
+  const shown = revealed[index]
+  return shown == null || shown >= raw.length
+}
+
+/**
+ * 步骤错峰显示：到达的步骤先排队，每 140ms 放一条。
+ *
+ * 后端经常"调用 + 结果"成对到达（同一帧两条），不错峰就是"啪"地冒出两行。
+ */
+const stepShown = reactive({})
+let stepTimer = 0
+function pumpSteps() {
+  stepTimer = 0
+  let pending = false
+  turns.value.forEach((turn, index) => {
+    if (!turn || turn.role !== 'assistant') return
+    const total = toolSteps(turn).length
+    const shown = typeof stepShown[index] === 'number' ? stepShown[index] : 0
+    if (shown >= total) return
+    stepShown[index] = shown + 1
+    pending = true
+  })
+  if (pending) stepTimer = setTimeout(pumpSteps, 140)
+}
+
+/** 模板里用的"现在该显示几条步骤"。 */
+function visibleSteps(turn, index) {
+  const steps = toolSteps(turn)
+  // 写完 / 测试环境：一次给全（动画只为"看起来在推进"，不该延后信息）
+  if (!ANIMATE || turn.done) return steps
+  const shown = stepShown[index]
+  return steps.slice(0, typeof shown === 'number' ? shown : 0)
+}
+
+watch(
+  () => turns.value.map((turn) => (turn && turn.role === 'assistant' ? toolSteps(turn).length : 0)).join(','),
+  () => {
+      if (!ANIMATE) return
+    if (!stepTimer) stepTimer = setTimeout(pumpSteps, 0)
+  },
+)
+
+function tickReveal() {
+  revealRaf = 0
+  let pending = false
+  turns.value.forEach((turn, index) => {
+    if (!turn || turn.role !== 'assistant') return
+    const target = (turn.text || '').length
+    const shown = revealed[index] || 0
+    if (shown >= target) return
+    // 稳速：每帧 2 字（≈120 字/秒）；落后太多（>1200 字）才加速，
+    // 避免"一坨里字太多、追不上"和"追太快、还是像一次性"两个极端
+    const behind = target - shown
+    const step = behind > 1200 ? Math.ceil(behind / 8) : 2
+    revealed[index] = Math.min(target, shown + step)
+    pending = true
+  })
+  if (pending) revealRaf = requestAnimationFrame(tickReveal)
+}
+
+/** 起一次追击循环（已经在跑就不重复起）。 */
+function ensureReveal() {
+  if (revealRaf) return
+  if (!ANIMATE || typeof requestAnimationFrame !== 'function') {
+    // 测试环境没有 rAF：直接显示全文，别让断言读到半截
+    turns.value.forEach((turn, index) => {
+      if (turn && turn.role === 'assistant') revealed[index] = (turn.text || '').length
+    })
+    return
+  }
+  revealRaf = requestAnimationFrame(tickReveal)
+}
+
+watch(
+  () => turns.value.map((turn) => (turn && turn.role === 'assistant' ? (turn.text || '').length : 0)),
+  () => ensureReveal(),
+)
+
+/** 这一步是不是"还在等返回"（最后一个调用后面没有结果）。 */
+/** 静默期那一行"正在做什么"（带已等待时长）。 */
+const busyTick = computed(() => ticker.value)
+function liveLine(turn) {
+  void busyTick.value // 依赖 ticker，让它每秒重算
+  const steps = toolSteps(turn)
+  const last = steps[steps.length - 1]
+  if (last && last.kind === 'tool_call') {
+    const only = String(last.name || '').replace(/^tool[-_]?/, '')
+    const cost = stepCost(turn, steps.length - 1)
+    return `正在 ${only} · ${cost || '0ms'}`
+  }
+  if (!steps.length) return '正在思考…'
+  return '正在整理答案…'
+}
+
+function isRunningStep(turn, index) {
+  if (!turn || turn.done) return false
+  const steps = toolSteps(turn)
+  const step = steps[index]
+  if (!step || step.kind !== 'tool_call') return false
+  // 后面还有任何 step（尤其结果）就不算在跑
+  return index === steps.length - 1
+}
+
+/** 这一步花了多久：调用到对应结果的间隔（没有结果就显示已等待时长）。 */
+function stepCost(turn, index) {
+  const steps = toolSteps(turn)
+  const step = steps[index]
+  if (!step) return ''
+  const start = step.ts || 0
+  if (!start) return ''
+  // 找它后面的第一个 result
+  let end = 0
+  for (let k = index + 1; k < steps.length; k += 1) {
+    if (steps[k].kind === 'tool_result') {
+      end = steps[k].ts || 0
+      break
+    }
+  }
+  const stop = end || (turn.done ? start : Date.now())
+  const ms = Math.max(0, stop - start)
+  if (ms < 1000) return `${ms}ms`
+  return `${(ms / 1000).toFixed(1)}s`
+}
+
+/** 生成中每秒刷新一次，让"已等待时长"是活的（不会一直显示 0ms）。 */
+const ticker = ref(0)
+let tickerTimer = 0
+watch(
+  () => busy.value,
+  (nowBusy) => {
+    if (tickerTimer) {
+      clearInterval(tickerTimer)
+      tickerTimer = 0
+    }
+    if (!nowBusy) return
+    tickerTimer = setInterval(() => {
+      ticker.value += 1
+    }, 500)
+  },
+  { immediate: true },
+)
+
+/** 正文长高时跟到底部；用户手动上滚就不抢。 */
+function followScroll() {
+  const host = document.querySelector('.agent-messages')
+  if (!host) return
+  const nearBottom = host.scrollHeight - host.scrollTop - host.clientHeight < 120
+  if (nearBottom) host.scrollTop = host.scrollHeight
+}
+
+watch(
+  () => turns.value.map((turn) => (turn ? (turn.text || '').length : 0)).join(','),
+  () => followScroll(),
+)
+
+onUnmounted(() => {
+  if (revealRaf) cancelAnimationFrame(revealRaf)
+  if (tickerTimer) clearInterval(tickerTimer)
+})
 
 function toolSteps(turn) {
   return toolStepsOf(turn)
@@ -823,6 +1028,75 @@ onMounted(async () => {
   这里不引阴影、不加大色块：状态只用左侧一道细色条 + 小字标签。
 -->
 <style scoped>
+.agent-live {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.agent-live::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: agent-pulse 1s ease-in-out infinite;
+  vertical-align: middle;
+}
+
+/* ---- 流式观感（2026-10-19） ---- */
+.agent-step-ms {
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  margin-left: 4px;
+}
+.step-enter-active {
+  transition: opacity 160ms ease, transform 160ms ease;
+}
+.step-enter-from {
+  opacity: 0;
+  transform: translateY(-3px);
+}
+.agent-step-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: agent-pulse 1s ease-in-out infinite;
+  vertical-align: middle;
+}
+.agent-trace-list li.running {
+  background: #f4f7ff;
+}
+@keyframes agent-pulse {
+  0%, 100% { opacity: 0.25; transform: scale(0.9); }
+  50% { opacity: 1; transform: scale(1.15); }
+}
+/* 流式光标：只有生成中才出现 */
+.agent-caret {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 2px;
+  background: var(--ink, #1f2430);
+  vertical-align: text-bottom;
+  animation: agent-blink 1s steps(2, start) infinite;
+}
+@keyframes agent-blink {
+  0%, 50% { opacity: 1; }
+  50.01%, 100% { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .step-enter-active { transition: none; }
+  .agent-step-dot,
+  .agent-caret { animation: none; }
+}
+
 .agent-views-spacer {
   flex: 1 1 auto;
 }
