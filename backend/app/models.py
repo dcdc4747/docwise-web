@@ -75,6 +75,12 @@ class Task(Base):
     # 摆在一起会让人以为产品就这样；删掉又不可逆、还要清磁盘产物。
     # 只影响列表接口（`GET /api/tasks`）；详情/下载/问答照旧可用，便于随时恢复。
     archived_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    # 回收站（2026-10-18）：非空 = 已删除（软删）。
+    # 与 `archived_at` 的区别：归档是"藏起来但还在库里"，删除是"用户不要了"——
+    # 但**先放回收站**，文件和子表都留着，恢复＝把这个字段清空；
+    # 只有「彻底删除」才真删（子表 + 磁盘产物）。
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()

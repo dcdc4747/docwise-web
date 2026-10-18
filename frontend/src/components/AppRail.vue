@@ -60,6 +60,8 @@ const LIBRARY_ITEMS = [
   { key: 'lib-todo', label: '待读', tip: '待读 · 智能集合（规则：状态 = 待读）', icon: 'filter' },
   { key: 'lib-unfiled', label: '未归类', tip: '未归类 · 还没放进任何集合的文献', icon: 'filter' },
   { key: 'lib-materials', label: '素材', tip: '素材 · 从文献里取出的证据', icon: 'bookmark' },
+  // 回收站（2026-10-18）：删除先落这里，不是直接没了
+  { key: 'lib-trash', label: '回收站', tip: '回收站 · 删掉的文献，随时能恢复', icon: 'trash' },
 ]
 
 /** 底部两条（形态 v2 §1.2 布局图里在分隔线下面、账号区上面）。 */

@@ -94,6 +94,9 @@ def _ensure_schema() -> None:
         # DDL 必须与 `models.Task.reading_status` 生成的建表语句一致
         # （`tests/test_migration_v2_schema.py` 钉的就是这条一致性）。
         "reading_status": "VARCHAR(16) DEFAULT 'todo' NOT NULL",
+        # 回收站（2026-10-18）：非空 = 已删除（软删）。
+        # 与 `models.Task.deleted_at` 必须一致。
+        "deleted_at": "DATETIME",
     }
         # task_blocks 的补列：版面信号（2026-09-30）。
         # 老任务为 NULL，分级器自动退回文字形状。

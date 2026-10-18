@@ -16,8 +16,8 @@ import time
 from pathlib import Path
 
 from fastapi.testclient import TestClient
-from helpers import TEST_ADMIN_ID, TEST_USER_ID
-from sqlalchemy import select, text
+from helpers import TEST_USER_ID
+from sqlalchemy import select
 
 from app import storage
 from app.db import SessionLocal
@@ -127,7 +127,8 @@ def _make_task(status: str, filename: str = "old.pdf", **kwargs) -> int:
         return task.id
 
 
-def test_delete_task_purges_db_files_and_fts(monkeypatch) -> None:
+def test_delete_moves_to_trash_and_purge_really_removes(monkeypatch) -> None:
+    """⭐ 删除＝进回收站（行/子表/文件都留着）；**彻底删除**才真删。"""
     _patch_engine(monkeypatch, CompletedEngine())
     with TestClient(app) as client:
         task = _upload(client, "to-delete.pdf")
@@ -138,42 +139,81 @@ def test_delete_task_purges_db_files_and_fts(monkeypatch) -> None:
             stored = session.get(Task, task_id)
             upload_path = Path(stored.original_path)
         storage.outputs_dir(task_id).joinpath("mono.pdf").write_bytes(PDF_BYTES)
-        assert upload_path.exists()
+        # 软删前后要能对比：先记下每张子表有几行
+        with SessionLocal() as session:
+            counts_before = {
+                model.__tablename__: len(
+                    session.scalars(
+                        select(model).where(model.task_id == task_id)
+                    ).all()
+                )
+                for model in (TaskBlock, TaskHistory, TaskUnderstanding)
+            }
 
+        # ① 删除 → 进回收站
         resp = client.delete(f"/api/tasks/{task_id}")
         assert resp.status_code == 200, resp.text
         assert resp.json()["deleted"] == task_id
+        assert resp.json()["restorable"] is True
 
-        # 库：任务与子表全没了（外键没开级联，靠代码手工删）
+        # 库里还在、子表**一条都没少**、文件还在
+        with SessionLocal() as session:
+            row = session.get(Task, task_id)
+            assert row is not None and row.deleted_at is not None
+            for model in (TaskBlock, TaskHistory, TaskUnderstanding):
+                rows_now = session.scalars(
+                    select(model).where(model.task_id == task_id)
+                ).all()
+                assert len(rows_now) == counts_before[model.__tablename__], (
+                    f"{model.__tablename__} 在软删时被清掉了"
+                )
+        assert upload_path.exists(), "软删不该动文件"
+
+        # 正常列表不显示，回收站显示
+        assert all(item["id"] != task_id for item in client.get("/api/tasks").json())
+        trashed = client.get("/api/tasks?trashed=1").json()
+        assert any(item["id"] == task_id for item in trashed)
+        assert trashed[0]["deleted_at"].endswith("+00:00")
+
+        # ② 恢复 → 回到正常列表
+        restored = client.post(f"/api/tasks/{task_id}/restore").json()
+        assert restored["was_trashed"] is True
+        assert any(item["id"] == task_id for item in client.get("/api/tasks").json())
+
+        # ③ 再删一次，然后彻底删除
+        client.delete(f"/api/tasks/{task_id}")
+        purged = client.delete(f"/api/tasks/{task_id}/purge")
+        assert purged.status_code == 200, purged.text
+        assert purged.json()["irreversible"] is True
+
         with SessionLocal() as session:
             assert session.get(Task, task_id) is None
             for model in (TaskBlock, TaskHistory, TaskUnderstanding):
                 left = session.scalars(
                     select(model).where(model.task_id == task_id)
                 ).all()
-                assert left == [], f"{model.__tablename__} 里还留着行"
-            # FTS 索引不留残渣（还能 MATCH 到就等于留了）
-            leftovers = session.execute(
-                text(
-                    "SELECT COUNT(*) FROM task_blocks_fts "
-                    "WHERE task_blocks_fts MATCH 'hello'"
-                )
-            ).scalar()
-            assert leftovers == 0
-
-        # 磁盘：上传原件与结果目录一起清掉
+                assert left == [], f"{model.__tablename__} 里还有残留"
         assert not upload_path.exists()
-        assert not (storage.OUTPUTS_DIR / str(task_id)).exists()
         assert client.get(f"/api/tasks/{task_id}").status_code == 404
 
 
-def test_delete_task_not_owned_returns_404() -> None:
-    other_user_task = _make_task("completed", user_id=TEST_ADMIN_ID)
+def test_purge_requires_trash_first() -> None:
+    """⭐ 彻底删除必须先"移入回收站"，否则 400（防绕过两步确认）。"""
+    task_id = _make_task("completed", original_path=str(storage.UPLOADS_DIR / "x.pdf"))
     with TestClient(app) as client:
-        resp = client.delete(f"/api/tasks/{other_user_task}")
-    assert resp.status_code == 404
-    with SessionLocal() as session:
-        assert session.get(Task, other_user_task) is not None
+        resp = client.delete(f"/api/tasks/{task_id}/purge")
+        assert resp.status_code == 400
+        assert "回收站" in resp.json()["detail"]
+        # 任务还在
+        assert client.get(f"/api/tasks/{task_id}").status_code == 200
+
+
+def test_restore_is_idempotent() -> None:
+    """恢复一个不在回收站里的任务也算成功（幂等，不报错）。"""
+    task_id = _make_task("completed", original_path=str(storage.UPLOADS_DIR / "y.pdf"))
+    with TestClient(app) as client:
+        body = client.post(f"/api/tasks/{task_id}/restore").json()
+        assert body["was_trashed"] is False
 
 
 def test_delete_running_task_cancels_first(monkeypatch) -> None:
@@ -185,11 +225,14 @@ def test_delete_running_task_cancels_first(monkeypatch) -> None:
 
         resp = client.delete(f"/api/tasks/{task_id}")
         assert resp.status_code == 200, resp.text
+        # 运行中删除要先叫停（否则 worker 还在写，恢复出来是半成品）
         assert resp.json()["was_running"] is True
-        assert client.get(f"/api/tasks/{task_id}").status_code == 404
+        # ⭐ 但从 2026-10-18 起删除只是**进回收站**：行还在、详情仍可取（能恢复）
+        assert client.get(f"/api/tasks/{task_id}").status_code == 200
 
     with SessionLocal() as session:
-        assert session.get(Task, task_id) is None
+        row = session.get(Task, task_id)
+        assert row is not None and row.deleted_at is not None
 
 
 def test_retry_failed_task_restarts_clean(monkeypatch) -> None:

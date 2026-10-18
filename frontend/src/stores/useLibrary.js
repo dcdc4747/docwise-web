@@ -335,6 +335,10 @@ export async function retryTask(task) {
   }
 }
 
+/**
+ * 删除 = **移入回收站**（2026-10-18 起后端是软删：文件与子表都留着，可恢复）。
+ * 真删只有回收站里的「彻底删除」，那是另一个动作。
+ */
 export async function deleteTask(task) {
   if (!task) return
   closeMenus()
@@ -352,7 +356,7 @@ export async function deleteTask(task) {
       navigateToHash({ name: 'library' }, { replace: true })
     }
     await loadTasksAndSync()
-    showToast(`已删除「${task.filename}」——结果文件一并清除，不能恢复`)
+    showToast(`已把「${task.filename}」移入回收站——文件还在，随时可以恢复`)
   } catch (err) {
     taskActionError.value = err.message || '删除失败'
     setNote(`删除失败：${taskActionError.value}`)

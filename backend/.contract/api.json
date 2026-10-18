@@ -14,7 +14,7 @@
     "真实性来源：本清单的 anchors 是由 backend/scripts/check_contract.py --print 打出来的真实路由表逐条核对的，",
     "  不是从文档抄的 —— 手抄文档正是第一版把 25 个端点写成 23 个的原因。"
   ],
-  "declared_endpoint_count": 72,
+  "declared_endpoint_count": 74,
   "anchors": [
     {
       "method": "GET",
@@ -375,6 +375,16 @@
       "method": "GET",
       "path": "/api/check",
       "note": "N43 检查历史列表：?draft_id? &limit?（上限 50）→ {items}，每条只带摘要（summary.reported/unknown + lang/citation_style/ruleset_version/created_at）；逐条明细点进去走 N23；**只列自己的**"
+    },
+    {
+      "method": "POST",
+      "path": "/api/tasks/{param}/restore",
+      "note": "N44 从回收站恢复（清 `deleted_at`，幂等）；`DELETE /api/tasks/{id}` 自 2026-10-18 起是**软删**（进回收站，文件与子表都留着，可恢复）"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/tasks/{param}/purge",
+      "note": "N45 **彻底删除**（不可恢复，连磁盘产物与子表）；只接受回收站里的任务，否则 400（防绕过两步确认）"
     }
   ],
   "expected_new": []
