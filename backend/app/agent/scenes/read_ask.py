@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from ..contracts import Scene, ToolContext
 from ..outputs import AskAnswer
+from ..verify_read import verify_sources
 
 _SYSTEM = """你是「读懂」页里的文献助手，服务对象是正在读论文的学生/研究者。
 
@@ -24,11 +25,25 @@ _SYSTEM = """你是「读懂」页里的文献助手，服务对象是正在读�
 
 
 def _context(ctx: ToolContext) -> str:
-    """场景自己决定带哪些上下文（这里只带"用户现在在看哪篇"）。"""
+    """场景自己决定带哪些上下文：在看哪一篇 + 有哪些技能。
+
+    ⚠️ 技能只给**索引**（名字 + 一句话何时用），正文要模型自己调 `use_skill` 取。
+    """
+    from ..skills import skill_index_prompt
+
     task_id = ctx.scope.get("task_id")
-    if not task_id:
-        return "用户当前没有指定某一篇文献（可以跨库检索）。"
-    return f"用户当前正在读 task_id={task_id} 这篇；回答可以跨库，但要优先照顾这一篇。"
+    parts: list[str] = []
+    if task_id:
+        parts.append(
+            f"用户当前正在读 task_id={task_id} 这篇；回答可以跨库，但要优先照顾这一篇。"
+        )
+    else:
+        parts.append("用户当前没有指定某一篇文献（可以跨库检索）。")
+
+    index = skill_index_prompt("read_ask")
+    if index:
+        parts.append(index)
+    return "\n\n".join(parts)
 
 
 SCENE = Scene(
@@ -36,8 +51,24 @@ SCENE = Scene(
     title="读懂 · 问这篇文献",
     system_prompt=_SYSTEM,
     output_type=AskAnswer,
-    packs=("library",),
+    packs=(
+        "library",
+        "terms",
+        "tasks",
+        # 翻译进度/重译交给界面（有进度条与重译按钮），把名额让给技能
+        # 偏好/记忆只读不再给（界面设置里能看到）；名额让给知识库集合
+        "outline",
+        "compare",
+        "figures",
+        "matrix",
+        # 知识库集合：列 / 建 / 归类（用户明确要求"agent 能管知识库"）
+        "collections",
+        # 板块专属知识（精读/出处/术语/结构/对比/译文核对），按需加载
+        "skills",
+    ),
     default_tier="standard",
     build_context=_context,
+    # 收尾校验：剔掉格式不对的出处，并给出「出处可定位率」
+    verify=verify_sources,
     status="ready",
 )

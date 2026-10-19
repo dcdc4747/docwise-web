@@ -338,6 +338,9 @@ class Draft(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     title: Mapped[str] = mapped_column(String(200))
     body_md: Mapped[str] = mapped_column(Text, default="")
+    # 富文本源（2026-10-19）：编辑器是 TipTap，逐段字号/行距只能存在 HTML 里。
+    # `body_md` 由它转换而来（派生视图），老功能（引文/提纲/导出/AI 锚点）继续读 md。
+    body_html: Mapped[str | None] = mapped_column(Text, nullable=True)
     # 期刊 / 学位论文模板标识：**本期只存标识，不做模板渲染**
     template_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
@@ -568,9 +571,45 @@ class UserLLMConfig(Base):
     # OpenAI 兼容端点（DeepSeek / Qwen / Kimi / GLM / OpenRouter / Ollama 都走这条）
     base_url: Mapped[str] = mapped_column(String(512), default="")
     model: Mapped[str] = mapped_column(String(128), default="")
+    # 每板块单独指定模型（JSON 文本）：{"write_compose": "deepseek-reasoner"}
+    # 留空 = 跟随全局 model；解析优先级见 agent/config_store.py 的 scene_model()
+    scene_models: Mapped[str | None] = mapped_column(Text, nullable=True)
     tier: Mapped[str] = mapped_column(String(16), default="standard")
     key_cipher: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     key_hint: Mapped[str | None] = mapped_column(String(16), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=utc_now, onupdate=utc_now
     )
+
+
+class DraftVersion(Base):
+    """草稿版本（2026-10-19）：**AI 会改稿之后，版本历史是回滚的前提**。
+
+    背景：文案已允许 AI 直接把内容写进 `drafts.body_md`，用户再点保存。有了
+    "AI 动手改稿"，用户就必须能回到 AI 动手之前 —— 所以这里存的是**整篇快照**，
+    而不是 diff：判据是"能不能一键回到那一版"，不是"省不省空间"。
+
+    `source` 三种（本期冻结，别再加值，前端按它显示来源标签）：
+    - `user` —— 用户在 PATCH 里保存正文时自动记一版；
+    - `ai`   —— 保留给"AI 写入"路径显式落版本（本期没有写入方，schema 先留位）；
+    - `restore` —— **回滚前**先把当时的正文存下来（否则"回滚把中间稿弄丢"）。
+
+    ⚠️ 与 `tasks.started_at` 那批一样，`created_at` 用 `utc_now()`（naive UTC），
+    不用裸 `datetime.now()`；接口输出统一走 `iso_utc()`。
+    ⚠️ `body_md` / `title` 是**快照**（创建时拷贝），不回 JOIN `drafts` 取现值 ——
+    版本的意义就是"那时的稿子"，JOIN 会把它变成活引用。
+    ⚠️ 只保留最近 50 版（见 `routers/drafts.py` 的 `_VERSIONS_KEEP`），
+    表会不会无限长由写入方保证，不靠定期清理脚本。
+    """
+
+    __tablename__ = "draft_versions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    draft_id: Mapped[int] = mapped_column(ForeignKey("drafts.id"), index=True)
+    body_md: Mapped[str] = mapped_column(Text, default="")
+    # 富文本快照（2026-10-19）：回滚要连"逐段字号"一起回来
+    body_html: Mapped[str | None] = mapped_column(Text, nullable=True)
+    title: Mapped[str] = mapped_column(String(200), default="")
+    source: Mapped[str] = mapped_column(String(16), default="user")
+    note: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)

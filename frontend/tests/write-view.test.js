@@ -12,6 +12,10 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+// TipTap/ProseMirror 需要真实 DOM 量测，happy-dom 里跑不了；单测里换成轻量替身。
+vi.mock('../src/components/WriteEditor.vue', () => import('./helpers/WriteEditorStub.js'))
+
+
 import App from '../src/App.vue'
 import WriteView from '../src/views/WriteView.vue'
 import { clearTasks } from '../src/stores/useTasks'
@@ -208,6 +212,14 @@ function stubWriteFetch(options = {}) {
   return { impl, calls, state }
 }
 
+async function pickTab(wrapper, label) {
+  const tab = wrapper.findAll('.wr-helper .tabs button').find((b) => b.text() === label)
+  if (tab) {
+    await tab.trigger('click')
+    await flushPromises()
+  }
+}
+
 function mountWrite() {
   return mount(WriteView, { attachTo: document.body })
 }
@@ -235,21 +247,26 @@ afterEach(() => {
 })
 
 describe('写作页：三栏骨架与红线', () => {
-  it('渲染素材 ｜ 写作 ｜ 助手三栏，且页面上没有源码痕迹', async () => {
+  it('渲染写作 ｜ 助手两栏（素材在助手页签里），且页面上没有源码痕迹', async () => {
     const { impl } = stubWriteFetch({ drafts: [draftFixture()], materials: [MATERIAL] })
     globalThis.fetch = impl
     const wrapper = mountWrite()
     await flushPromises()
 
-    expect(wrapper.find('.wr-materials').exists()).toBe(true)
+    // 2026-10-19：素材不再是独立一栏，而是助手里的第一个页签
+    expect(wrapper.find('.wr-materials').exists()).toBe(false)
     expect(wrapper.find('.wr-doc').exists()).toBe(true)
     expect(wrapper.find('.wr-helper').exists()).toBe(true)
-    // 三栏各有自己的头（素材 · N / 稿件标题 / 三个页签）
-    expect(wrapper.find('.wr-materials .wr-colhead').text()).toContain('素材')
+    // 每栏各有自己的头（稿件标题 / 六个页签）。2026-10-18 加了「对话」（写作 agent 挂在这里），
+    // 2026-10-19 把「素材」从独立一栏搬进来，并加了「版本」（AI 代写的安全网）。
+    expect(wrapper.find('.wr-matpane .wr-colhead').text()).toContain('素材')
     expect(wrapper.findAll('.wr-helper .tabs button').map((b) => b.text())).toEqual([
+      '素材',
+      '对话',
       '提纲',
       '引用',
       '过程',
+      '版本',
     ])
 
     const text = wrapper.text()
@@ -354,7 +371,9 @@ describe('写作页：起稿四入口', () => {
     await flushPromises()
 
     expect(wrapper.find('.wr-tpl').exists()).toBe(true)
-    expect(wrapper.findAll('.wr-tpl-item').length).toBe(2)
+    // 2026-10-19：模板按真实体例重写，共 5 个
+    // （中文期刊 / 英文期刊 / IEEE 会议 / 学位论文 / 研究报告）
+    expect(wrapper.findAll('.wr-tpl-item').length).toBe(5)
     wrapper.unmount()
   })
 
@@ -508,7 +527,7 @@ describe('写作页：插入引文', () => {
     const wrapper = mountWrite()
     await flushPromises()
 
-    await wrapper.findAll('.wr-helper .tabs button')[1].trigger('click')
+    await pickTab(wrapper, '引用')
     await flushPromises()
     await wrapper.findAll('button').find((b) => b.text() === '清空引文…').trigger('click')
     await flushPromises()
@@ -531,7 +550,7 @@ describe('写作页：源文献已删的引文（死链不许做成活链）', (
     const wrapper = mountWrite()
     await flushPromises()
 
-    await wrapper.findAll('.wr-helper .tabs button')[1].trigger('click')
+    await pickTab(wrapper, '引用')
     await flushPromises()
 
     const nums = wrapper.findAll('.wr-cite-no')

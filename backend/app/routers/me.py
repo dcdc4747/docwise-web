@@ -336,6 +336,7 @@ def _export_payload(db: Session, user: User) -> dict:
                 "id": row.id,
                 "title": row.title,
                 "body_md": row.body_md,
+                "body_html": row.body_html,
                 "template_id": row.template_id,
                 "created_at": iso_utc(row.created_at),
                 "updated_at": iso_utc(row.updated_at),

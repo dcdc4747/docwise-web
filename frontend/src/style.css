@@ -659,6 +659,11 @@ body {
   border: 1px solid var(--line); border-radius: 10px;
 }
 .dw .menu.open { display: block; }
+/* ⚠️ 写作页「新建」菜单：默认是 
+ight: 0（右对齐）+ z-index 8，
+   260px 宽的菜单会向左伸出内容区、钻到左侧导航栏底下（用户截图报的遮挡）。
+   这里改成**左对齐按钮**并抬高层级。 */
+.dw .wr .wr-top .menu { left: 0; right: auto; z-index: 60; }
 .dw .menu button {
   display: block; width: 100%; text-align: left; font: inherit; font-size: 13px;
   padding: 8px 10px; border: 0; background: transparent; border-radius: 6px; cursor: pointer;
@@ -1807,8 +1812,11 @@ svg.ic-inl {
 .dw .wr-body {
   flex: 1; min-height: 0;
   display: grid;
-  grid-template-columns: 320px minmax(0, 1fr) 340px;
+  /* 2026-10-19：素材并入右侧助手后只剩两栏（写作 | 助手），正文因此宽了一整列 */
+  grid-template-columns: minmax(0, 1fr) 6px var(--helper-w, 340px);
 }
+/* 写作页的分隔条用通用 .splitter 外观，但要能撑满网格轨道 */
+.dw .wr-body > .splitter { display: block; height: 100%; }
 .dw .wr-materials,
 .dw .wr-helper { display: flex; flex-direction: column; min-height: 0; background: var(--surface-2); }
 .dw .wr-materials { border-right: 1px solid var(--line); }
@@ -1929,7 +1937,8 @@ svg.ic-inl {
 
 /* ---------- 断点①：1024–1100px —— 助手改抽屉（形态 §2.4） ---------- */
 @media (min-width: 1024px) and (max-width: 1099px) {
-  .dw .wr-body { grid-template-columns: 300px minmax(0, 1fr); }
+  .dw .wr-body { grid-template-columns: minmax(0, 1fr); }
+  .dw .wr-body > .splitter { display: none; }
   .dw .wr-helper-toggle { display: inline-flex; }
   .dw .wr-helper {
     position: fixed; top: 0; right: 0; bottom: 0; z-index: 60; width: 340px;
@@ -1948,6 +1957,7 @@ svg.ic-inl {
   }
   .dw .wr-switch button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
   .dw .wr-body { display: flex; flex-direction: column; }
+  .dw .wr-body > .splitter { display: none; }
   .dw .wr-materials,
   .dw .wr-doc,
   .dw .wr-helper { display: none; flex: 1; min-height: 0; border: 0; }
@@ -3325,14 +3335,43 @@ svg.ic-inl {
 }
 
 /* 设置面板 */
+/* 设置做成**浮层**：贴在输入框上方，像菜单一样出现，不把输入区撑成一整页表单 */
+/* 设置 = 面板内的"设置页"：覆盖消息区，够高、能滚、有关闭。
+   （试过贴输入框上方的浮层，但表单比可用高度高，上半截会被裁掉 —— 那样更糟。） */
+.dw .agent-pane { position: relative; }
 .dw .agent-config {
+  position: absolute;
+  inset: 8px;
+  z-index: 30;
+  overflow: auto;
   border: 1px solid var(--line);
-  border-radius: var(--r-md);
-  padding: 10px 12px;
-  margin-bottom: 10px;
-  background: #fbfdff;
+  border-radius: 14px;
+  padding: 12px 14px 14px;
+  background: #fff;
+  box-shadow: 0 18px 44px rgba(15, 23, 42, 0.16);
+  display: grid;
+  gap: 6px;
+  align-content: start;
 }
-.dw .agent-config label { display: grid; gap: 3px; margin-bottom: 8px; }
+.dw .agent-config-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+}
+.dw .agent-config-head b { font-size: var(--fs-meta); }
+.dw .agent-config-head button {
+  border: 0;
+  background: none;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--muted);
+  cursor: pointer;
+}
+.dw .agent-config-head button:hover { color: var(--ink); }
+.dw .agent-config label { display: grid; gap: 3px; margin-bottom: 6px; }
 .dw .agent-config label > span { font-size: var(--fs-micro); color: var(--muted); }
 .dw .agent-config input,
 .dw .agent-config select {
@@ -3384,6 +3423,639 @@ svg.ic-inl {
 .dw .agent-src { display: flex; gap: 10px; font-size: var(--fs-micro); color: var(--muted); }
 .dw .agent-src-drop { color: #b45309; }
 .dw .agent-usage { font-size: var(--fs-micro); color: var(--muted); }
+
+/* ============================================================================
+   [RW] 阅读区：铺满 + 细滚条 + 可拖拽分隔条（2026-10-18）
+   ============================================================================
+   三个问题（用户截图对比后提的）：
+   1. 正文被锁在 760px，1440 屏上两边大片空白 —— 用户原话"让文章铺满阅读区"；
+   2. 正文与助手之间的滚动条又粗又抢眼，穿在画面中间；
+   3. 正文/助手的宽度是写死的 340px，读长文与写稿时需要的主次不同。
+
+   做法：正文宽度上限抬到 1080（窄屏仍自适应）、滚条收细且只在悬停时显形、
+   中间加一条可拖拽分隔条（宽度存 localStorage，双击复位）。
+   ⚠️ 位置要求：必须在 `[R9]` 之前（#162 的用例断言 R9 是最后一段卡片样式）。 */
+
+.dw .page {
+  width: 100%;
+  max-width: 1080px;
+  padding: 32px 40px;
+}
+
+/* 正文滚条：细 + 透明轨道，只在悬停时显形（不悬停时几乎看不见） */
+.dw .doc-pane {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  padding: 18px 22px;
+}
+.dw .doc-pane:hover {
+  scrollbar-color: #c3ccda transparent;
+}
+.dw .doc-pane::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.dw .doc-pane::-webkit-scrollbar-track {
+  background: transparent;
+}
+.dw .doc-pane::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 999px;
+}
+.dw .doc-pane:hover::-webkit-scrollbar-thumb {
+  background: #c3ccda;
+}
+
+/* 助手宽度由 CSS 变量给（默认 340），拖分隔条时实时变 */
+.dw .assist {
+  flex: 0 0 var(--assist-w, 340px);
+}
+
+/* 分隔条：6px 宽的抓手，平时几乎不可见，悬停/拖拽时亮起来 */
+.dw .splitter {
+  flex: 0 0 6px;
+  position: relative;
+  cursor: col-resize;
+  background: transparent;
+  z-index: 2;
+  touch-action: none;
+}
+.dw .splitter::before {
+  content: '';
+  position: absolute;
+  inset: 0 2px;
+  background: transparent;
+  border-radius: 999px;
+  transition: background 120ms ease;
+}
+.dw .splitter:hover::before,
+.dw .splitter.dragging::before {
+  background: var(--accent);
+  opacity: 0.55;
+}
+.dw .splitter i {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 3px;
+  height: 34px;
+  margin: -17px 0 0 -1.5px;
+  border-radius: 999px;
+  background: var(--line);
+}
+.dw .splitter:hover i,
+.dw .splitter.dragging i {
+  background: #fff;
+}
+
+/* 手机/窄屏：走底部抽屉，没有分隔条，正文恢复满宽 */
+@media (max-width: 1023px) {
+  .dw .splitter { display: none; }
+  .dw .page { max-width: 100%; padding: 20px 16px; }
+}
+
+.dw .agent-process {
+  border-left: 2px solid var(--line);
+  padding: 4px 0 4px 10px;
+  display: grid;
+  gap: 6px;
+  font-size: var(--fs-micro);
+  color: var(--muted);
+}
+/* 思考片段：斜体 + 更淡，和正文一眼分得开（它不该被当成答案读） */
+.dw .agent-thinking {
+  white-space: pre-wrap;
+  font-style: italic;
+  color: #94a3b8;
+  max-height: 132px;
+  overflow: hidden;
+  mask-image: linear-gradient(#000 70%, transparent);
+}
+
+.dw .agent-composer {
+  margin-top: auto;
+  padding: 10px 12px 8px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+  display: grid;
+  gap: 6px;
+}
+/* 聚焦时**整块**亮起来（而不是只有输入框亮） */
+.dw .agent-composer:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft, #eef2ff);
+}
+
+.dw .agent-composer textarea {
+  width: 100%;
+  min-height: 26px;
+  max-height: 150px;
+  border: 0;
+  outline: none;
+  resize: none;
+  padding: 2px 2px 0;
+  font: inherit;
+  font-size: var(--fs-meta);
+  line-height: 1.6;
+  color: var(--ink);
+  background: transparent;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+/* 隐藏原生滚动条（那对上下箭头就是"裂开感"的来源之一） */
+.dw .agent-composer textarea::-webkit-scrollbar { width: 0; height: 0; }
+
+.dw .agent-composer-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dw .agent-model-btn {
+  flex: 0 1 auto;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border: 1px solid var(--line);
+  background: #f8fafc;
+  color: var(--ink);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: var(--fs-micro);
+  cursor: pointer;
+  transition: border-color 120ms ease, color 120ms ease;
+}
+.dw .agent-model-btn:hover { border-color: var(--accent); color: var(--accent); }
+.dw .agent-model-btn.warn { background: #fef3c7; border-color: #fde68a; color: #92400e; }
+
+.dw .agent-kbd-hint {
+  margin-left: auto;
+  font-size: var(--fs-micro);
+  color: var(--muted);
+  opacity: 0;
+  transition: opacity 160ms ease;
+}
+.dw .agent-composer:focus-within .agent-kbd-hint { opacity: 1; }
+
+.dw .agent-send {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: #e2e8f0;
+  color: #94a3b8;
+  cursor: not-allowed;
+  transition: background 140ms ease, color 140ms ease, transform 100ms ease;
+}
+.dw .agent-send.ready {
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+}
+.dw .agent-send.ready:hover { transform: translateY(-1px); }
+.dw .agent-send svg { width: 16px; height: 16px; }
+
+/* 面板撑满：消息区自己滚、输入框吸底（不然输入框会跟着内容往上跑） */
+/* ⭐ 高度链路：让 tabbody 只管撑满、由 agent 面板自己滚，输入框才真能贴底。
+   之前用 `min-height: 100%` 不行——tabbody 是滚动容器且带 padding，百分比高度撑不出来，
+   输入框就"跟着内容跑"，看起来贴在顶部。 */
+.dw .tabbody:has(.agent-pane) {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+}
+.dw .agent-pane {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 14px 14px 10px;
+}
+/* ⚠️ 中间还有一层 .tabpane（默认 display:block）——不把它也撑成 flex 容器，
+   .agent-pane 就只有内容高，输入框会被顶到上面去（截图里那个 bug 的真因）。 */
+.dw .tabbody > .tabpane.on {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.dw .agent-flow {
+  flex: 1 1 auto;
+  overflow: auto;
+  padding-right: 2px;
+}
+.dw .agent-trace-view {
+  flex: 1 1 auto;
+  overflow: auto;
+}
+
+
+/* 预设问句：药丸形（原来是用矩形硬框住的，看着突兀） */
+.dw .agent-quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+.dw .agent-quick button {
+  border: 1px solid var(--line);
+  background: #f8fafc;
+  color: var(--ink);
+  border-radius: 999px;
+  padding: 7px 14px;
+  font: inherit;
+  font-size: var(--fs-meta);
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease, color 120ms ease;
+}
+.dw .agent-quick button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft, #eef2ff);
+}
+/* 对话 / 轨迹 分段（对齐主流 agent 工具的"轨迹单独一页"） */
+.dw .agent-views {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+.dw .agent-views button {
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--fs-micro);
+  color: var(--muted);
+  padding: 6px 2px;
+  margin-right: 12px;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+}
+.dw .agent-views button.on {
+  color: var(--ink);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+
+.dw .agent-trace-view { display: grid; gap: 14px; overflow: auto; }
+.dw .agent-trace-q { font-size: var(--fs-micro); color: var(--muted); margin-bottom: 4px; }
+.dw .agent-trace-item .agent-trace-list { margin: 0; }
+
+/* ⭐ 消息铺满：去掉气泡底色与限宽，读起来像文档（DS Harness 那种密度） */
+.dw .agent-bubble {
+  background: none;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  font-size: var(--fs-meta);
+  line-height: 1.85;
+}
+.dw .agent-bubble.user {
+  align-self: stretch;
+  max-width: 100%;
+  color: var(--ink);
+  font-weight: 600;
+  padding-left: 10px;
+  border-left: 3px solid var(--accent);
+  margin-bottom: 2px;
+}
+.dw .agent-bubble.answer {
+  background: none;
+  border: 0;
+}
+.dw .agent-bubble.err {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+}
+.dw .agent-bubble.pending {
+  color: var(--muted);
+  font-size: var(--fs-micro);
+}
+.dw .agent-turn { gap: 8px; }
+
+/* 模型列表（只选模型）：贴着输入框往上弹 */
+.dw .agent-composer { position: relative; }
+/* 锚点用**输入框容器**而不是按钮：这样下拉浮在整个输入框上方，
+   不会盖住用户正在打的字（按钮那一行在文本框下面）。 */
+.dw .agent-model-wrap {
+  position: static;
+  flex: 0 1 auto;
+  max-width: 52%;
+}
+.dw .agent-models {
+  position: absolute;
+  left: 12px;
+  bottom: calc(100% + 10px);
+  /* 小下拉：宽 280 封顶，不铺满对话区 */
+  width: 280px;
+  max-width: 88vw;
+  z-index: 30;
+  max-height: 300px;
+  overflow: auto;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.14);
+  padding: 6px;
+  display: grid;
+  gap: 2px;
+}
+.dw .agent-models-head {
+  font-size: var(--fs-micro);
+  color: var(--muted);
+  padding: 6px 8px 4px;
+}
+.dw .agent-models-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border: 0;
+  background: none;
+  border-radius: 8px;
+  padding: 8px;
+  font: inherit;
+  font-size: var(--fs-meta);
+  color: var(--ink);
+  cursor: pointer;
+  text-align: left;
+}
+.dw .agent-models-item:hover { background: #f1f5f9; }
+.dw .agent-models-item.on { background: var(--accent-soft, #eef2ff); color: var(--accent); }
+.dw .agent-models-name { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dw .agent-models-provider { font-size: var(--fs-micro); color: var(--muted); }
+.dw .agent-models-check { color: var(--accent); }
+.dw .agent-models-more {
+  margin-top: 4px;
+  border: 0;
+  border-top: 1px solid var(--line);
+  background: none;
+  padding: 8px;
+  font: inherit;
+  font-size: var(--fs-micro);
+  color: var(--muted);
+  cursor: pointer;
+  text-align: left;
+}
+.dw .agent-models-more:hover { color: var(--accent); }
+
+/* 设置弹窗：左侧分区 + 右侧内容（自定义配置都收在这） */
+.dw .agent-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgba(15, 23, 42, 0.35);
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+.dw .agent-modal-card {
+  width: min(760px, 100%);
+  max-height: 84vh;
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 24px 64px rgba(15, 23, 42, 0.28);
+  display: flex;
+  overflow: hidden;
+}
+.dw .agent-modal-nav {
+  flex: 0 0 168px;
+  border-right: 1px solid var(--line);
+  padding: 14px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: #fbfdff;
+}
+.dw .agent-modal-title { font-size: var(--fs-meta); font-weight: 600; padding: 4px 8px 10px; }
+.dw .agent-modal-nav button {
+  border: 0;
+  background: none;
+  border-radius: 8px;
+  padding: 8px;
+  font: inherit;
+  font-size: var(--fs-meta);
+  color: var(--muted);
+  text-align: left;
+  cursor: pointer;
+}
+.dw .agent-modal-nav button.on { background: #eef2ff; color: var(--accent); font-weight: 600; }
+.dw .agent-modal-nav button:disabled { opacity: 0.45; cursor: not-allowed; }
+.dw .agent-modal-body {
+  flex: 1 1 auto;
+  padding: 16px 20px;
+  overflow: auto;
+  display: grid;
+  gap: 8px;
+  align-content: start;
+}
+.dw .agent-modal-body header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.dw .agent-modal-body header button {
+  border: 0;
+  background: none;
+  font-size: 18px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.dw .agent-modal-hint { font-size: var(--fs-micro); color: var(--muted); margin: 0 0 6px; }
+.dw .agent-modal-body label { display: grid; gap: 4px; margin-bottom: 8px; }
+.dw .agent-modal-body label > span { font-size: var(--fs-micro); color: var(--muted); }
+.dw .agent-modal-body input,
+.dw .agent-modal-body select {
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 8px 10px;
+  font: inherit;
+  font-size: var(--fs-meta);
+  background: #fff;
+  color: var(--ink);
+}
+.dw .agent-modal-ops { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
+
+/* 消息区节奏：每条之间留 18px（原来靠 gap 10px，读起来挤） */
+.dw .agent-flow { display: flex; flex-direction: column; gap: 18px; }
+.dw .agent-turn { gap: 6px; }
+
+/* 元信息行：小字、淡色、只写事实 */
+.dw .agent-meta {
+  display: flex;
+  gap: 10px;
+  font-size: var(--fs-micro);
+  color: var(--muted);
+  opacity: 0.85;
+}
+
+/* 错误态：一句话 + 重试（不甩锅、也不假装没事） */
+.dw .agent-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #991b1b;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: var(--fs-meta);
+  line-height: 1.7;
+}
+.dw .agent-error button {
+  margin-left: auto;
+  flex: 0 0 auto;
+  border: 1px solid #fecaca;
+  background: #fff;
+  color: #991b1b;
+  border-radius: 999px;
+  padding: 3px 10px;
+  font: inherit;
+  font-size: var(--fs-micro);
+  cursor: pointer;
+}
+.dw .agent-error button:hover { background: #fee2e2; }
+
+/* 改写建议卡：原句划掉、改后高亮、才有一个「采用」 */
+.dw .agent-revisions { display: grid; gap: 8px; }
+.dw .agent-rev {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: #fbfdff;
+  display: grid;
+  gap: 6px;
+}
+.dw .agent-rev-orig {
+  font-size: var(--fs-meta);
+  color: #9aa1ad;
+  text-decoration: line-through;
+  text-decoration-color: #d5dbe6;
+  line-height: 1.7;
+}
+.dw .agent-rev-new {
+  font-size: var(--fs-meta);
+  color: var(--ink);
+  line-height: 1.7;
+  border-left: 3px solid var(--accent);
+  padding-left: 8px;
+}
+.dw .agent-rev-foot { display: flex; align-items: center; gap: 8px; }
+.dw .agent-rev-reason { font-size: var(--fs-micro); color: var(--muted); flex: 1 1 auto; }
+.dw .agent-rev-foot button {
+  border: 1px solid var(--accent-line, #c7d2fe);
+  background: #fff;
+  color: var(--accent);
+  border-radius: 999px;
+  padding: 3px 12px;
+  font: inherit;
+  font-size: var(--fs-micro);
+  cursor: pointer;
+}
+.dw .agent-rev-foot button:hover { background: var(--accent-soft, #eef2ff); }
+.dw .agent-notes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: var(--fs-micro);
+  color: #b45309;
+}
+
+/* 设置 · 能力：场景 → 工具清单（可核对，不是文案） */
+.dw .agent-ability { display: grid; gap: 14px; }
+.dw .agent-ability-block { display: grid; gap: 6px; }
+.dw .agent-ability-head { display: flex; align-items: baseline; gap: 8px; }
+.dw .agent-ability-count { font-size: var(--fs-micro); color: var(--muted); }
+.dw .agent-ability-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.dw .agent-ability-chip {
+  font-size: var(--fs-micro);
+  color: var(--ink);
+  background: #f1f5f9;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 2px 9px;
+  font-family: var(--mono, ui-monospace, monospace);
+}
+.dw .agent-inline-code {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: var(--fs-micro);
+  background: #f1f5f9;
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+
+/* ---- 写作页：助手栏里的 agent 面板也要"输入框贴底"（2026-10-19） ----
+   `.wr-helper-body` 原来是 display:block，`.wr-chat` 只有内容高，
+   于是 `.agent-composer` 悬在面板中间（用户截图报的"对话框顶上去了"）。 */
+.dw .wr-helper-body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.dw .wr-helper-body > .wr-chat {
+  flex: 1 1 auto;
+  display: flex;
+  min-height: 0;
+}
+.dw .wr-helper-body > .wr-chat > .agent-pane {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+}
+/* 非 agent 的三个页签（提纲/引用/过程）照旧可滚，不被 flex 挤变形 */
+.dw .wr-helper-body > div:not(.wr-chat) {
+  min-height: 0;
+}
+
+
+/* 素材页签（从原左栏搬进来的）：撑满助手内容区、自己滚 */
+.dw .wr-matpane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1 1 auto;
+  height: 100%;
+}
+.dw .wr-matpane > .wr-colbody {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+/* ---- 右栏助手骨架（AssistPane.vue）：高度链只此一处 ----
+   读懂 / 写作两个页面共用。规则写在这里而不是各页，
+   是为了让"新加一个页签"不可能再把输入框顶到中间（已经犯过三次）。 */
+.dw .assist-pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.dw .assist-pane-body {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+/* 页签里的"动作位"靠右（例如新对话），页签本身不拉伸 */
+.dw .assist-pane > .tabs > button { flex: 0 0 auto; }
+.dw .assist-pane > .tabs > .agent-views-spacer,
+.dw .assist-pane > .tabs > .tabs-extra {
+  flex: 1 1 auto;
+}
 
 /* ============================================================================
    [R9] 字体栈与渲染开关（2026-10-16）—— 全站字体只在这里定

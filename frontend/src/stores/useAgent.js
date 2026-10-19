@@ -16,18 +16,36 @@ const state = reactive({
   sceneId: 'read_ask',
   scenes: [],
   config: null,
-  // 每条：{ role: 'user' | 'assistant', text, steps, sources, dropped, usage, error }
-  messages: [],
-  busy: false,
-  error: '',
+  /**
+   * **每个场景一条独立线程**：`{ [sceneId]: { messages, busy, error } }`。
+   *
+   * ⚠️ 2026-10-19 用户指出两件事，都出在这里：
+   * ① 读懂和写作共用一条对话（`messages` 只有一份）——两个模块问的是完全不同的东西，
+   *    混在一条里既看不懂也会互相干扰上下文；
+   * ② 没有"开新对话"的入口，聊歪了只能刷新页面。
+   * 现在按场景隔离，切走再切回来历史还在；`newThread()` 只清当前场景。
+   */
+  threads: {},
   configOpen: false,
+  // 设置弹窗：自定义类配置（接口地址 / API Key / 强度 / 厂商）都收在这里，
+  // 输入框旁边只负责「选模型」——两件事不混在一个按钮里。
+  settingsOpen: false,
   saving: false,
   saveNote: '',
 })
 
-export const agentMessages = computed(() => state.messages)
-export const agentBusy = computed(() => state.busy)
-export const agentError = computed(() => state.error)
+/** 取（必要时建）某个场景的线程。 */
+export function threadOf(sceneId = state.sceneId) {
+  const key = sceneId || 'read_ask'
+  if (!state.threads[key]) {
+    state.threads[key] = { messages: [], busy: false, error: '' }
+  }
+  return state.threads[key]
+}
+
+export const agentMessages = computed(() => threadOf().messages)
+export const agentBusy = computed(() => threadOf().busy)
+export const agentError = computed(() => threadOf().error)
 export const agentConfig = computed(() => state.config)
 export const agentConfigOpen = computed(() => state.configOpen)
 export const agentSaveNote = computed(() => state.saveNote)
@@ -92,30 +110,57 @@ export async function saveAgentConfig({ baseUrl, model, tier, apiKey }) {
   }
 }
 
+/**
+ * 开一条新对话：**只清当前场景**，别的场景的历史不动。
+ *
+ * 为什么不清全局：读懂聊到一半去写作问一句，回来还该看到原来的对话——
+ * 这是"两个模块"该有的样子（用户 2026-10-19 指出）。
+ */
+export function newThread(sceneId = state.sceneId) {
+  const thread = threadOf(sceneId)
+  thread.messages = []
+  thread.error = ''
+  thread.busy = false
+}
+
+/** 旧名字，保留兼容（等价于 `newThread()`）。 */
 export function resetAgentThread() {
-  state.messages = []
-  state.error = ''
+  newThread()
 }
 
 /**
  * 发一个问题。`scope` 是页面上下文（如 `{ task_id }`），后端只收白名单字段。
  */
 export async function sendAgent(question, scope = {}) {
+  const thread = threadOf()
   const text = String(question || '').trim()
-  if (!text || state.busy) return
-  state.error = ''
-  state.messages.push({ role: 'user', text })
+  if (!text || thread.busy) return
+  thread.error = ''
+  thread.messages.push({ role: 'user', text })
   const turn = reactive({
     role: 'assistant',
     text: '',
+    thinking: '',
     steps: [],
     sources: [],
     dropped: [],
     usage: null,
+    // 写作侧：可采用的替换建议 + 直接写进正文的操作 + 服务端校验说明
+    revisions: [],
+    ops: [],
+    notes: [],
+    
     error: '',
+    // `done=false`：还在生成（过程可见）；`true`：过程收起、只留正文
+    done: false,
+    // 元信息与重试用：原问题、发起时间、用时、用的哪个模型
+    question: text,
+    startedAt: Date.now(),
+    elapsedMs: 0,
+    model: '',
   })
-  state.messages.push(turn)
-  state.busy = true
+  thread.messages.push(turn)
+  thread.busy = true
   try {
     const res = await authFetch('/api/agent/chat', {
       method: 'POST',
@@ -127,6 +172,8 @@ export async function sendAgent(question, scope = {}) {
       turn.error = body.detail || `没答出来（HTTP ${res.status}）`
       return
     }
+    turn.done = true
+    turn.elapsedMs = Date.now() - (turn.startedAt || Date.now())
     turn.text = body.answer || ''
     turn.steps = body.steps || []
     turn.sources = body.sources || []
@@ -135,7 +182,7 @@ export async function sendAgent(question, scope = {}) {
   } catch (exc) {
     turn.error = `请求失败：${exc && exc.message ? exc.message : exc}`
   } finally {
-    state.busy = false
+    thread.busy = false
   }
 }
 
@@ -146,3 +193,144 @@ export function toolStepsOf(turn) {
     return !name.includes('final_result')
   })
 }
+
+/**
+ * 流式发问（SSE）。与 `sendAgent` 的差别**只在传输**：
+ * 事件类型与最终结构完全一致，所以界面不用分两套。
+ *
+ * ⚠️ 用 `fetch` + `ReadableStream` 而不是 `EventSource`：
+ * EventSource 只能 GET、也带不了 `Authorization` 头。
+ */
+export async function sendAgentStream(question, scope = {}) {
+  const thread = threadOf()
+  const text = String(question || '').trim()
+  if (!text || thread.busy) return
+  thread.error = ''
+  thread.messages.push({ role: 'user', text })
+  const turn = reactive({
+    role: 'assistant',
+    text: '',
+    thinking: '',
+    steps: [],
+    sources: [],
+    dropped: [],
+    usage: null,
+    error: '',
+    // `done=false`：还在生成（过程可见）；`true`：过程收起、只留正文
+    done: false,
+    // 元信息与重试用：原问题、发起时间、用时、用的哪个模型
+    question: text,
+    startedAt: Date.now(),
+    elapsedMs: 0,
+    model: '',
+  })
+  thread.messages.push(turn)
+  thread.busy = true
+  try {
+    const res = await authFetch('/api/agent/chat/stream', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+      body: JSON.stringify({ scene: state.sceneId, question: text, scope }),
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      turn.error = body.detail || `没答出来（HTTP ${res.status}）`
+      return
+    }
+    if (!res.body) {
+      turn.error = '这个浏览器不支持流式读取'
+      return
+    }
+    const reader = res.body.getReader()
+    const decoder = new TextDecoder('utf-8')
+    let buffer = ''
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      // SSE：事件之间用空行分隔
+      let cut = buffer.indexOf('\n\n')
+      while (cut !== -1) {
+        const chunk = buffer.slice(0, cut)
+        buffer = buffer.slice(cut + 2)
+        cut = buffer.indexOf('\n\n')
+        const line = chunk.split('\n').find((l) => l.startsWith('data: '))
+        if (!line) continue
+        let event = null
+        try {
+          event = JSON.parse(line.slice(6))
+        } catch {
+          continue
+        }
+        applyEvent(turn, event)
+      }
+    }
+  } catch (exc) {
+    turn.error = `请求失败：${exc && exc.message ? exc.message : exc}`
+  } finally {
+    thread.busy = false
+  }
+}
+
+/** 把一帧事件并到这一轮回答里（后端形状见 `app/agent/runtime.stream_scene`）。 */
+function applyEvent(turn, event) {
+  if (event.type === 'tool_call') {
+    turn.steps.push({
+      kind: 'tool_call',
+      name: event.name,
+      args: event.args,
+      // 到达时间：界面用它算"这一步用了多久"（没有时间感 = 像卡住）
+      ts: Date.now(),
+    })
+  } else if (event.type === 'tool_result') {
+    turn.steps.push({
+      kind: 'tool_result',
+      name: event.name,
+      ok: event.ok !== false,
+      excerpt: event.excerpt || '',
+      ts: Date.now(),
+    })
+  } else if (event.type === 'thinking') {
+    // 思考片段：只进"过程"，不进正文
+    turn.thinking += event.text || ''
+  } else if (event.type === 'delta') {
+    turn.text += event.text || ''
+  } else if (event.type === 'final') {
+    turn.done = true
+    turn.model = event.model || (state.config && state.config.model) || ''
+    turn.elapsedMs = Date.now() - (turn.startedAt || Date.now())
+    // 以 final 为准（模型可能边流边改口，最终答案才算数）
+    if (event.answer) turn.text = event.answer
+    turn.sources = event.sources || []
+    turn.dropped = event.dropped_sources || []
+    turn.revisions = event.revisions || []
+    turn.ops = event.ops || []
+    turn.notes = event.notes || []
+    // AI 改过版式：写作页据此重拉草稿（撤销走「版本」页签）
+    turn.draftChanged = Boolean(event.draft_changed)
+    turn.usage = event.usage || null
+    if (event.steps && event.steps.length) turn.steps = event.steps
+  } else if (event.type === 'error') {
+    turn.error = event.message || '模型调用失败'
+  }
+}
+
+/** 打开/关闭设置弹窗（模型列表底部的「更多设置…」走它）。 */
+export function openSettings(open = true) {
+  state.settingsOpen = open
+  if (open) loadConfig()
+}
+
+export const agentSettingsOpen = computed(() => state.settingsOpen)
+
+/** 重试一条失败的回答：把那条撤掉，用原问题再问一次。 */
+export function retryTurn(turn, scope = {}) {
+  const thread = threadOf()
+  const index = thread.messages.indexOf(turn)
+  const question = turn && turn.question
+  if (index >= 0) thread.messages.splice(index, 1)
+  if (question) return sendAgentStream(question, scope)
+}
+
+/** 当前场景 id（组件用来判断要不要切）。 */
+export const agentSceneId = computed(() => state.sceneId)

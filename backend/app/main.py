@@ -28,6 +28,7 @@ from .routers.block_events import router as block_events_router
 from .routers.check import router as check_router
 from .routers.collections import router as collections_router
 from .routers.collections import task_router as collections_task_router
+from .routers.draft_export import router as draft_export_router
 from .routers.drafts import router as drafts_router
 from .routers.ledger import router as ledger_router
 from .routers.materials import router as materials_router
@@ -124,6 +125,25 @@ def _ensure_schema() -> None:
                     conn.execute(
                         text(f"ALTER TABLE task_blocks ADD COLUMN {column} {ddl}")
                     )
+        # 富文本源（2026-10-19）：写作页换成 TipTap 之后，逐段字号/行距只能存 HTML。
+        # 老库补列，`body_md` 继续当派生视图（引文/提纲/导出/AI 锚点都还读它）。
+        for table in ("drafts", "draft_versions"):
+            if table not in tables:
+                continue
+            columns = {col["name"] for col in inspector.get_columns(table)}
+            if "body_html" not in columns:
+                conn.execute(
+                    text(f"ALTER TABLE {table} ADD COLUMN body_html TEXT")
+                )
+        # 每板块换模型（2026-10-19）：老库补列；空 = 跟随全局模型
+        if "user_llm_configs" in tables:
+            llm_columns = {
+                col["name"] for col in inspector.get_columns("user_llm_configs")
+            }
+            if "scene_models" not in llm_columns:
+                conn.execute(
+                    text("ALTER TABLE user_llm_configs ADD COLUMN scene_models TEXT")
+                )
 
 
 def _assign_legacy_tasks() -> None:
@@ -240,6 +260,8 @@ app.include_router(tasks_router)
 # ⚠️ **必须写在 `webapp.mount_frontend(app)` 之前** —— Starlette 按注册顺序匹配，
 # 写在挂载之后会被静态文件吃成 404（`test_same_origin` 有结构断言盯着）。
 app.include_router(drafts_router)
+# 稿子的 .md / .docx 导出（用户要「能交稿」）。同样必须在 mount_frontend 之前。
+app.include_router(draft_export_router)
 # 收口检查（契约 §2.7 / N22–N23）。同样**必须在 `webapp.mount_frontend(app)` 之前**。
 app.include_router(check_router)
 # 素材卡（契约 §2.4 / N12–N14）。同样**必须在 `webapp.mount_frontend(app)` 之前**。

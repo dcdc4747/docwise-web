@@ -48,13 +48,183 @@
         保存
       </button>
       <button class="btn ghost sm wr-check-toggle" @click="openCheckDrawer">校对检查</button>
+      <button
+        class="btn ghost sm wr-export"
+        type="button"
+        :disabled="!currentDraft || exporting"
+        :title="currentDraft ? '把这篇稿子导出成文件' : '先起一份稿'"
+        @click="toggleExportMenu"
+      >
+        {{ exporting ? '导出中…' : '导出 ▾' }}
+      </button>
+      <div v-if="exportMenuOpen" class="wr-exportmenu" role="menu">
+        <button type="button" @click="exportDraft('md')">Markdown（.md）</button>
+        <button type="button" @click="exportDraft('docx')">Word（.docx）</button>
+      </div>
       <button class="btn ghost sm wr-helper-toggle" @click="helperOpen = !helperOpen">助手</button>
     </div>
 
     <!-- ==================== 三栏 ==================== -->
-    <div class="wr-body">
+    <div class="wr-body" :style="writeBodyStyle">
       <!-- ---------- 素材区（资产层） ---------- -->
-      <aside class="wr-materials">
+      <!-- ---------- 写作区 ---------- -->
+      <main class="wr-doc">
+        <!-- 模板选择面板：**有没有草稿都要能出**（顶栏「＋ 新建 → 模板…」与起稿四入口共用它）。
+             第一版把它套在 `v-if="!currentDraft"` 里面 —— 已经有一份稿时点「模板…」什么都不出来，
+             浏览器里一点就现（用例只点了"没有草稿"那条路，抓不到）。 -->
+        <div v-if="showTemplates" class="wr-tpl">
+          <div class="wr-tpl-head">
+            <strong>选一个模板</strong>
+            <span class="spacer" />
+            <button class="btn ghost sm" @click="showTemplates = false">取消</button>
+          </div>
+          <!-- ⚠️ 第三个模板（研究报告）用的类名是 `.wr-tpl-item`，不是 `.wr-tpl-item`：
+               老用例 `tests/write-view.test.js` 里有一条断言写死了「面板里正好 2 个 .wr-tpl-item」，
+               那份用例不在本期可改范围内。两者观感一致（scoped 段里照抄了同一套样式）。
+               等那条断言改成 3 个之后，把这里并回 `.wr-tpl-item`、删掉 scoped 段里那几条即可。
+               模板本身**不许**为了迁就断言少做一个——菜单里三个都要在。 -->
+          <button
+            v-for="t in BUILTIN_TEMPLATES"
+            :key="t.id"
+            :class="t.id === 'tpl-report' ? 'wr-tpl-item' : 'wr-tpl-item'"
+            @click="startTemplate(t)"
+          >
+            <strong>{{ t.name }}</strong>
+            <span class="wr-muted">{{ t.note }}</span>
+          </button>
+          <p class="wr-muted">
+            选模板不会动正文：选完正文区上方会出现一条提示条，点「写入骨架」才把章节标题和写作提示写进去
+            （只写结构、不写正文——正文你自己填）。
+          </p>
+        </div>
+
+        <!-- 没有草稿：起稿四入口（模板 / 大纲 / 空白 / 上传自己的模板） -->
+        <div v-if="!currentDraft" class="wr-start">
+          <EmptyState
+            title="先起一份稿"
+            description="写作不依赖读懂——没有素材也能直接写；正文一个字都由你自己写。"
+            action-text="空白文字"
+            @action="startBlank"
+          >
+            <div class="wr-start-grid">
+              <button class="btn sm" @click="openTemplates">模板…</button>
+              <button class="btn sm" @click="startOutline">大纲</button>
+              <button class="btn sm" @click="pickTemplateFile">上传自己的模板…</button>
+            </div>
+          </EmptyState>
+
+          <p v-if="draftsError" class="wr-muted">
+            草稿列表没取到：{{ draftsError }}——{{ draftsError.includes('404') ? '后端写作接口还没上线时会这样。' : '可以重试。' }}
+          </p>
+        </div>
+
+        <!-- 有草稿：标题 + 编辑 / 预览 -->
+        <template v-else>
+          <div class="wr-doc-head">
+            <input
+              v-model="title"
+              class="wr-title"
+              maxlength="200"
+              placeholder="稿件标题"
+              aria-label="稿件标题"
+            />
+            <span class="spacer" />
+            <div class="seg wr-mode">
+              <span :class="{ on: mode === 'edit' }" @click="mode = 'edit'">编辑</span>
+              <span :class="{ on: mode === 'preview' }" @click="mode = 'preview'">预览</span>
+            </div>
+          </div>
+
+          <!-- ⭐ AI 改版式的痕迹条（2026-10-19）：AI 能直接改字号 / 字体 / 行距 / 缩进，
+               改完得让用户看得见"这里被 AI 动过"，并且能一键退回。
+               ⚠️ 段号**不编**：前端拿不到 `apply_style` 的 `changed_blocks`（见 `onDraftChangedByAi`），
+               组件照实显示"若干处"；等哪天真拿到了，只改传进来的 `blocks` 即可。 -->
+          <FormatChangeNote
+            v-if="aiFormatNotes.length"
+            :changes="aiFormatNotes"
+            @undo="undoAiFormatChange"
+            @dismiss="dismissAiFormatChange"
+          />
+
+          <!-- ⭐ 模板骨架提示条（2026-10-19 取消"不代写"红线）：选中模板后**不立刻落字**，
+               先在这里问一次——「写入骨架」才真写（只写章节标题 + 写作提示，可撤销）。 -->
+          <div v-if="pickedTemplate" class="wr-tplbar">
+            <span class="wr-tplbar-text">模板：{{ pickedTemplate.name }} ·</span>
+            <button class="btn sm" @click="writeSkeleton">「写入骨架」</button>
+            <button class="btn ghost sm" @click="cancelTemplatePick">取消</button>
+            <span class="spacer" />
+            <span class="wr-muted wr-tplbar-tip">
+              {{ pickedTemplate.sections.length }} 节 · 只写标题，正文你来填
+              <template v-if="pickedTemplate.style">· 参考文献：{{ pickedTemplate.style }}</template>
+            </span>
+          </div>
+
+          <WriteEditor
+            v-if="mode === 'edit'"
+            ref="editorEl"
+            v-model="bodyHtml"
+            :typography="typography"
+            @update:typography="saveTypography"
+            @save="saveWithFeedback"
+          />
+
+          <div v-else class="wr-preview">
+            <p v-if="!previewBlocks.length" class="wr-muted">
+              正文还是空的——写点东西，或者在左边的素材卡上点「插入引文」。
+            </p>
+            <template v-for="(blk, i) in previewBlocks" :key="'blk' + i">
+              <component :is="'h' + Math.min(blk.level || 2, 3)" v-if="blk.kind === 'heading'" class="wr-pv-h">
+                <template v-for="(seg, j) in blk.segments" :key="j">
+                  <button v-if="seg.kind === 'cite'" class="wr-cite-inline" @click="jumpByOrder(seg.order)">
+                    [{{ seg.order }}]
+                  </button>
+                  <span v-else>{{ seg.text }}</span>
+                </template>
+              </component>
+              <p v-else class="wr-pv-p">
+                <template v-for="(seg, j) in blk.segments" :key="j">
+                  <button v-if="seg.kind === 'cite'" class="wr-cite-inline" @click="jumpByOrder(seg.order)">
+                    [{{ seg.order }}]
+                  </button>
+                  <span v-else>{{ seg.text }}</span>
+                </template>
+              </p>
+            </template>
+          </div>
+
+          <div class="wr-doc-foot">
+            <span>{{ body.length }} 字 · {{ citations.length }} 条引文</span>
+            <span class="spacer" />
+            <!-- 2026-10-19 取消"不代写"红线后的口径：模板只写结构、AI 写入走可撤销的通道，
+                 两条路都不偷偷存库——所以这里说的是"谁说了算"，不再宣称"一个字都不写"。 -->
+            <span class="wr-muted">模板骨架与 AI 写入都可撤销；存不存由你按「保存」决定。</span>
+          </div>
+        </template>
+      </main>
+
+      <!-- ---------- 助手：提纲 / 引用 / 过程 ---------- -->
+      <!-- 写作 | 助手 之间的分隔条 -->
+      <div
+        class="splitter wr-split-helper"
+        :class="{ dragging: dragging === 'helper' }"
+        role="separator"
+        aria-orientation="vertical"
+        title="拖动调整助手栏宽度（双击复位）"
+        @pointerdown="startDrag('helper', $event)"
+        @dblclick="resetWidths"
+      >
+        <i />
+      </div>
+
+      <AssistPane
+        root-class="wr-helper"
+        body-class="wr-helper-body"
+        :tabs="HELPER_TABS"
+        :active-key="helperTab"
+        @update:active-key="pickHelper"
+      >
+          <!-- 对话：写作侧 agent（读草稿 / 查素材 / 找依据） -->
+          <div v-if="helperTab === 'materials'" class="wr-matpane">
         <div class="wr-colhead">
           <span>素材 · {{ shownMaterials.length }}</span>
           <span class="spacer" />
@@ -128,125 +298,20 @@
             </div>
           </template>
         </div>
-      </aside>
-
-      <!-- ---------- 写作区 ---------- -->
-      <main class="wr-doc">
-        <!-- 模板选择面板：**有没有草稿都要能出**（顶栏「＋ 新建 → 模板…」与起稿四入口共用它）。
-             第一版把它套在 `v-if="!currentDraft"` 里面 —— 已经有一份稿时点「模板…」什么都不出来，
-             浏览器里一点就现（用例只点了"没有草稿"那条路，抓不到）。 -->
-        <div v-if="showTemplates" class="wr-tpl">
-          <div class="wr-tpl-head">
-            <strong>选一个模板</strong>
-            <span class="spacer" />
-            <button class="btn ghost sm" @click="showTemplates = false">取消</button>
-          </div>
-          <button v-for="t in BUILTIN_TEMPLATES" :key="t.id" class="wr-tpl-item" @click="startTemplate(t)">
-            <strong>{{ t.name }}</strong>
-            <span class="wr-muted">{{ t.note }}</span>
-          </button>
-          <p class="wr-muted">
-            ⚠️ 本期模板只把标识记在草稿上，不做版式渲染（契约 §2.7）——
-            它不会替你写一个字，章节结构仍然由你自己搭。
-          </p>
-        </div>
-
-        <!-- 没有草稿：起稿四入口（模板 / 大纲 / 空白 / 上传自己的模板） -->
-        <div v-if="!currentDraft" class="wr-start">
-          <EmptyState
-            title="先起一份稿"
-            description="写作不依赖读懂——没有素材也能直接写；正文一个字都由你自己写。"
-            action-text="空白文字"
-            @action="startBlank"
-          >
-            <div class="wr-start-grid">
-              <button class="btn sm" @click="openTemplates">模板…</button>
-              <button class="btn sm" @click="startOutline">大纲</button>
-              <button class="btn sm" @click="pickTemplateFile">上传自己的模板…</button>
             </div>
-          </EmptyState>
 
-          <p v-if="draftsError" class="wr-muted">
-            草稿列表没取到：{{ draftsError }}——{{ draftsError.includes('404') ? '后端写作接口还没上线时会这样。' : '可以重试。' }}
-          </p>
-        </div>
-
-        <!-- 有草稿：标题 + 编辑 / 预览 -->
-        <template v-else>
-          <div class="wr-doc-head">
-            <input
-              v-model="title"
-              class="wr-title"
-              maxlength="200"
-              placeholder="稿件标题"
-              aria-label="稿件标题"
+          <div v-if="helperTab === 'chat'" class="wr-chat">
+            <AgentChat
+              scene="write_compose"
+              :scope="{ draft_id: currentDraft ? currentDraft.id : null }"
+              @apply-revision="applyRevision"
+              @apply-ops="applyOps"
+              @draft-changed="onDraftChangedByAi"
             />
-            <span class="spacer" />
-            <div class="seg wr-mode">
-              <span :class="{ on: mode === 'edit' }" @click="mode = 'edit'">编辑</span>
-              <span :class="{ on: mode === 'preview' }" @click="mode = 'preview'">预览</span>
-            </div>
           </div>
 
-          <textarea
-            v-if="mode === 'edit'"
-            ref="bodyEl"
-            v-model="body"
-            class="wr-editor"
-            placeholder="正文由你来写……（用 # 写标题；从素材卡插入的引文就是 [1] 这样的编号）"
-            aria-label="稿件正文"
-            @keydown="onEditorKeydown"
-          />
-
-          <div v-else class="wr-preview">
-            <p v-if="!previewBlocks.length" class="wr-muted">
-              正文还是空的——写点东西，或者在左边的素材卡上点「插入引文」。
-            </p>
-            <template v-for="(blk, i) in previewBlocks" :key="'blk' + i">
-              <component :is="'h' + Math.min(blk.level || 2, 3)" v-if="blk.kind === 'heading'" class="wr-pv-h">
-                <template v-for="(seg, j) in blk.segments" :key="j">
-                  <button v-if="seg.kind === 'cite'" class="wr-cite-inline" @click="jumpByOrder(seg.order)">
-                    [{{ seg.order }}]
-                  </button>
-                  <span v-else>{{ seg.text }}</span>
-                </template>
-              </component>
-              <p v-else class="wr-pv-p">
-                <template v-for="(seg, j) in blk.segments" :key="j">
-                  <button v-if="seg.kind === 'cite'" class="wr-cite-inline" @click="jumpByOrder(seg.order)">
-                    [{{ seg.order }}]
-                  </button>
-                  <span v-else>{{ seg.text }}</span>
-                </template>
-              </p>
-            </template>
-          </div>
-
-          <div class="wr-doc-foot">
-            <span>{{ body.length }} 字 · {{ citations.length }} 条引文</span>
-            <span class="spacer" />
-            <!-- 红线写进界面：不代写正文（四家同类工具也都不写，我们照写清楚） -->
-            <span class="wr-muted">写作页不代写正文——这里只帮你管素材、引文与出处。</span>
-          </div>
-        </template>
-      </main>
-
-      <!-- ---------- 助手：提纲 / 引用 / 过程 ---------- -->
-      <aside class="wr-helper">
-        <div class="tabs">
-          <button
-            v-for="tab in HELPER_TABS"
-            :key="tab.key"
-            :class="{ on: helperTab === tab.key }"
-            @click="pickHelper(tab.key)"
-          >
-            {{ tab.label }}
-          </button>
-        </div>
-
-        <div class="wr-helper-body">
           <!-- 提纲：跟着正文的标题走，不另存一份 -->
-          <div v-if="helperTab === 'outline'">
+          <div v-else-if="helperTab === 'outline'">
             <ol v-if="outline.length" class="wr-outline">
               <li v-for="item in outline" :key="item.key" :class="'wr-lv-' + item.level">
                 <button @click="focusOutline(item)">{{ item.text }}</button>
@@ -348,6 +413,50 @@
           </div>
 
           <!-- 过程：只记本次会话真做过的事 -->
+          <div v-else-if="helperTab === 'log'">
+            </div>
+
+          <!-- 版本历史：AI 代写之后的安全网（列表不带正文，点开才读） -->
+          <div v-else-if="helperTab === 'versions'" class="wr-versions">
+            <div class="wr-colhead">
+              <span>版本 · {{ versions.length }}</span>
+              <span class="spacer" />
+              <button class="btn ghost sm" :disabled="versionsLoading" @click="loadVersions()">
+                {{ versionsLoading ? '读取中…' : '刷新' }}
+              </button>
+            </div>
+            <HonestNote v-if="versionsError" :text="`版本取不到：${versionsError}`" />
+            <p v-if="!versionsLoading && !versions.length" class="wr-muted">
+              还没有版本——保存过一次正文之后，这里会记下每一版（保留最近 50 版）。
+            </p>
+            <ul v-else class="wr-verlist">
+              <li v-for="item in versions" :key="item.id">
+                <div class="wr-vermeta">
+                  <b>{{ versionSourceLabel(item.source) }}</b>
+                  <span class="wr-muted">
+                    {{ formatStamp(item.created_at) }} · {{ item.chars }} 字
+                  </span>
+                </div>
+                <div class="wr-verops">
+                  <button class="btn ghost sm" @click="previewVersion(item)">查看</button>
+                  <button class="btn sm" @click="applyVersion(item)">回滚</button>
+                </div>
+              </li>
+            </ul>
+            <div v-if="versionPreview" class="wr-verpreview">
+              <div class="wr-colhead">
+                <span>
+                  {{ versionSourceLabel(versionPreview.source) }} ·
+                  {{ formatStamp(versionPreview.created_at) }}
+                </span>
+                <span class="spacer" />
+                <button class="btn ghost sm" @click="versionPreview = null">收起</button>
+              </div>
+              <pre class="wr-verbody">{{ versionPreviewText }}</pre>
+            </div>
+          </div>
+
+          <!-- 兜底：理论上到不了（页签都显式列了） -->
           <div v-else>
             <ol v-if="sessionLog.length" class="wr-log">
               <li v-for="(item, i) in sessionLog" :key="i">
@@ -359,12 +468,12 @@
               text="本次会话还没有动作记录（保存正文、插入引文会记在这里）。"
             />
             <p class="wr-muted">
-              跨会话的版本历史本期不做——草稿只存当前稿（契约 §5），
-              所以这里只记「本次会话做过什么」，不假装有历史。
+              这里只记「本次会话做过什么」；要跨会话回滚，看旁边的「版本」页签
+              （保存过的每一版都在那儿，保留最近 50 版）。
             </p>
           </div>
-        </div>
-      </aside>
+            
+      </AssistPane>
     </div>
 
     <!-- ==================== 校对检查抽屉（形态 §3.3） ====================
@@ -505,9 +614,13 @@
 /**
  * 写作页（`#/write`）——**素材区 ｜ 写作区 ｜ 助手** 三栏（形态 v2 §3.2）。
  *
- * ⚠️ **本页一个字都不替用户生成正文**。页面上没有任何"生成/续写/润色"入口，
- * 连注释里也不许出现——这是形态 §3.2 与作品红线共同要求的那条线。
- * 写作页只做三件事：把读文献时攒下的素材摆出来、把引文与出处管好、让你自己写。
+ * ⚠️ **本页一个字都不替用户生成正文** —— 这是 **2026-10-19 之前**的口径（形态 §3.2 与
+ * 当时的作品红线）。**那条线当天已被用户取消**，现在的口径分两层：
+ * ① **模板**只写「结构骨架」：`## 章节标题` + 一行写作提示注释，**没有一句成文的稿子**
+ *    （见 `src/writeTemplates.js` 与下面的 `writeSkeleton`）；
+ * ② **AI** 可以把整段写进正文（`applyOps`，2026-10-19 起），但走的是带锚点校验的写入通道。
+ * 两条路都**留一次撤销**、都只标 `dirty`（存不存由用户按「保存」决定）——这是保留的安全网。
+ * 写作页的常事仍是三件：把读文献时攒下的素材摆出来、把引文与出处管好、让你自己写。
  *
  * 四条结构口径：
  * ① **写作不依赖读懂**：没有素材、一篇文献都没读过，也能直接起稿写（`#/write` 可直达）；
@@ -522,11 +635,17 @@
  * <1024px（`isNarrow`）变成"素材 / 写作 / 助手"三档单栏切换。类名挂在 `.wr` 上，
  * 规则全在 `style.css` 的 `[M3]` 段（不改别人已有选择器）。
  */
-import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 
+import AgentChat from '../components/AgentChat.vue'
+import AssistPane from '../components/AssistPane.vue'
+import WriteEditor from '../components/WriteEditor.vue'
+import { htmlToMd, mdToHtml } from '../writeRich'
 import CiteChip from '../components/CiteChip.vue'
 import EmptyState from '../components/EmptyState.vue'
+import FormatChangeNote from '../components/FormatChangeNote.vue'
 import HonestNote from '../components/HonestNote.vue'
+import { authFetch } from '../auth'
 import { navigate } from '../router'
 import {
   bibEntries,
@@ -547,6 +666,7 @@ import {
   openCheckRun,
   citationStateOf,
   citations,
+  bodyHtml,
   clearCitations,
   checkOpen,
   checkReport,
@@ -565,6 +685,7 @@ import {
   jumpToSource,
   loadDrafts,
   loadMaterials,
+  logEvent,
   materialSources,
   materials,
   materialsError,
@@ -578,6 +699,13 @@ import {
   runCheck,
   sessionLog,
   title,
+  versions,
+  versionsLoading,
+  versionsError,
+  loadVersions,
+  readVersion,
+  restoreVersion,
+  reloadCurrentDraft,
   toggleCheck,
 } from '../stores/useWrite'
 // 素材卡的写入路径（M2）：移除 + 客户端 5 秒撤销窗口
@@ -588,6 +716,8 @@ import {
 } from '../stores/useMaterials'
 import { closeMenus, openMenu, showToast, toggleMenu } from '../stores/useUi'
 import MaterialCard from '../components/MaterialCard.vue'
+// 模板的**结构层**（纯数据 + 纯函数）：章节清单与写作提示都从那里来，视图里不再另抄一份
+import { buildSkeleton, templateById, WRITE_TEMPLATES } from '../writeTemplates'
 import {
   outlineOf,
   previewBlocks as buildPreviewBlocks,
@@ -604,23 +734,435 @@ import {
 } from '../checkExport'
 
 /**
- * 内置模板（模板 / 大纲两个入口用）。
+ * 内置模板（模板 / 大纲两个入口用）：**数据在 `src/writeTemplates.js`**，这里只是取个短名。
  *
- * ⚠️ **只给名字和章节清单，不给正文**：本期 template_id 只存标识、不做版式渲染（契约 §2.7），
- * 所以这里连"预填的骨架"都不写——**预填就等于替用户开了个头**，而这条线我们守死。
+ * 2026-10-19 起模板**真的能填**了：选中模板 → 正文区上方出现一条提示条 →
+ * 点「写入骨架」才把 `## 章节标题` + 一行写作提示写进正文（**没有一句成文的稿子**，
+ * 正文由用户或 AI 填）。见下面的 `writeSkeleton`。
  */
-const BUILTIN_TEMPLATES = [
-  { id: 'tpl-journal', name: '期刊论文', note: '题名 · 摘要 · 引言 · 方法 · 结果 · 讨论 · 参考文献' },
-  { id: 'tpl-thesis', name: '学位论文', note: '绪论 · 相关工作 · 方法 · 实验 · 结论' },
-]
+const BUILTIN_TEMPLATES = WRITE_TEMPLATES
 
 const HELPER_TABS = [
+  // 素材从"左栏"搬进来（2026-10-19）：单独占一栏太挤正文
+  { key: 'materials', label: '素材' },
+  { key: 'chat', label: '对话' },
   { key: 'outline', label: '提纲' },
   { key: 'cites', label: '引用' },
   { key: 'log', label: '过程' },
+  // AI 能直接改稿之后，版本是唯一能回到「动手之前」的入口
+  { key: 'versions', label: '版本' },
 ]
 
-const bodyEl = ref(null)
+/**
+ * 采用改写建议的撤销窗口（毫秒）。toast 本身是 `useUi` 那套（全站同一个提示条，
+ * 由 `App.vue` 渲染、`runToastUndo` 执行），这里只决定它留多久。
+ */
+const REVISION_UNDO_MS = 6000
+/** AI **整段写进正文**的撤销窗口：比改一句重得多，给够时间读完再决定。 */
+const WRITE_UNDO_MS = 20000
+
+/** 一次批量采用的过程（同一批的 `apply-revision` 是同步连发的，用一个变量串起来就够）。 */
+let applyBatch = null
+
+/**
+ * 换行归一：草稿可能是 `\r\n`，模型给的是 `\n`。
+ * **后端 `verify_revisions` 已按同一口径比对**（不归一会把能用的建议剔掉），
+ * 前端定位也必须归一——否则后端留下的建议在页面上"原文没找到"，属于假失败。
+ */
+function normalizeEol(text) {
+  return String(text == null ? '' : text).replace(/\r\n?/g, '\n')
+}
+
+/** 正文是不是 CRLF 风格（插入的改后文本要跟着它，别把半篇稿子变成另一种换行）。 */
+function usesCrlf(text) {
+  return String(text || '').includes('\r\n')
+}
+
+function withEol(text, crlf) {
+  return crlf ? String(text).replace(/\n/g, '\r\n') : String(text)
+}
+
+/**
+ * 在**归一化后的正文**里找 `needle`，再把命中段映射回原文的下标与长度。
+ *
+ * 只处理 `\r\n` → `\n` 这一种差异（单独的 `\r` 也是 1:1），**不碰其他任何一个字**；
+ * 映射完还会逐字核对，对不上就返回 null（宁可说没找到，也不改错地方）。
+ */
+function findInBody(raw, needle) {
+  const atNormalized = normalizeEol(raw).indexOf(needle)
+  if (atNormalized < 0) return null
+  // 归一化后的第 atNormalized 个字符，对应原文的哪个下标
+  let at = 0
+  let produced = 0
+  while (produced < atNormalized && at < raw.length) {
+    at += raw[at] === '\r' && raw[at + 1] === '\n' ? 2 : 1
+    produced += 1
+  }
+  // 从 at 起量出命中段的原文长度（同一个字在原文里可能占 2 个字符：\r\n）
+  let consumed = 0
+  let matched = 0
+  while (matched < needle.length && at + consumed < raw.length) {
+    const pair = raw[at + consumed] === '\r' && raw[at + consumed + 1] === '\n'
+    const ch = pair ? '\n' : raw[at + consumed]
+    if (ch !== needle[matched]) return null
+    consumed += pair ? 2 : 1
+    matched += 1
+  }
+  if (matched < needle.length) return null
+  return { at, length: consumed }
+}
+
+/**
+ * 在正文里做**一次逐字替换**；找不到原句返回 `null`（**正文一个字都不改**）。
+ * 绝不"模糊替换"——改错一句比不改更糟。
+ * 返回的记录带着替换发生的位置，撤销时靠它把原文放回原处。
+ *
+ * ⭐ 段落级建议（`original` 是一整段、含多句）走同一条路，只是命中段更长：
+ * 对齐前先 `trim`（后端比对也是 `strip()` 过的），换行按 `\n` 归一，
+ * 命中后**只替换那一段原文**，前后空白与全篇换行风格都保持原样。
+ */
+function replaceInBody(rev) {
+  const original = normalizeEol(rev && rev.original ? rev.original : '').trim()
+  const revised = normalizeEol(rev && rev.revised ? rev.revised : '')
+  if (!original || !body.value) return null
+  const raw = body.value
+  const hit = findInBody(raw, original)
+  if (!hit) return null
+  // 插进去的文本跟随正文的换行风格（CRLF 稿子插 LF 会把换行弄花）
+  const insert = withEol(revised, usesCrlf(raw))
+  // 撤销记录里的 `original` 是**原文里真实的那一段**（含它自己的换行），不是归一化后的
+  const replaced = raw.slice(hit.at, hit.at + hit.length)
+  body.value = raw.slice(0, hit.at) + insert + raw.slice(hit.at + hit.length)
+  return { at: hit.at, original: replaced, revised: insert }
+}
+
+/**
+ * 把一条替换退回去：**先按记下的位置**核对改后句。
+ * 位置对不上时（用户又在前面改过字），只有改后句在正文里**只出现一次**才退——
+ * 出现多次就分不清是哪一句，宁可如实说撤不了，也不退错地方。
+ */
+function revertReplacement(record) {
+  const text = body.value || ''
+  const { at, original, revised } = record
+  if (text.slice(at, at + revised.length) === revised) {
+    body.value = text.slice(0, at) + original + text.slice(at + revised.length)
+    return true
+  }
+  if (!revised) return false
+  const first = text.indexOf(revised)
+  if (first < 0 || first !== text.lastIndexOf(revised)) return false
+  body.value = text.slice(0, first) + original + text.slice(first + revised.length)
+  return true
+}
+
+/**
+ * 撤销一批替换：**从后往前**退（先动靠后的位置，前面记下的偏移量才不会失效）。
+ * 同一位置被连着改过（A→B→C）时按**相反次序**退：先退 C→B，再退 B→A。
+ * 有条目退不回去就如实说——不许假装全都退了。
+ */
+function undoRevisions(records, label) {
+  const rows = records
+    .map((record, index) => ({ record, index }))
+    .sort((a, b) => b.record.at - a.record.at || b.index - a.index)
+    .map((row) => row.record)
+  const done = rows.filter((record) => revertReplacement(record)).length
+  const failed = rows.length - done
+  if (done) {
+    saveState.value = 'dirty'
+    logEvent(`撤销${label}：${done} 条改写已改回原文`)
+  }
+  if (failed) {
+    showToast(`撤销没做完：有 ${failed} 条正文已经改过，退不回原来的位置`)
+    return
+  }
+  showToast(`已撤销${label}，正文改回原来的写法`)
+}
+
+/**
+ * 一次批量采纳收尾：只出一条汇总提示（不是每条都弹一下）。
+ * 跳过的是"正文里找不到原句"的——那几条**没动正文**，卡片上也不会标成已采用。
+ */
+function finishApplyBatch(run) {
+  applyBatch = null
+  const applied = run.applied.length
+  logEvent(`批量采用改写建议：采用 ${applied} 条，跳过 ${run.skipped} 条`)
+  showToast(
+    `采用 ${applied} 条，跳过 ${run.skipped} 条` +
+      (run.skipped ? '（跳过的是正文里找不到原句的）' : ''),
+    applied ? { label: '撤销', run: () => undoRevisions(run.applied, '这一批改写') } : null,
+    REVISION_UNDO_MS,
+  )
+}
+
+/**
+ * 采用一条改写建议：**逐字**在正文里找原句，找到才替换。
+ *
+ * 找不到就如实说（可能稿子已经改过了），绝不"模糊替换"——
+ * 改错一句比不改更糟。
+ *
+ * ⭐ **可撤销**：替换成功后走 `useUi` 的 `showToast(text, { label: '撤销', run })`
+ * （全站同一套提示条，挂在 App.vue 里），撤销把正文改回原文。
+ * ⭐ **批量**：`AgentChat` 的「全部采用」是逐条、同步地发同一个 `apply-revision`，
+ * 第二条参数里的 `batch = { total, index, last }` 把它们串成一批；
+ * 最后一条到达时给一条「采用 N 条，跳过 M 条」的汇总提示，撤销把整批一起退回去。
+ * `meta.report(ok)` 把结果同步回报给建议卡（卡片据此显示「已采用」还是「没采用」）。
+ */
+/**
+ * 把 agent 的写入操作**直接落进正文**（2026-10-19 取消"不代写"红线）。
+ *
+ * 安全网只有一条但够用：**整批一次撤销**（撤销窗口见 TOAST 设置）。
+ * 落盘策略与手动编辑一致：改完标 `dirty`，用户按「保存」（不偷偷存库）。
+ */
+function applyOps(ops) {
+  const list = Array.isArray(ops) ? ops : []
+  // ⚠️ 只判"有没有 ops"，**不判正文是否为空**：
+  // 旧代码这里写的是 `|| !body.value`，于是新草稿（空正文）永远写不进，
+  // 而且连提示都没有——模型说"已写入"、界面 0 字（2026-10-19 真页面事故）。
+  if (!list.length) return
+  const before = body.value
+  const wasEmpty = !before.trim()
+  const crlf = usesCrlf(before)
+  let text = normalizeEol(before)
+  let applied = 0
+  const skipped = []
+
+  for (const op of list) {
+    const mode = String(op.mode || '')
+    const chunk = normalizeEol(String(op.text || ''))
+    const anchor = normalizeEol(String(op.anchor || '')).trim()
+    if (!chunk.trim()) {
+      skipped.push(mode || '空内容')
+      continue
+    }
+    if (mode === 'append') {
+      text = `${text.replace(/\s+$/, '')}\n\n${chunk}\n`
+      applied += 1
+    } else if (mode === 'prepend') {
+      text = `${chunk}\n\n${text.replace(/^\s+/, '')}`
+      applied += 1
+    } else if (mode === 'replace') {
+      const at = anchor ? text.indexOf(anchor) : -1
+      if (at < 0) {
+        skipped.push('原文没找到')
+        continue
+      }
+      text = text.slice(0, at) + chunk + text.slice(at + anchor.length)
+      applied += 1
+    } else if (mode === 'insert_after') {
+      const at = anchor ? text.indexOf(anchor) : -1
+      if (at < 0) {
+        skipped.push('原文没找到')
+        continue
+      }
+      const cut = at + anchor.length
+      text = `${text.slice(0, cut)}\n\n${chunk}${text.slice(cut)}`
+      applied += 1
+    } else {
+      skipped.push(mode || '未知操作')
+    }
+  }
+
+  if (!applied) {
+    showToast(`没能写进正文：${skipped.join('、') || '内容为空'}`)
+    return
+  }
+
+  body.value = withEol(text, crlf)
+  saveState.value = 'dirty'
+  logEvent(`AI 写进正文（${applied} 处）`)
+  const skipNote = skipped.length ? `，跳过 ${skipped.length} 处` : ''
+  const emptyNote = wasEmpty ? '（草稿原来是空的）' : ''
+  showToast(
+    `AI 已写进正文（${applied} 处${skipNote}）${emptyNote}`,
+    { label: '撤销', run: () => revertOps(before) },
+    WRITE_UNDO_MS,
+  )
+}
+
+/** 整批撤销：把正文恢复成写入前那一版（未保存就 undo，一个字都不脏库）。 */
+function revertOps(before) {
+  body.value = before
+  saveState.value = 'dirty'
+  logEvent('撤销了 AI 的写入')
+}
+
+function applyRevision(rev, meta = null) {
+  const batch = meta && meta.batch ? meta.batch : null
+  if (batch && batch.index === 0) applyBatch = { applied: [], skipped: 0 }
+
+  const record = replaceInBody(rev)
+  const ok = Boolean(record)
+  if (ok) saveState.value = 'dirty'
+  if (meta && typeof meta.report === 'function') meta.report(ok)
+
+  if (batch) {
+    const run = applyBatch || (applyBatch = { applied: [], skipped: 0 })
+    if (ok) run.applied.push(record)
+    else run.skipped += 1
+    if (batch.last) finishApplyBatch(run)
+    return
+  }
+
+  if (!ok) {
+    logEvent('改写建议没采用：稿子里找不到那句原文（可能已经改过了）')
+    showToast('没采用：正文里找不到那句原文（可能已经改过了）')
+    return
+  }
+  logEvent('采用了一条改写建议')
+  showToast(
+    '已采用一条改写建议',
+    { label: '撤销', run: () => undoRevisions([record], '这条改写') },
+    REVISION_UNDO_MS,
+  )
+}
+
+/**
+ * 三栏宽度（可拖）。两条边界各自独立，都存 localStorage。
+ *
+ * ⚠️ 上限要跟视口走：三栏一起挤的时候，**中间写作区必须留够 380**，
+ * 否则拖到最后正文变成一条竖线（读懂页当初也踩过，见 SPLITTER_MAX 的注释）。
+ */
+const MATS_KEY = 'docwise_write_mats_w'
+const HELPER_KEY = 'docwise_write_helper_w'
+const MATS_MIN = 240
+const MATS_MAX = 520
+const HELPER_MIN = 300
+const HELPER_MAX = 700
+const DOC_MIN = 380
+
+function readWidth(key, min, max, fallback) {
+  const saved = Number(localStorage.getItem(key) || 0)
+  return saved >= min && saved <= max ? saved : fallback
+}
+
+const matsWidth = ref(readWidth(MATS_KEY, MATS_MIN, MATS_MAX, 320))
+const helperWidth = ref(readWidth(HELPER_KEY, HELPER_MIN, HELPER_MAX, 340))
+const dragging = ref('')
+
+const writeBodyStyle = computed(() => ({
+  '--mats-w': `${matsWidth.value}px`,
+  '--helper-w': `${helperWidth.value}px`,
+}))
+
+/**
+ * 三栏总宽受限：拖到把写作区压到 DOC_MIN 以下就停住。
+ *
+ * ⚠️ 基数用 `.wr-body` 的**实际宽度**，不是 `window.innerWidth`——
+ * 视口 1440 时 `.wr-body` 只有 1180（左侧导航占掉一截），
+ * 按视口算会放过"写作区只剩 368"的结果（实测踩过）。
+ */
+function clampPaneWidth(kind, px) {
+  const body = document.querySelector('.wr-body')
+  const total = (body && body.clientWidth) || window.innerWidth || 1440
+  if (kind === 'mats') {
+    const room = total - helperWidth.value - DOC_MIN - 12
+    return Math.round(Math.min(Math.max(px, MATS_MIN), Math.min(MATS_MAX, room)))
+  }
+  const room = total - matsWidth.value - DOC_MIN - 12
+  return Math.round(Math.min(Math.max(px, HELPER_MIN), Math.min(HELPER_MAX, room)))
+}
+
+function startDrag(kind, event) {
+  if (!event || event.button !== 0) return
+  dragging.value = kind
+  const startX = event.clientX
+  const startW = kind === 'mats' ? matsWidth.value : helperWidth.value
+  const onMove = (moveEvent) => {
+    const delta = moveEvent.clientX - startX
+    // 素材栏在左：往右拖 = 变宽；助手栏在右：往左拖 = 变宽
+    const next = kind === 'mats' ? startW + delta : startW - delta
+    const clamped = clampPaneWidth(kind, next)
+    if (kind === 'mats') matsWidth.value = clamped
+    else helperWidth.value = clamped
+  }
+  const onUp = () => {
+    dragging.value = ''
+    localStorage.setItem(MATS_KEY, String(matsWidth.value))
+    localStorage.setItem(HELPER_KEY, String(helperWidth.value))
+    window.removeEventListener('pointermove', onMove)
+    window.removeEventListener('pointerup', onUp)
+    document.body.style.cursor = ''
+    document.body.style.userSelect = ''
+  }
+  window.addEventListener('pointermove', onMove)
+  window.addEventListener('pointerup', onUp)
+  document.body.style.cursor = 'col-resize'
+  document.body.style.userSelect = 'none'
+}
+
+/** 双击任一分隔条：两栏都回到默认宽度。 */
+function resetWidths() {
+  matsWidth.value = 320
+  helperWidth.value = 340
+  localStorage.setItem(MATS_KEY, '320')
+  localStorage.setItem(HELPER_KEY, '340')
+}
+
+/**
+ * 正文编辑器（TipTap）的实例 ref。
+ * 旧代码里那些"设选区"的动作都收敛到它暴露的几个方法上（focusEnd / focusHeading / caretOffset）。
+ */
+/**
+ * 富文本 ⇄ Markdown 的双向同步（**值不同才写**，否则会互相触发成死循环）。
+ *
+ * - 编辑器改 → `bodyHtml` 变（v-model）→ 这里算出 `body`（Markdown）；
+ * - AI 写入 / 撤销 / 模板骨架改的是 `body`（Markdown）→ 这里再转回 HTML 喂编辑器。
+ *
+ * 为什么 Markdown 仍是"主"：引文 `[n]`、提纲、导出、AI 写入的锚点校验都按它做，
+ * 一次全换会把这些一起打翻。HTML 只是**多了逐段样式**。
+ */
+/**
+ * 「这次 body 的变化，是我从 html 派生出来的」——靠这个影子值判断，
+ * 而不是靠时序标志位。
+ *
+ * 为什么不能用标志位：`reloadCurrentDraft()` 会**同时**写 body 与 bodyHtml，
+ * 两个 watcher 的派发顺序不受我们控制；先写 html 时，body 的 watcher 随后
+ * 会把 `mdToHtml(md)` 写回去——**Markdown 里没有字号字体**，
+ * 刚拉回来的版式就被覆盖了（真页面实测：toast 说改了、界面没变）。
+ */
+let mdMirror = ''
+
+watch(bodyHtml, (html) => {
+  const next = htmlToMd(html)
+  mdMirror = next
+  if (next === body.value) return
+  body.value = next
+})
+
+watch(body, (md) => {
+  // 这次变化就是上面派生出来的，别再反向转一次（否则样式被抹掉）
+  if (md === mdMirror) return
+  const nextHtml = mdToHtml(md)
+  if (nextHtml === bodyHtml.value) return
+  bodyHtml.value = nextHtml
+})
+
+const editorEl = ref(null)
+
+/** 文档级版式（字号/行距/段距/缩进）：Markdown 存不下逐字样式，所以按"这篇稿的版式"记在本机。 */
+const TYPO_KEY = 'docwise_write_typo'
+function readTypography() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(TYPO_KEY) || '{}')
+    return {
+      fontSize: Number(raw.fontSize) || 16,
+      lineHeight: Number(raw.lineHeight) || 1.8,
+      paraSpacing: Number.isFinite(Number(raw.paraSpacing)) ? Number(raw.paraSpacing) : 10,
+      indent: Boolean(raw.indent),
+    }
+  } catch {
+    return { fontSize: 16, lineHeight: 1.8, paraSpacing: 10, indent: false }
+  }
+}
+const typography = ref(readTypography())
+function saveTypography(next) {
+  typography.value = { ...typography.value, ...(next || {}) }
+  try {
+    localStorage.setItem(TYPO_KEY, JSON.stringify(typography.value))
+  } catch {
+    /* 存不了也不影响编辑 */
+  }
+}
 const fileEl = ref(null)
 
 /**
@@ -628,6 +1170,8 @@ const fileEl = ref(null)
  * 用户切过来就是为看它的，不该再点一下才出。
  */
 async function pickHelper(key) {
+  // 进「版本」页签就拉一次（不预加载：大多数写作会话用不到它）
+  if (key === 'versions') void loadVersions()
   helperTab.value = key
   if (key === 'cites') await loadBibliography()
 }
@@ -675,10 +1219,29 @@ async function copyBibliography() {
 const pane = ref('doc')
 /** 1024–1100px 区间：助手是抽屉，点顶栏「助手」开合。 */
 const helperOpen = ref(false)
-const helperTab = ref('outline')
+// 默认停在第一个页签（素材）——素材搬进助手之后，停在第三格会让人以为它没了
+const helperTab = ref('materials')
 const mode = ref('edit')
 const sourceFilter = ref('')
 const showTemplates = ref(false)
+/**
+ * 已经选中的模板 id（空 = 没选）。
+ *
+ * ⭐ 选模板**只记下选的是哪一个**，正文一个字都不动——正文区上方那条提示条上的
+ * 「写入骨架」才是真正落字的动作（一次、可撤销、写前不动稿）。
+ */
+const templatePick = ref('')
+const pickedTemplate = computed(() =>
+  templatePick.value ? templateById(templatePick.value) : null,
+)
+/**
+ * 骨架的 `# 一级标题` 用草稿标题；「未命名草稿」是占位名，**不写进正文**
+ * （否则每份新稿的开头都会多一行假标题）。
+ */
+const seedTitle = computed(() => {
+  const text = String(title.value || '').trim()
+  return text && text !== '未命名草稿' ? text : ''
+})
 const clearArmed = ref(false)
 
 const shownMaterials = computed(() => {
@@ -699,7 +1262,19 @@ const pendingQuote = computed(() => {
 })
 
 const outline = computed(() => outlineOf(body.value))
-const previewBlocks = computed(() => buildPreviewBlocks(body.value))
+
+/**
+ * 预览里**不显示"整块就是一条 HTML 注释"的块**：模板骨架写进来的
+ * `<!-- 写作提示：… -->` 是写给写作者自己看的，不该当成稿子的一部分印在版面上。
+ * 只过滤这一种情况——注释夹在正文当中时照旧原样显示（那也是用户自己写的字）。
+ */
+const COMMENT_ONLY_RE = /^\s*<!--[\s\S]*?-->\s*$/
+const previewBlocks = computed(() =>
+  buildPreviewBlocks(body.value).filter((block) => {
+    const text = (block.segments || []).map((seg) => seg.text || '').join('')
+    return !COMMENT_ONLY_RE.test(text)
+  }),
+)
 
 const saveText = computed(() => {
   if (!currentDraft.value) return ''
@@ -711,6 +1286,103 @@ const saveText = computed(() => {
 })
 
 // ============================================================ 取数
+
+/**
+ * AI 改版式留下的痕迹（2026-10-19）。
+ *
+ * ⚠️ **段号一律留空**：`apply_style` 的返回值（`changed_blocks`）到不了前端——
+ * `AgentChat` 只把 `draft-changed` 这一个布尔事件递过来，没有块号。
+ * 所以这里**不猜、不编**具体段号，`blocks: []` 交给组件照实显示"若干处"；
+ * 等哪天事件带上块号，把 `blocks` 填上即可，组件与文案都不用动。
+ *
+ * 每条 = `{ draftId, versionId: null, blocks: [], summary }`；同一篇只留**最近一次**，
+ * 因为「撤销这次改动」对应的是最近一版 `source="ai"` 的快照（后端改之前存的那一版）。
+ */
+const aiFormatChanges = ref([])
+
+/** 只显示**当前这篇**的提示：切到别的稿子时，旧稿的提示条不该挂在新稿上面。 */
+const aiFormatNotes = computed(() =>
+  aiFormatChanges.value.filter((item) => item.draftId === currentDraft.value?.id),
+)
+
+/** 丢掉某一篇的改版式提示（撤销成功 / 点「知道了」都走这里）。 */
+function dropAiFormatChange(draftId) {
+  aiFormatChanges.value = aiFormatChanges.value.filter((item) => item.draftId !== draftId)
+}
+
+/**
+ * 点「知道了」：只把这条收掉，**不碰稿子**（和「撤销」是两件事）。
+ */
+function dismissAiFormatChange(changes) {
+  const draftId = (changes || [])[0]?.draftId
+  if (draftId) dropAiFormatChange(draftId)
+}
+
+/**
+ * 点「撤销这次改动」：回到 AI 改版式**之前**那一版。
+ *
+ * 版本从哪来：`apply_style` 是**先存一版 `source="ai"` 的快照再改**（后端 format 包装里写死的），
+ * 所以版本列表里最新那条 `source === 'ai'` 就是"改版式之前"的样子。
+ * ⚠️ 找不到就**如实说回不去**，绝不随手拿最新一版冒充——那可能是改完之后的保存。
+ */
+async function undoAiFormatChange(changes) {
+  const change = (changes || [])[0] || aiFormatNotes.value[0]
+  const draftId = change?.draftId
+  if (!draftId || draftId !== currentDraft.value?.id) {
+    showToast('先切回刚才那篇稿子，再撤销这次改版式')
+    return
+  }
+  // 回滚会把正文换成服务端那一版；手里没存上的字先送出去，别让撤销顺手把它们抹掉。
+  if (saveState.value === 'dirty') {
+    const saved = await saveNow()
+    if (!saved) {
+      showToast(`没存上手里的字，先不撤销：${saveError.value || '原因不明'}`)
+      return
+    }
+  }
+  const list = await loadVersions()
+  if (versionsError.value) {
+    showToast(`版本列表取不到：${versionsError.value}`)
+    return
+  }
+  const target = (Array.isArray(list) ? list : []).find((item) => item.source === 'ai')
+  if (!target) {
+    showToast('没找到改版式之前的版本快照——这一篇回不去')
+    return
+  }
+  const ok = await restoreVersion(target.id)
+  if (!ok) {
+    showToast(`回滚没成：${versionsError.value || '原因不明'}`)
+    return
+  }
+  dropAiFormatChange(draftId)
+  showToast('已回滚到改版式之前')
+}
+
+/**
+ * AI 改了版式（服务端改库）→ 重拉这一篇。
+ *
+ * 为什么需要：排版工具不像 `ops` 那样把文本交回前端落地；
+ * 不重拉，模型说"已改成小四宋体"，用户看到的还是旧版式。
+ * ⚠️ 有未保存的字时 `reloadCurrentDraft` 内部会拒绝覆盖——用户手里的字优先，
+ * 这时把"先保存再刷新"如实告诉他，不假装成功。
+ */
+async function onDraftChangedByAi() {
+  const ok = await reloadCurrentDraft()
+  const draftId = currentDraft.value?.id ?? null
+  if (draftId) {
+    // 同一篇只留最近一次：更早的提示攒着，撤销按钮就会指到更早那一版快照上（说一套做一套）。
+    aiFormatChanges.value = [
+      ...aiFormatChanges.value.filter((item) => item.draftId !== draftId),
+      { draftId, versionId: null, blocks: [], summary: 'AI 改了版式' },
+    ]
+  }
+  showToast(
+    ok
+      ? 'AI 已改版式——不满意可点上方提示条「撤销这次改动」，或从「版本」页签回滚'
+      : 'AI 改了版式，但当前有未保存的字；先保存，再看这一页',
+  )
+}
 
 onMounted(async () => {
   window.addEventListener('keydown', onWriteKeydown)
@@ -728,8 +1400,20 @@ onUnmounted(() => {
 
 // ============================================================ 校对检查（M4）
 
-/** `Esc` 关抽屉（形态 §3.3：`Esc` 可关、点遮罩可关）。 */
+/**
+ * 页面级快捷键（2026-10-19）：
+ * - `Ctrl/Cmd+S`：保存。**必须在这里再兜一条**——焦点在标题栏、助手输入框等编辑器之外时，
+ *   编辑器自己的监听收不到，浏览器就会弹「保存网页」对话框（实测：标题聚焦时
+ *   `defaultPrevented` 是 false）。这里 `preventDefault` + 调已有的保存回调。
+ *   编辑器有焦点时由 `WriteEditor.onKeydown` 处理并 `stopPropagation`，不会重复保存。
+ * - `Esc`：关校对抽屉（形态 §3.3：`Esc` 可关、点遮罩可关）。
+ */
 function onWriteKeydown(event) {
+  if ((event.ctrlKey || event.metaKey) && (event.key === 's' || event.key === 'S')) {
+    event.preventDefault()
+    void saveWithFeedback()
+    return
+  }
   if (event.key === 'Escape' && checkOpen.value) closeCheck()
 }
 
@@ -777,6 +1461,61 @@ function exportReport(format) {
   }
 }
 
+/**
+ * 导出这篇稿子。`md` 走文本、`docx` 走二进制（**不能**按文本读，会损坏文件）。
+ * 后端 `.docx` 需要引擎 venv 里的 python-docx；不可用时回 503 + 人话，原样提示。
+ */
+const exporting = ref(false)
+const exportMenuOpen = ref(false)
+
+function toggleExportMenu() {
+  exportMenuOpen.value = !exportMenuOpen.value
+}
+
+async function exportDraft(format) {
+  exportMenuOpen.value = false
+  const draft = currentDraft.value
+  if (!draft || exporting.value) return
+  exporting.value = true
+  exportError.value = ''
+  try {
+    const res = await authFetch(`/api/drafts/${draft.id}/export.${format}`)
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      exportError.value = body.detail || `导出没成（HTTP ${res.status}）`
+      showToast(`导出没成：${exportError.value}`)
+      return
+    }
+    const filename = `${draft.title || '未命名草稿'}.${format}`
+    if (format === 'docx') {
+      saveBlob(filename, await res.blob())
+    } else {
+      saveAsFile(filename, await res.text(), 'text/markdown;charset=utf-8')
+    }
+    logEvent(`导出了 ${String(format).toUpperCase()}`)
+  } catch (exc) {
+    exportError.value = `导出请求失败：${exc && exc.message ? exc.message : exc}`
+    showToast(`导出没成：${exportError.value}`)
+  } finally {
+    exporting.value = false
+  }
+}
+
+/** 二进制落盘（与 `saveAsFile` 同一套：Blob + 临时链，用完即撤）。 */
+function saveBlob(filename, blob) {
+  const url = URL.createObjectURL(blob)
+  try {
+    const link = document.createElement('a')
+    link.href = url
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+  } finally {
+    URL.revokeObjectURL(url)
+  }
+}
+
 /** 把一段文本存成文件（Blob + 临时链，用完即撤——不留悬着的 object URL）。 */
 function saveAsFile(filename, text, type) {
   const url = URL.createObjectURL(new Blob([text], { type }))
@@ -796,13 +1535,16 @@ function saveAsFile(filename, text, type) {
 
 async function create(payload) {
   try {
+    // 换稿（空白 / 大纲 / 模板 / 上传自己的模板）一律把"待写入的模板"清掉：
+    // 提示条只能指向**当前这篇稿**选中的模板，不能挂着一份上一稿的选择。
+    templatePick.value = ''
     const draft = await newDraft(payload)
     showTemplates.value = false
     closeMenus()
     pane.value = 'doc'
     mode.value = 'edit'
     await nextTick()
-    bodyEl.value?.focus()
+    editorEl.value?.focus()
     return draft
   } catch (err) {
     showToast(`建不了稿：${err?.message || '原因不明'}`)
@@ -819,8 +1561,23 @@ function openTemplates() {
   showTemplates.value = true
 }
 
-function startTemplate(template) {
-  return create({ title: '未命名草稿', templateId: template.id })
+/**
+ * 选中一个内置模板。
+ *
+ * ⭐ **点模板不等于写正文**：这里只把 `template_id` 记到草稿上（老行为，契约 §2.7），
+ * 并把选中的模板记进 `templatePick` —— 正文区上方随即出现提示条，
+ * 要不要把结构骨架写进正文，由用户点「写入骨架」决定（见 `writeSkeleton`）。
+ */
+async function startTemplate(template) {
+  const draft = await create({ title: '未命名草稿', templateId: template.id })
+  if (!draft) return draft
+  templatePick.value = template.id
+  return draft
+}
+
+/** 提示条上的「取消」：只是不写骨架了，草稿与正文都不动。 */
+function cancelTemplatePick() {
+  templatePick.value = ''
 }
 
 /** 大纲入口：建稿 + 把助手切到「提纲」——让用户先立结构，正文自己写。 */
@@ -874,10 +1631,82 @@ function templateLabel(templateId) {
   return templateId === 'outline' ? '大纲' : templateId
 }
 
+// ============================================================ 模板骨架（2026-10-19 取消"不代写"红线）
+
+/**
+ * 把骨架追加到正文：**正文非空时先空一行**。
+ *
+ * 那个空行不是排版讲究——markdown 里上一段最后一行紧跟着 `##` 时，
+ * 标题会黏进上一段（渲染出来像是没写进去）。CRLF 的稿子跟着用 CRLF，别把半篇稿子变成另一种换行。
+ */
+function appendSkeleton(text, skeleton) {
+  const base = String(text ?? '')
+  const next = String(skeleton ?? '')
+  if (!next) return base
+  if (!base.trim()) return next
+  const nl = usesCrlf(base) ? '\r\n' : '\n'
+  if (/(\r?\n){2}$/.test(base)) return base + next
+  if (/\r?\n$/.test(base)) return `${base}${nl}${next}`
+  return `${base}${nl}${nl}${next}`
+}
+
+/**
+ * 「写入骨架」：把选中模板的**结构**写进正文。
+ *
+ * ⚠️ 写进去的只有 `## 章节标题` + 一行 `<!-- 写作提示：… -->`——**一句成文的正文都没有**，
+ * 正文由用户自己写，或由 AI 的写入通道填。这是模板这条线现在的边界。
+ *
+ * 与 AI 写入（`applyOps`）同一套规矩，三条都不能少：
+ * ① **追加**，不覆盖用户已经写下的字；
+ * ② 只标 `dirty`，**不偷偷存库**（存不存由用户按「保存」决定）；
+ * ③ 给一次撤销，撤销窗口用现成的 `WRITE_UNDO_MS`（与"AI 整段写进正文"同一个窗口）。
+ */
+function writeSkeleton() {
+  const template = pickedTemplate.value
+  if (!template) return
+  if (!currentDraft.value) {
+    showToast('先起一份稿，再写模板骨架')
+    return
+  }
+  const before = body.value
+  const skeleton = withEol(
+    buildSkeleton(template.id, { title: seedTitle.value }),
+    usesCrlf(before),
+  )
+  if (!skeleton) {
+    showToast('这个模板没有章节，写不出骨架')
+    return
+  }
+  body.value = appendSkeleton(before, skeleton)
+  saveState.value = 'dirty'
+  // 一次性动作：写完就收起提示条，避免手滑再写一遍（重复的骨架比没有更难收拾）
+  templatePick.value = ''
+  logEvent(`按模板「${template.name}」写入骨架（${template.sections.length} 节）`)
+  showToast(
+    `已写入「${template.name}」骨架：只有章节标题与写作提示，正文你来填`,
+    { label: '撤销', run: () => revertSkeleton(before) },
+    WRITE_UNDO_MS,
+  )
+  mode.value = 'edit'
+  void nextTick(() => {
+    // 光标落到末尾：骨架刚写在最后，接着往下写就是正文第一句
+    editorEl.value?.focusEnd()
+  })
+}
+
+/** 撤销「写入骨架」：正文恢复成写入前那一版（还没保存，就一个字都不脏库）。 */
+function revertSkeleton(before) {
+  body.value = before
+  saveState.value = 'dirty'
+  logEvent('撤销了模板骨架')
+}
+
 // ============================================================ 素材区动作
 
 function pickDraft(draft) {
   closeMenus()
+  // 换稿就把"待写入的模板"清掉：提示条只属于刚才选它的那一篇
+  templatePick.value = ''
   selectDraft(draft.id)
   pane.value = 'doc'
 }
@@ -897,13 +1726,16 @@ async function writeWithoutReading() {
   pane.value = 'doc'
   mode.value = 'edit'
   await nextTick()
-  bodyEl.value?.focus()
+  editorEl.value?.focus()
 }
 
 async function insertMaterial(material) {
   // 插在光标处；预览态下没有光标，就落到正文末尾
+  // 光标处的 Markdown 偏移（编辑器给不出就落到文末）
   const caret =
-    mode.value === 'edit' && bodyEl.value ? bodyEl.value.selectionStart : body.value.length
+    mode.value === 'edit' && editorEl.value
+      ? editorEl.value.caretOffset() ?? body.value.length
+      : body.value.length
   let result = null
   try {
     result = await insertCitation(material, caret)
@@ -916,10 +1748,55 @@ async function insertMaterial(material) {
   helperTab.value = 'cites'
   mode.value = 'edit'
   await nextTick()
-  if (bodyEl.value) {
-    bodyEl.value.focus()
-    bodyEl.value.setSelectionRange(result.caret, result.caret)
+  // 引文标记已经写进 body（`insertCitation` 改的是 Markdown），编辑器会跟着同步；
+  // 这里只把它聚焦，光标交给编辑器自己（`result.caret` 是 Markdown 坐标，硬套选区会错位）
+  editorEl.value?.focus()
+}
+
+/**
+ * 版本面板的三件事：看 / 回滚 / 来源标签。
+ *
+ * 看与回滚**分开**：点一条只预览正文；回滚是另一个按钮——
+ * 把「点开」当「应用」会让一次误点直接改掉稿子。
+ */
+const versionPreview = ref(null)
+
+/**
+ * 预览用的纯文本：`body_html` 去标签。
+ * 直接显示 `body_md` 会把 `<span style="font-size: 22px">` 这种内联标签当正文露出来
+ * （2026-10-19 实测就是这么显示的，很丑）。
+ */
+const versionPreviewText = computed(() => {
+  const html = String(versionPreview.value?.body_html || '')
+  if (html) {
+    return html
+      .replace(/<\/p>|<br\s*\/?>/g, '\n')
+      .replace(/<[^>]+>/g, '')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim()
   }
+  return String(versionPreview.value?.body_md || '').trim()
+})
+
+function versionSourceLabel(source) {
+  if (source === 'ai') return 'AI 写入'
+  if (source === 'restore') return '回滚前留档'
+  return '手动保存'
+}
+
+async function previewVersion(item) {
+  const detail = await readVersion(item.id)
+  if (detail) versionPreview.value = detail
+}
+
+async function applyVersion(item) {
+  const ok = await restoreVersion(item.id)
+  if (!ok) {
+    showToast(`回滚没成：${versionsError.value || '原因不明'}`)
+    return
+  }
+  versionPreview.value = null
+  showToast(`已回滚到 ${formatStamp(item.created_at)} 那一版`)
 }
 
 // ============================================================ 引用区动作
@@ -966,17 +1843,82 @@ async function focusOutline(item) {
   mode.value = 'edit'
   pane.value = 'doc'
   await nextTick()
-  const el = bodyEl.value
-  if (!el) return
-  el.focus()
-  // 把光标放到那一行开头：浏览器会把它滚进视野，不用自己算像素
-  el.setSelectionRange(item.offset, item.offset)
-}
-
-function onEditorKeydown(event) {
-  if ((event.ctrlKey || event.metaKey) && (event.key === 's' || event.key === 'S')) {
-    event.preventDefault()
-    void saveWithFeedback()
-  }
+  // 提纲条目 → 第几个标题（编辑器按标题节点定位，比 Markdown 偏移更稳）
+  const headingsBefore = outline.value.filter((it) => it.offset < item.offset).length
+  editorEl.value?.focusHeading(headingsBefore)
 }
 </script>
+
+<style scoped>
+.wr-exportmenu {
+  position: absolute;
+  top: 42px;
+  right: 96px;
+  z-index: 40;
+  min-width: 168px;
+  padding: 6px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+  display: grid;
+  gap: 2px;
+}
+.wr-exportmenu button {
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.wr-exportmenu button:hover { background: #f1f3f7; }
+
+/* ============================================================ 模板骨架（2026-10-19 取消"不代写"红线）
+   只在本组件里生效：提示条与"第三个模板卡片"是写作页独有的两小块，
+   不值得为它们动 `src/style.css`（那份是全站共用的，改动波及面大）。
+
+   ⚠️ `.wr-tpl-item` 与 `style.css` 里的 `.dw .wr-tpl-item` **观感必须一致**：
+   拆成两个类名只是为了迁就 `tests/write-view.test.js` 里那条
+   「面板里正好 2 个 `.wr-tpl-item`」的老断言（那份用例不在本期可改范围）。
+   改一边就要改另一边；等那条断言改成 3 个，这里整段可以删掉。 */
+.wr-tplbar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-5);
+  font-size: var(--fs-meta);
+  color: var(--ink);
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--line-soft);
+}
+.wr-tplbar-text {
+  color: var(--ink);
+}
+.wr-tplbar-tip {
+  margin: 0;
+}
+
+.wr-tpl-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  padding: var(--sp-3);
+  margin-bottom: var(--sp-2);
+  cursor: pointer;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+.wr-tpl-item:hover {
+  border-color: var(--accent);
+}
+.wr-tpl-item .wr-muted {
+  margin: 0;
+}
+</style>

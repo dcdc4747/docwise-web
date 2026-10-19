@@ -33,10 +33,16 @@ class ToolContext:
 
 @dataclass
 class ToolResult:
-    """工具返回值。`note` 会进轨迹，也会回给模型（截断/没查到/降级原因）。"""
+    """工具返回值。`note` 会进轨迹，也会回给模型（截断/没查到/降级原因）。
+
+    `summary` 是**给界面看的摘要**（可选）：结果字典可能很长，`tool_result` 的
+    excerpt 只截前 400 字，关键数字容易被挤掉。有 summary 时界面优先显示它，
+    正文仍以 `data` 为准（模型读的是 data，不是 summary）。
+    """
 
     data: Any
     note: str = ""
+    summary: str = ""
 
 
 @dataclass
@@ -75,5 +81,9 @@ class Scene:
     default_tier: str = "standard"
     # 场景自己决定"要带哪些上下文"（当前文献摘要、草稿片段…）；返回空串就是不带
     build_context: Callable[[ToolContext], str] | None = None
+    # 收尾校验钩子：拿到模型输出，剔除"编出来的东西"
+    # （如写作建议里对不上原文的 original）。
+    # 返回 (保留的输出, 剔掉的说明列表)。**默认不做**，由场景自己决定要校验什么。
+    verify: Callable[[ToolContext, Any], tuple[Any, list[str]]] | None = None
     # planned = 口子留着、还没实现（前端据此显示"即将开放"）
     status: str = "ready"

@@ -18,6 +18,10 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 
+// TipTap/ProseMirror 需要真实 DOM 量测，happy-dom 里跑不了；单测里换成轻量替身。
+vi.mock('../src/components/WriteEditor.vue', () => import('./helpers/WriteEditorStub.js'))
+
+
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -124,15 +128,16 @@ afterEach(() => {
 // ============================================================ ① 三处入口都在
 
 describe('三处创建入口（契约要求「三处都在」）', () => {
-  it('划词浮标 / 问答出处 / 导读要点各挂了一个 MaterialSaveButton', () => {
+  it('划词浮标 / 导读要点各挂了一个 MaterialSaveButton（问答那处在 agent 里，见下）', () => {
     const source = readFileSync(
       path.resolve(process.cwd(), 'src/views/ReadView.vue'),
       'utf8',
     )
     const used = source.match(/<MaterialSaveButton/g) || []
-    expect(used.length).toBe(3)
+    // ⚠️ 2026-10-18：问答与 agent 合并后，老问答的「出处存素材」随界面一起退役；
+    // agent 回答的出处暂时只显示数量（要按出处存素材需要后端把 task_id 一起返回）。
+    expect(used.length).toBe(2)
     expect(source).toContain('variant="chip"') // ① 划词浮标
-    expect(source).toContain('variant="src"') // ② 问答答案的出处
     expect(source).toContain('variant="guide"') // ③ 导读要点的出处
   })
 })

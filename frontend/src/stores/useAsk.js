@@ -15,6 +15,8 @@
 import { computed, ref } from 'vue'
 
 import { authFetch } from '../auth'
+// ⭐ 2026-10-18：问答与 agent 合并——所有提问入口最终都走 agent（会自己查库）
+import { sendAgentStream } from './useAgent'
 import { mergeSourceRuns, sourceLabel } from '../blockLabel'
 import { assistTab, isNarrow, scrollThreadToEnd, setNote, sheetState } from './useUi'
 
@@ -98,70 +100,17 @@ export function resetAsk() {
 }
 
 export async function submitAsk() {
+  // ⭐ 与 agent 合并后：这里**不再自己发请求**，统一交给 `sendAgentStream`。
+  // 为什么要保留这个函数名：快捷问句 / 就这段提问 / 导读追问 / 划词提问四个入口都调它，
+  // 改一处等于四个入口一起切过去；删了就得改四遍，还容易漏。
   const question = (askQuestion.value || '').trim()
   const task = currentTaskRef.value
-  if (!question || askLoading.value || !task) return
-  if (!blocksRef.value.length) await loadBlocksFn(task.id)
+  if (!question || !task) return
+  const scope = { task_id: task.id }
+  if (askAnchor.value && askAnchor.value.text) scope.selection = askAnchor.value.text
   askQuestion.value = ''
-  askLoading.value = true
-  const id = ++turnSeq
-  askThread.value = [
-    ...askThread.value,
-    {
-      id,
-      question,
-      answer: '',
-      sourceIds: [],
-      mode: '',
-      loading: true,
-      error: '',
-      errorDetail: '',
-      copied: false,
-    },
-  ]
-  scrollThreadToEnd()
-  try {
-    const res = await authFetch(`/api/tasks/${task.id}/ask`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        question,
-        // 形态：提问锚点与出处是同一个坐标系——把划词 / 点段号选中的那段带给后端
-        focus_block_ids:
-          askAnchor.value && askAnchor.value.blockId ? [askAnchor.value.blockId] : [],
-      }),
-    })
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}))
-      // 后端说清了原因就用它的原话（例：「该任务没有可提问的文本」）——
-      // 别拿"网络或服务繁忙"盖上去，那是把我们自己的问题说成用户的网不好。
-      const why = String(body.detail || '').trim()
-      patchTurn(id, {
-        loading: false,
-        error: why || '没答出来，服务没有给出原因。',
-        errorDetail: why ? '' : `HTTP ${res.status}`,
-      })
-      return
-    }
-    const data = await res.json()
-    patchTurn(id, {
-      loading: false,
-      answer: data.answer || '',
-      sourceIds: Array.isArray(data.source_block_ids) ? data.source_block_ids : [],
-      mode: data.mode || '',
-    })
-  } catch (err) {
-    patchTurn(id, {
-      loading: false,
-      // 走到这里才是真的没发出去 / 服务没响应，这时说"网络"才是对的
-      error: '没答出来：请求没发出去，或服务没响应。',
-      errorDetail: err.message || '',
-    })
-  } finally {
-    askLoading.value = false
-    askAnchor.value = null
-    scrollThreadToEnd()
-  }
+  askAnchor.value = null
+  return sendAgentStream(question, scope)
 }
 
 export function retryTurn(turn) {

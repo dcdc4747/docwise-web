@@ -34,6 +34,7 @@ import {
 } from './useMaterials'
 import { fetchTaskDetail, openTask, traceTo } from './useReader'
 import { showToast } from './useUi'
+import { htmlToMd, mdToHtml } from '../writeRich'
 
 /** 停了多久没有输入就自动存一次（毫秒）。手动「保存」与跳转前都会立刻存，不靠它。 */
 const SAVE_DEBOUNCE_MS = 1200
@@ -54,6 +55,11 @@ export { loadMaterials, materials, materialsError, materialsLoading } from './us
 export const currentDraftId = ref(null)
 export const title = ref('')
 export const body = ref('')
+/**
+ * 富文本源（2026-10-19）：编辑器是 TipTap，**逐段字号/行距只能存在 HTML 里**。
+ * `body` 仍是 Markdown —— 由它转出来（引文 `[n]`、提纲、导出、AI 锚点校验都读 md）。
+ */
+export const bodyHtml = ref('')
 
 /** `idle`（没改动）/ `dirty`（改了没存）/ `saving` / `saved` / `error`。 */
 export const saveState = ref('idle')
@@ -218,7 +224,7 @@ function markDirty(delay = SAVE_DEBOUNCE_MS) {
  * 所以不会被判成"用户改了字"。用一个 `applying` 布尔标记反而会漏——
  * Vue 的 watcher 是异步派发的，赋值当下把它设成 false，回调跑的时候已经太晚了。
  */
-watch([title, body], ([nextTitle, nextBody]) => {
+watch([title, body, bodyHtml], ([nextTitle, nextBody]) => {
   const draft = currentDraft.value
   if (!draft) return
   if (nextTitle === (draft.title || '') && nextBody === (draft.body_md || '')) return
@@ -235,6 +241,7 @@ function mergeDraftMeta(saved) {
           ...item,
           title: saved.title,
           body_md: saved.body_md,
+          body_html: saved.body_html,
           template_id: saved.template_id,
           updated_at: saved.updated_at,
         }
@@ -249,6 +256,8 @@ export function selectDraft(id) {
   currentDraftId.value = draft.id
   title.value = draft.title || ''
   body.value = draft.body_md || ''
+  // 富文本优先：老稿没有 html 就从 md 转一份（保证编辑器能显示已有内容）
+  bodyHtml.value = draft.body_html || mdToHtml(draft.body_md || '')
   if (saveTimer) {
     clearTimeout(saveTimer)
     saveTimer = null
@@ -337,6 +346,7 @@ export async function saveNow() {
   const id = currentDraftId.value
   const shotTitle = title.value.trim() || '未命名草稿'
   const shotBody = body.value
+  const shotHtml = bodyHtml.value
   saveState.value = 'saving'
   saveError.value = ''
   inFlight = (async () => {
@@ -344,7 +354,7 @@ export async function saveNow() {
       const saved = await apiJson(`/api/drafts/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: shotTitle, body_md: shotBody }),
+        body: JSON.stringify({ title: shotTitle, body_md: shotBody, body_html: shotHtml }),
       })
       mergeDraftMeta(saved)
       if (title.value.trim() === shotTitle && body.value === shotBody) {
@@ -408,6 +418,8 @@ export async function insertCitation(material, offset) {
 
   const { text, caret } = insertMarker(body.value, anchorOffset, citation.order)
   body.value = text // → watch → markDirty（正文变了就要落库）
+  // 编辑器看的是 html：md 变了要跟着转一份，否则界面不会出现刚插进去的 [n]
+  bodyHtml.value = mdToHtml(text)
   drafts.value = drafts.value.map((item) =>
     item.id === draftId ? { ...item, citations: [...(item.citations || []), citation] } : item,
   )
@@ -709,5 +721,99 @@ export function disposeWrite() {
   if (saveTimer) {
     clearTimeout(saveTimer)
     saveTimer = null
+  }
+}
+
+
+/**
+ * 重新拉一次当前草稿（AI 改版式之后用）。
+ *
+ * 为什么不复用 `loadDrafts`：那个会**覆盖整张列表**并可能把"正在编辑"的判断搅乱；
+ * 这里只按 id 取这一篇，取到就把 `bodyHtml` / `body` / 标题一起换掉。
+ * ⚠️ 有未保存的改动时**不覆盖**（用户手里的字比"AI 改的版式"重要），
+ * 只把提醒交给调用方去说。
+ */
+export async function reloadCurrentDraft() {
+  const id = currentDraftId.value
+  if (!id) return false
+  if (dirty) return false
+  try {
+    const draft = await apiJson(`/api/drafts/${id}`)
+    if (!draft) return false
+    title.value = draft.title || title.value
+    body.value = draft.body_md || ''
+    bodyHtml.value = draft.body_html || mdToHtml(draft.body_md || '')
+    mergeDraftMeta(draft)
+    saveState.value = 'saved'
+    savedAt.value = clockNow()
+    return true
+  } catch {
+    // 取不到就算了：界面上仍提示"版本里有这一版"，不假装成功
+    return false
+  }
+}
+
+// ============================================================ 版本历史（2026-10-19）
+
+/**
+ * 为什么需要：2026-10-19 起 **AI 可以直接往正文里写**，且写入是自动落地的。
+ * 20 秒撤销只兜"刚写完那一下"，隔天想回到"AI 动手之前"就得靠版本。
+ */
+export const versions = ref([])
+export const versionsLoading = ref(false)
+export const versionsError = ref('')
+
+export async function loadVersions() {
+  const draftId = currentDraftId.value
+  if (!draftId) {
+    versions.value = []
+    return []
+  }
+  versionsLoading.value = true
+  versionsError.value = ''
+  try {
+    const data = await apiJson(`/api/drafts/${draftId}/versions?limit=20`)
+    versions.value = Array.isArray(data?.items) ? data.items : []
+    return versions.value
+  } catch (err) {
+    versionsError.value = err?.message || '版本列表取不到'
+    return []
+  } finally {
+    versionsLoading.value = false
+  }
+}
+
+/** 看某一版（只读回显，**不自动应用**——拿"点开"当"应用"会让误点直接改稿）。 */
+export async function readVersion(versionId) {
+  if (!currentDraftId.value) return null
+  try {
+    return await apiJson(`/api/drafts/${currentDraftId.value}/versions/${versionId}`)
+  } catch (err) {
+    versionsError.value = err?.message || '这一版取不到'
+    return null
+  }
+}
+
+/** 回滚到某一版：后端会先把当前正文存一版（source=restore），这里把结果写回本地。 */
+export async function restoreVersion(versionId) {
+  if (!currentDraftId.value) return false
+  try {
+    const draft = await apiJson(
+      `/api/drafts/${currentDraftId.value}/versions/${versionId}/restore`,
+      { method: 'POST' },
+    )
+    mergeDraftMeta(draft)
+    title.value = draft.title || title.value
+    body.value = draft.body_md || ''
+    bodyHtml.value = draft.body_html || mdToHtml(draft.body_md || '')
+    dirty = false
+    saveState.value = 'saved'
+    savedAt.value = clockNow()
+    logEvent(`回滚到版本 #${versionId}`)
+    await loadVersions()
+    return true
+  } catch (err) {
+    versionsError.value = err?.message || '回滚失败'
+    return false
   }
 }
