@@ -915,8 +915,12 @@ function finishApplyBatch(run) {
  */
 function applyOps(ops) {
   const list = Array.isArray(ops) ? ops : []
-  if (!list.length || !body.value) return
+  // ⚠️ 只判"有没有 ops"，**不判正文是否为空**：
+  // 旧代码这里写的是 `|| !body.value`，于是新草稿（空正文）永远写不进，
+  // 而且连提示都没有——模型说"已写入"、界面 0 字（2026-10-19 真页面事故）。
+  if (!list.length) return
   const before = body.value
+  const wasEmpty = !before.trim()
   const crlf = usesCrlf(before)
   let text = normalizeEol(before)
   let applied = 0
@@ -967,8 +971,9 @@ function applyOps(ops) {
   saveState.value = 'dirty'
   logEvent(`AI 写进正文（${applied} 处）`)
   const skipNote = skipped.length ? `，跳过 ${skipped.length} 处` : ''
+  const emptyNote = wasEmpty ? '（草稿原来是空的）' : ''
   showToast(
-    `AI 已写进正文（${applied} 处${skipNote}）`,
+    `AI 已写进正文（${applied} 处${skipNote}）${emptyNote}`,
     { label: '撤销', run: () => revertOps(before) },
     WRITE_UNDO_MS,
   )
