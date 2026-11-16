@@ -269,6 +269,9 @@ export async function sendAgentStream(question, scope = {}) {
     turn.error = `请求失败：${exc && exc.message ? exc.message : exc}`
   } finally {
     thread.busy = false
+    if (turn.draftChanged || (turn.ops && turn.ops.length)) {
+      window.dispatchEvent(new CustomEvent('docwise:draft-changed'))
+    }
   }
 }
 

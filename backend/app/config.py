@@ -2,6 +2,8 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from .engine.paths import FAST_SCRIPT, engine_python
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_DB_PATH = BASE_DIR / "data" / "docwise.db"
 
@@ -11,14 +13,24 @@ class Settings(BaseSettings):
 
     # 翻译引擎（快/中档）与 DeepSeek 服务配置。从 .env 读取；会在启动时注入环境，
     # 使 worker 的子进程能读到（DOCWISE_ENGINE_* / DEEPSEEK_*）。
-    docwise_engine_python: str | None = None
-    docwise_engine_script: str | None = None
-    docwise_engine_service: str | None = None
+    #
+    # ⭐ 默认值全部指向**仓库内置**的 `engine/`，不依赖任何外部克隆或绝对路径：
+    #    引擎解释器 = engine/.venv，脚本 = engine/run_translation.py。
+    #    装引擎只做一件事：`uv sync --project engine`（见 README）。
+    # 显式配置环境变量时仍然以环境变量为准（换地方放引擎的老用法不被破坏）。
+    docwise_engine_python: str | None = engine_python()
+    docwise_engine_script: str | None = (
+        str(FAST_SCRIPT) if FAST_SCRIPT.exists() else None
+    )
+    docwise_engine_service: str | None = "deepseek"
+    # 中档：**保持默认不配**，从而回退到快档（与内置引擎之前的默认行为一致）；
+    # 想用中档再显式配这三个变量（脚本是 engine/run_translation_medium.py）。
     docwise_engine_medium_python: str | None = None
     docwise_engine_medium_script: str | None = None
     docwise_engine_medium_service: str | None = None
-    # 参考文献格式化脚本（N31）：不配就按 `DOCWISE_ENGINE_SCRIPT` 所在目录
-    # 找 `run_bibliography.py`；两处都拿不到就是"未配置"（接口回 503，别假装成功）。
+    # 参考文献格式化脚本（N31）：**不设默认值**——沿用既有推导规则
+    # （按 `DOCWISE_ENGINE_SCRIPT` 所在目录找 `run_bibliography.py`）。引擎内置后，
+    # 那个目录就是 `engine/`，自然命中；显式配置时仍以配置为准。
     docwise_engine_bibliography_script: str | None = None
     # 前端跨域白名单追加项（逗号分隔，如手机真机访问 http://192.168.1.5:5173）；
     # 默认已允许本地开发端口（5173/4173）。**同源部署（后端托管前端产物）用不上

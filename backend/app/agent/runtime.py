@@ -60,6 +60,51 @@ _REQUEST_LIMIT = 40
 _TOOL_CALL_LIMIT = 60
 
 
+def _persist_ops_to_draft(ctx, ops: list[dict]) -> tuple[list[dict], bool]:
+    """把直接写正文的 ops 先落库；返回 (剩下的 ops, 是否写入)。
+
+    为什么服务端也要写：前端对话组件在“素材/对话”切换时会卸载，final 到达时
+    如果组件不在，ops 会丢。写库后再让页面重拉草稿，内容就不会“AI 说写了但页面空”。
+    """
+    draft_id = (ctx.scope or {}).get("draft_id")
+    if not draft_id or not ops:
+        return ops, False
+    from ..models import Draft
+
+    with SessionLocal() as session:
+        draft = session.get(Draft, int(draft_id))
+        if draft is None or draft.user_id != ctx.user_id:
+            return ops, False
+        body = (draft.body_md or "").replace("\r\n", "\n").replace("\r", "\n")
+        applied = 0
+        for op in ops:
+            mode = str(op.get("mode") or "")
+            text = str(op.get("text") or "")
+            anchor = str(op.get("anchor") or "").strip()
+            if not text.strip():
+                continue
+            if mode == "append":
+                body = body.rstrip() + "\n\n" + text.rstrip() + "\n"
+                applied += 1
+            elif mode == "prepend":
+                body = text.rstrip() + "\n\n" + body.lstrip()
+                applied += 1
+            elif mode in {"replace", "insert_after"} and anchor and anchor in body:
+                at = body.index(anchor)
+                if mode == "replace":
+                    body = body[:at] + text + body[at + len(anchor):]
+                else:
+                    cut = at + len(anchor)
+                    body = body[:cut] + "\n\n" + text + body[cut:]
+                applied += 1
+        if not applied:
+            return ops, False
+        draft.body_md = body
+        draft.body_html = None
+        session.commit()
+    return [], True
+
+
 @dataclass
 class LLMConfig:
     """一次对话用哪家模型。密钥**只在内存里出现**，不写日志。"""
@@ -495,6 +540,8 @@ async def stream_scene(
                         }
                         for item in (getattr(output, "ops", []) or [])
                     ]
+                    ops, ops_persisted = _persist_ops_to_draft(ctx, ops)
+                    draft_touched = draft_touched or ops_persisted
                     steps = _steps_of(result.all_messages())
                     # 从消息历史里取**完整**工具结果来校验出处
                     seen = _verified_block_ids(result.all_messages())

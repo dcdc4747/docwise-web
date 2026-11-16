@@ -28,12 +28,12 @@ ENGINE_TEMP_PREFIX = "docwise_engine_"
 
 
 class OpenSourceEngine(TranslationEngine):
-    """成熟开源翻译引擎的适配器，对应快档。
+    """排版翻译引擎的适配器，对应快档。
 
-    通过子进程调用外部包装脚本，产出 mono(单语即中文)/dual(双语) PDF，
-    并抽取源文文字块作为"每块状态"。
+    通过子进程调用 `engine/run_translation.py`（随仓库内置），产出 mono(单语即中文)/
+    dual(双语) PDF，并抽取源文文字块作为"每块状态"。
 
-    说明（阶段 1 粗粒度）：外部引擎不暴露"每块成败"，这里以
+    说明（阶段 1 粗粒度）：引擎不暴露"每块成败"，这里以
     "整体翻译完成→块标记成功、失败→块标记失败"作为粗粒度状态，
     后续再细化到"某块截断/溢出"级别。
     """
@@ -64,11 +64,17 @@ class OpenSourceEngine(TranslationEngine):
         script = self._env("SCRIPT")
         service = self._env("SERVICE")
         if not python or not script or not service:
-            return self._failed(
-                request,
-                "未配置 DOCWISE_ENGINE_PYTHON / DOCWISE_ENGINE_SCRIPT / "
-                "DOCWISE_ENGINE_SERVICE",
+            from .paths import missing_parts
+
+            missing = missing_parts()
+            hint = (
+                f"仓库内置引擎还没装好（缺 {'、'.join(missing)}）："
+                "在仓库根执行 `uv sync --project engine` 后重试"
+                if missing
+                else "未配置 DOCWISE_ENGINE_PYTHON / DOCWISE_ENGINE_SCRIPT / "
+                "DOCWISE_ENGINE_SERVICE，且仓库内 engine/ 不可用"
             )
+            return self._failed(request, hint)
 
         # 结果目录：默认 data/outputs/{task_id}（由调度器传），删任务时整体清理
         out_dir = request.output_dir or self._temp_output_dir()

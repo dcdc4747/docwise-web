@@ -1367,6 +1367,10 @@ async function undoAiFormatChange(changes) {
  * ⚠️ 有未保存的字时 `reloadCurrentDraft` 内部会拒绝覆盖——用户手里的字优先，
  * 这时把"先保存再刷新"如实告诉他，不假装成功。
  */
+async function onGlobalDraftChanged() {
+  void onDraftChangedByAi()
+}
+
 async function onDraftChangedByAi() {
   const ok = await reloadCurrentDraft()
   const draftId = currentDraft.value?.id ?? null
@@ -1386,6 +1390,7 @@ async function onDraftChangedByAi() {
 
 onMounted(async () => {
   window.addEventListener('keydown', onWriteKeydown)
+  window.addEventListener('docwise:draft-changed', onGlobalDraftChanged)
   await Promise.all([loadDrafts(), loadMaterials()])
   // 进来时没选草稿：打开最近更新的一篇（列表已按 updated_at 倒序），没有就停在"起稿四入口"
   if (!currentDraft.value && drafts.value.length) selectDraft(drafts.value[0].id)
@@ -1393,6 +1398,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   window.removeEventListener('keydown', onWriteKeydown)
+  window.removeEventListener('docwise:draft-changed', onGlobalDraftChanged)
   // 离开写作页（含点 [1] 跳去阅读区）前，把没存上的字送出去
   void saveNow().catch(() => {})
   disposeWrite()

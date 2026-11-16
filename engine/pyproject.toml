@@ -1,0 +1,48 @@
+[project]
+name = "docwise-engine"
+version = "1.0.0"
+description = "排版保留型翻译引擎（仓库内置，供后端以子进程调用）"
+requires-python = ">=3.12"
+
+# 依赖按实际运行版本取齐：上游引擎（排版 + 版面模型）+ 取字/产物处理 + 参考文献渲染。
+# 说明见 THIRD_PARTY/NOTICE.md；本目录不是独立发布物，只服务本仓库的后端。
+dependencies = [
+    "bitstring>=4.3",
+    "citeproc-py>=0.11",
+    "configargparse>=1.7",
+    "freetype-py>=2.5",
+    # 中文字体子集化：缺了它产物能出，但字体不嵌入，换台机器可能显示成方框
+    "fonttools>=4.50",
+    "httpx[socks]>=0.27",
+    "huggingface-hub>=0.27",
+    "msgpack>=1.1",
+    "numpy>=2.0",
+    "onnx>=1.17",
+    "onnxruntime>=1.16",
+    "openai>=1.59",
+    "opencv-python-headless>=4.10",
+    "orjson>=3.10",
+    # pdfminer 必须钉死：翻译核心继承它的 PDFPageInterpreter，新版改了内部属性
+    # （实测 20260107 会抛 `'PDFPageInterpreterEx' object has no attribute 'ncs'`，
+    #  随后整篇退回 OCR）。这是"能跑"与"静默降级"的分界线，别放宽。
+    "pdfminer-six==20250416",
+    "peewee>=3.17",
+    "pikepdf>=9.0",
+    "psutil>=7.0",
+    "pydantic>=2.10",
+    "pymupdf>=1.25,<1.25.3",
+    "python-levenshtein>=0.27",
+    "rapidocr-onnxruntime>=1.4",
+    "requests>=2.32",
+    "rich>=13.9",
+    "scikit-image>=0.25",
+    "tenacity>=9.0",
+    "tiktoken>=0.9",
+    "toml>=0.10",
+    "tqdm>=4.67",
+    "xsdata[cli,lxml,soap]>=24.12",
+]
+
+[tool.uv]
+# 引擎与后端的依赖树刻意分开：后端保持轻量，重依赖只落在这里。
+package = false

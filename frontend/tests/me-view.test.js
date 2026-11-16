@@ -120,7 +120,7 @@ describe('MeView 个人中心', () => {
     const input = wrapper.find('#me-name')
     expect(input.element.value).toBe('演示账号')
 
-    await input.setValue('时天赐')
+    await input.setValue('示例用户')
     await wrapper.find('button.me-save').trigger('click')
     await flushPromises()
 

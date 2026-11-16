@@ -1,12 +1,17 @@
 # 密钥与本地配置
 .env
+# AI 协作手册：只在本地留存（含协作账号与内部流程，不进公开仓库）
+AGENTS.md
 
 # Python
+# —— `.venv*/` 一并覆盖引擎的临时环境（例如换 Python 版本时留下的 .venv_py314_unused）
 .venv/
+.venv*/
 __pycache__/
 *.pyc
 .pytest_cache/
 .ruff_cache/
+*.egg-info/
 
 # 本地运行数据：数据库（含 WAL/shm）、上传原件、翻译产物、备份、日志
 # —— 整个 data/ 一律不进仓库。公开仓库绝不能带上用户的论文、引擎日志或数据库备份

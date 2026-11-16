@@ -1168,7 +1168,7 @@ function watchOps() {
 
 onMounted(async () => {
   await Promise.all([loadScenes(), loadConfig()])
-  watch(turns, watchOps, { deep: true })
+  watch(turns, watchOps, { deep: true, immediate: true })
   // ⚠️ 必须**在 loadScenes 之后**切场景：反过来会被默认场景顶掉，
   // 写作页就会拿 read_ask 的 scene 去问（连 output 类型都是错的）。
   if (props.scene && props.scene !== sceneId.value) setScene(props.scene)

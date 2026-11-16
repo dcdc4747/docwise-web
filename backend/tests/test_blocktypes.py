@@ -90,7 +90,7 @@ def test_caption_prefixes() -> None:
         == "caption"
     )
     assert classify("图 1 赛程安排", "p3_b0") == "caption"
-    assert classify("表 2 各赛项参赛范围", "p4_b2") == "caption"
+    assert classify("表 2 各组实验条件", "p4_b2") == "caption"
 
 
 def test_title_zone_only_on_first_page() -> None:

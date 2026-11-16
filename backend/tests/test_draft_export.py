@@ -194,6 +194,11 @@ def test_other_users_draft_is_404() -> None:
 def test_docx_export_without_engine_is_503(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # 引擎现在随仓库内置（默认值指向 engine/.venv）。要模拟"没装引擎"，
+    # 必须同时把配置默认值清掉，否则启动时又会把内置路径注入环境。
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "docwise_engine_python", None, raising=False)
     monkeypatch.delenv("DOCWISE_ENGINE_PYTHON", raising=False)
     draft_id = _make_draft(
         title="没有引擎也要说人话", body_md="# 引言\n\n引用 [1]。"
