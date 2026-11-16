@@ -67,7 +67,7 @@ class Task(Base):
     #   "references": {"count", "entries"}}`。
     # 与 `regions` 一样**只存原始量、不存判定结果**：判定/分级仍归 `blocktypes.py`，
     # 后端不重算层级、不推断、不补默认值。缺失（老任务、引擎那条路还没接）就是 NULL。
-    # 形状与规矩见 docs/契约_数据模型_v1_20261014.md §1.2。
+    # 形状与规矩见 docs/contracts/data-model.md §1.2。
     structure: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     # 演示库策展（2026-10-08）：`archived_at` 非空 = 这篇不在库里显示，**数据不删**。
     # 为什么用"藏"而不是"删"：演示时要的只是"列表里都是像样的文献"，

@@ -6,7 +6,7 @@
     python scripts/check_contract.py --print     # 打印 /api 路由清单
     python scripts/check_contract.py --print-all # 连非 /api 的一起打（排查用）
 
-为什么要有它：契约（docs/契约_接口_v1_20261014.md）冻的是「前端照着写」的接口面。
+为什么要有它：契约（docs/contracts/api.md）冻的是「前端照着写」的接口面。
 一旦代码与契约漂移——路由改名、方法换掉、端点被删——前端的 mock 会继续「对」，
 而真接口已经变了。这类问题普通单测抓不到：单测跟着代码走，代码改成什么样它测什么样；
 **只有拿契约当基准，才照得出「代码动了、契约没动」。**

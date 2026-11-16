@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-DOC = Path("../docs/agent工具箱_20261018.md")
+DOC = Path("../docs/AGENT.md")
 _TOOLBOX_HEADER = "包（pack）"
 
 

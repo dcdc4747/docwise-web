@@ -2,7 +2,7 @@
 
 包含：上传 / 列表 / 详情 / 文件 / 进度推送 / 理解层 / 删除·重试·取消。
 
-约定（见 docs/代码架构图.md「关键观察」）：
+约定（见 docs/ARCHITECTURE.md「关键观察」）：
 
 - 所有"按任务"的接口都要 `load_owned_task` 校验归属，**非本人 404**；
 - 浏览器发起的三种请求（EventSource / iframe 预览 / `<a download>`）带不了请求头，

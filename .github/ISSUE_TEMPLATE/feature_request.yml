@@ -1,0 +1,41 @@
+name: 功能建议
+description: 想加一个能力，或改一处交互
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        提之前先看 `docs/PRODUCT.md` 的"明确不做"一节——有些克制是有意的，不是漏项。
+  - type: textarea
+    id: problem
+    attributes:
+      label: 你遇到的问题
+      description: 先说场景，再说你想要的功能；避免只给方案不给问题
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 你希望怎么做
+    validations:
+      required: false
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 你试过或考虑过的替代做法
+    validations:
+      required: false
+  - type: dropdown
+    id: area
+    attributes:
+      label: 涉及模块
+      options:
+        - 翻译 / 引擎
+        - 阅读 / 段落精读
+        - 问答 / 导读 / 术语
+        - 写作 / 导出
+        - 知识库 / 素材 / 回收站
+        - 账号 / 部署
+        - 文档
+    validations:
+      required: true

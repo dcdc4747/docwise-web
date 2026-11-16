@@ -4,7 +4,7 @@
 **不用改执行器、不用改界面** —— 报告按 `kind` 分组，前端跟着数据走。
 
 口径出处（一条都不是自创的）：
-`docs/产品形态说明_v2_20261014.md` §3.3、`docs/契约_接口_v1_20261014.md` §2.7。
+`docs/PRODUCT.md` §3.3、`docs/contracts/api.md` §2.7。
 """
 
 from __future__ import annotations

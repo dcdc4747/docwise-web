@@ -1,16 +1,17 @@
-<!-- 提交前请核对：标题已标任务编号（如 feat(backend): B1 ...），下方"关联任务"已填 -->
+<!-- 提交前请核对：标题符合 Conventional Commits，下面"关联"已填 -->
 
-## 关联任务
-- 任务编号：〔填 B1 / B2 / C1…C4 / A1 / A2〕
-- 关联 Issue：〔填如 `Closes #18`〕
-
-> 关联 Issue 请用 `Closes #xxx`（或 `相关 #xxx`），合并后会自动关闭对应 issue、也便于评审定位到具体任务。
+## 关联
+- 关联 Issue：〔`Closes #123` 或 `相关 #123`〕
 
 ## 做了什么
-〔逐条说明本次改动，对应你认领任务卡里的"具体任务"〕
+〔逐条说明本次改动；涉及契约的，写清改的是 `docs/contracts/` 里哪一份〕
 
 ## 怎么验证
-〔贴测试结果（pytest / ruff）、或演示/截图，对应"验收标准"〕
+〔贴 `ruff` / `pytest` / `vitest` 结果；界面或结果变化贴截图〕
 
-## 相关截图
-〔界面/结果截图，若有〕
+## 自查
+- [ ] `cd backend && uv run ruff check . && uv run pytest -q` 通过
+- [ ] `cd backend && uv run python scripts/check_contract.py` 通过（改过路由就必须跑）
+- [ ] `cd frontend && bun run test && bun run build` 通过
+- [ ] 没有提交密钥、`.env`、`backend/data/`、真实姓名与本机绝对路径
+- [ ] 改过模块 / 接口 / 数据结构 / 路由 / 引擎层 → 已同步 `docs/ARCHITECTURE.md`

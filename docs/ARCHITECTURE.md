@@ -6,7 +6,7 @@
 
 ```
 前端 SPA（Vue3，App.vue 单文件；PWA：manifest + 最小 SW，可装主屏/离线）
-   │  **界面形态 = 原型即设计权威**（`frontend/prototype/product-form.html`）：两级结构
+   │  **界面形态 = 原型即设计权威**（`docs/design/product-form.html`）：两级结构
    │  L1「我的论文」库页 / L2 全屏阅读工作区；`.dw` 命名空间整段照搬原型的 <style>，
    │  模板类名与原型一一对应（topbar / lib-wrap / hero / upload-card / grid3 / paper-card /
    │  reader-top / thin-bar / doc-pane / assist / tabs / composer / sheet / toast / menu …）。
@@ -121,10 +121,10 @@ worker/路由层：
                     ⚠️ **口径（2026-09-17 修订，别改回去）**：出处**只说「第 X 页 ·「这一句的开头…」」，不说「第 Y 段」**——
                     段号靠 PDF 版面切分算，实测在没见过的期刊上只有五六成准，**不准的段号比没有更糟**
                     （用户会拿它去数，数不上就不信整条出处了）。段落视图里的**「段 N」只是页内序号**，不作为出处
-  App.vue  ──► 未登录 → LoginView；已登录 → **两级结构**（形态 v1，见 `docs/产品形态说明.md`——
-               ⚠️ **该文档已被 v2 取代、仅作历史记录；当前目标形态是 `docs/产品形态说明_v2_20261014.md`，
+  App.vue  ──► 未登录 → LoginView；已登录 → **两级结构**（形态 v1，见 `docs/records/product-form-v1.md`——
+               ⚠️ **该文档已被 v2 取代、仅作历史记录；当前目标形态是 `docs/PRODUCT.md`，
                但尚未实现，所以此处描述的结构仍然是现在跑着的那一版**，
-               结构以 `frontend/prototype/product-form.html` 为准）：`.dw` 根节点，
+               结构以 `docs/design/product-form.html` 为准）：`.dw` 根节点，
                L1 库页（`view==='library'`：hero 仅空库时出现 + 上传卡 + 进行中任务条 + 完成横幅 + 论文卡片网格）
                L2 阅读工作区（`view==='reader'`：`.reader-top` 工具条「← 我的论文」+ `.thin-bar` 极细进度条 +
                `.note-line` + `.reader-body` = 左栏 `.doc-pane` / 右助手 `.assist` 三副页签 问答/导读/术语 + `.composer`）
@@ -256,7 +256,7 @@ worker/路由层：
                `filtered`（筛空了 → 说清是筛选造成的 + 给**出口**）；⚠️ 两态都**不说"暂无数据"**（传进来会 warn）
   public/  ──► manifest.webmanifest + sw.js + icons/（PWA：装主屏/全屏/离线壳；改壳后记得升 CACHE_NAME）
   prototype/product-form.html ──► 形态原型（**设计权威**：排版/控件/信息密度/交互以它为准，
-               与 `docs/产品形态说明.md` 冲突时以它为准）。文件里那条 `.proto-bar` 是原型自己的屏切换导航，
+               与 `docs/records/product-form-v1.md` 冲突时以它为准）。文件里那条 `.proto-bar` 是原型自己的屏切换导航，
                不属于产品界面，**不要搬**；末尾那段 JS 是示意用的命令式实现，正式实现要重写成 Vue 响应式状态
   tools/shoot.mjs ──► 零依赖 CDP 截图驱动（node tools/shoot.mjs <config.json> [outDir]）：
                无头 Chrome + 真登录换令牌塞 localStorage + 逐步 wait/waitFor/click/eval 再截图，
@@ -352,7 +352,7 @@ services/search.py（检索）· models（Task/TaskBlock/Draft/Citation/Material
 **设计边界**：场景工具数 **> 15 就该拆场景**（模型选工具准确率会掉）；
 同一个能力**只留一个工具名**（重复会让模型随机挑一个，而行为可能不一致）。
 
-详见 `docs/agent工具箱_20261018.md`（清单 + 挂载原则 + 待办）。
+详见 `docs/AGENT.md`（清单 + 挂载原则 + 待办）。
 
 ### 写作侧：代写通道（2026-10-19）
 
@@ -452,8 +452,8 @@ DraftVersion（新增）
       **全库对账（40 个已完成任务）**：只变 **6 块**（任务 42 三块、任务 43 一块、两篇老 sample_01 各一块），**全是纠正**；化学那份 212 块 / 30 条标题、中文 257 块 / 23 条标题、扫描件、EBSCO 那几篇**一块没动**。端到端核对走的是任务详情接口（类型**当场算不落库**，所以老任务立刻生效、不用重传）。**如实留一条没修的**：EBSCO 广告页的大字 `Commit ted to Your Success`（20pt vs 正文 10.5pt）仍判成标题——"明显大 + 够短"的固有代价，视觉上它本来就是大字，**要真区分得靠语义，不值得为它再加阈值**。
      ⚠️ **判不出来的那一类，是上游没给**（不是规则不行）：**翻译引擎那条路的块流里没有独立的章节标题**——实测化学那份 182 块中 `introduction / references / abstract / conclusion` 出现 **0 次**（第 0 步诊断：源 PDF 里 40 条粗体标题候选，**19 条被并进正文段、21 条在转换中被丢掉**）。**任务 3a 把字号与位置接上之后，这份文献的 `heading` 仍然是 0**——这是**如实为空**，不是没做：光有字号救不回"根本不在块流里"的标题。要真解决得靠"把引擎版面模型的类别按坐标贴回来"（任务 A）+ 前缀切分（任务 3b）。**别为了让界面上有标题，就把正文块硬判成标题。**
 22. **同源部署约定（后端托管前端产物）**：① `webapp.mount_frontend(app)` **必须写在 `main.py` 的最后**——Starlette 按注册顺序匹配，挂在 `/` 的静态托管若写在前面，会把后面定义的路由（含 `/api/health`）一起当成静态文件；② 回退时捕获的必须是**Starlette 的 `HTTPException`**：`StaticFiles` 抛的是它，而 `fastapi.HTTPException` 是它的**子类**，写成 FastAPI 那个就永远接不住 404、SPA 回退静默失效（本地实测踩过一次，是测试抓出来的）；③ `/api`、`/files` 下的未知路径**不参与**回退（保持 JSON 404，回退成 HTML 会让前端错误处理拿到页面源码），且只有 `Accept: text/html` 的浏览器导航才回退，拼错的 `/assets/*.js` 老老实实 404；④ `index.html`/`sw.js`/`manifest.webmanifest` 发 `Cache-Control: no-cache`（它们文件名不变，启发式缓存会让装了 PWA 的手机吃旧壳）；⑤ 产物不存在只跳过挂载 + 打日志（开发态不构建也能起服务），`DOCWISE_SERVE_FRONTEND=0` 关闭、`DOCWISE_FRONTEND_DIST` 改路径（相对路径按**仓库根**解析）；⑥ 前端改完要**重新构建** `frontend/dist`，后端只负责端出去、不会替你编译；⑦ 回归测试在 `tests/test_same_origin.py`（含"挂载点之后不许再有 `/api`、`/files` 路由"的结构性断言）。
-23. **界面形态约定（照原型搬，不是"参考配色"）**：① **原型即设计权威**——`frontend/prototype/product-form.html`；`docs/产品形态说明.md` 是文字规范，**冲突时以原型为准**；② **搬三步，缺一不可**：把原型 `<style>` 逐条搬进 `src/style.css`（统一包在 `.dw` 里，**不许污染登录页 / 管理后台**）→ 把每个屏的**结构层级与类名照抄**进 `App.vue` 模板 → 把原型末尾那段命令式 JS **重写成 ref / computed / watch**（不许在 Vue 里再搞一套 `querySelector` 改 DOM；只有"把某段滚进视野"本来就必须命令式，用模板 ref 做）；③ **只改颜色 = 货不对板**：判据是"遮住颜色只看骨架仍然一一对应"，验收基准是**与原型截图并排比对**（`frontend/tools/shoot.mjs` 就是干这个的）；④ **旧结构类名一个都不许留**（`reader-card` / `workbench-head` / `reader-doc` / `reader-assist` / `ask-panel` …），冒烟测试里 `FORBIDDEN_LEGACY` 直接锁死；⑤ 原型里那条 `.proto-bar`（屏切换导航）与 `.phone`（手机外框）是**原型自己的示意外壳，不属于产品界面**，不要搬；⑥ 新增界面元素要克制：形态规则是"右栏反膨胀（新功能先问能不能放进问答）、一屏最多一个强调色、层级靠留白与字重不靠阴影"。
-24. **PDF 视图约定（pdf.js，2026-09-15 上）**：① **为什么不用 iframe**——iframe 里是浏览器自带的阅读器（PDFium），拿不到 DOM 与文字位置，"点出处跳到那一段""点 PDF 里的段落提问"**物理上做不到**；pdf.js 有文字层坐标才能做。风险 1（能不能渲染引擎产物）已实测通过，见 `docs/产品形态说明.md` 第八节。② **命中粒度是"段"不是"行"**：行按纯几何并成段（`pdfText.buildParagraphs`：横向重叠 ≥30% **且** 基线间距 ≤1.8 倍行高；用并查集，所以不依赖行的排列顺序，双栏也不会串）。阈值取自真实产物实测——**段内行距 14.7、段间 ≥25.3**，1.8 倍刚好卡在中间。鼠标扫过与点中亮的都是整段。③ **三种产物都能对到段**：双语稿原页 / 中文文献原稿直接按文本搜到；**纯中文稿靠"几何参照"**——块里是英文、这一份是中文，直接搜必然搜不到，但双语稿是**版式保持的交替产物**（原页 2N-1 / 译页 2N），拿原页命中的 y 区间去译页取重叠的中文段，再映射到纯中文稿的同一页同一区间即可（实测两处取到的中文行完全一致）。**这条不用改引擎、不用改后端**，只读双语稿的几何。真对不上（图/表/扫描页没有文字层）时**只翻页 + 如实说，绝不假高亮**。④ **拉取别用 `?ticket=`**：票据 60 秒，pdf.js 按需分片会中途过期 → 改走 `authFetch` 取 `ArrayBuffer` 一次性喂 `getDocument({data})`，顺带不用管 `/files` 要不要支持 Range。⑤ **同一个 canvas 上并发 `page.render()` 会直接抛错**（"Cannot use the same canvas during multiple render() operations"）——所有渲染必须走 `PdfPane` 里那条**串行渲染链**，每页另有 `rendering` 标记挡重复请求；缩放变化要**先 `task.cancel()`** 再重画，否则旧尺寸会盖掉新尺寸。⑥ 命中坐标只存一份（**缩放 1 的视口坐标**），显示时统一乘当前缩放——窗口一变只改系数，不用重算命中。⑦ 命中方式用**DOM 热区**（`data-para`）而不是拿点击坐标反推行号——缩放、滚动都不会算歪。⑧ pdf.js 的**标准字体数据**由 `vite.config.js` 里的插件从 `node_modules` 发到 `dist/pdfjs/standard_fonts/`（762 KB 第三方二进制，**不进 git**）；不配的话没嵌字体的页面会退化成替代字体。⑨ 单测换掉 `src/pdfLoader.js` 就行——定位与命中全建立在文字层上，跟真不真画 canvas 无关。
+23. **界面形态约定（照原型搬，不是"参考配色"）**：① **原型即设计权威**——`docs/design/product-form.html`；`docs/records/product-form-v1.md` 是文字规范，**冲突时以原型为准**；② **搬三步，缺一不可**：把原型 `<style>` 逐条搬进 `src/style.css`（统一包在 `.dw` 里，**不许污染登录页 / 管理后台**）→ 把每个屏的**结构层级与类名照抄**进 `App.vue` 模板 → 把原型末尾那段命令式 JS **重写成 ref / computed / watch**（不许在 Vue 里再搞一套 `querySelector` 改 DOM；只有"把某段滚进视野"本来就必须命令式，用模板 ref 做）；③ **只改颜色 = 货不对板**：判据是"遮住颜色只看骨架仍然一一对应"，验收基准是**与原型截图并排比对**（`frontend/tools/shoot.mjs` 就是干这个的）；④ **旧结构类名一个都不许留**（`reader-card` / `workbench-head` / `reader-doc` / `reader-assist` / `ask-panel` …），冒烟测试里 `FORBIDDEN_LEGACY` 直接锁死；⑤ 原型里那条 `.proto-bar`（屏切换导航）与 `.phone`（手机外框）是**原型自己的示意外壳，不属于产品界面**，不要搬；⑥ 新增界面元素要克制：形态规则是"右栏反膨胀（新功能先问能不能放进问答）、一屏最多一个强调色、层级靠留白与字重不靠阴影"。
+24. **PDF 视图约定（pdf.js，2026-09-15 上）**：① **为什么不用 iframe**——iframe 里是浏览器自带的阅读器（PDFium），拿不到 DOM 与文字位置，"点出处跳到那一段""点 PDF 里的段落提问"**物理上做不到**；pdf.js 有文字层坐标才能做。风险 1（能不能渲染引擎产物）已实测通过，见 `docs/records/product-form-v1.md` 第八节。② **命中粒度是"段"不是"行"**：行按纯几何并成段（`pdfText.buildParagraphs`：横向重叠 ≥30% **且** 基线间距 ≤1.8 倍行高；用并查集，所以不依赖行的排列顺序，双栏也不会串）。阈值取自真实产物实测——**段内行距 14.7、段间 ≥25.3**，1.8 倍刚好卡在中间。鼠标扫过与点中亮的都是整段。③ **三种产物都能对到段**：双语稿原页 / 中文文献原稿直接按文本搜到；**纯中文稿靠"几何参照"**——块里是英文、这一份是中文，直接搜必然搜不到，但双语稿是**版式保持的交替产物**（原页 2N-1 / 译页 2N），拿原页命中的 y 区间去译页取重叠的中文段，再映射到纯中文稿的同一页同一区间即可（实测两处取到的中文行完全一致）。**这条不用改引擎、不用改后端**，只读双语稿的几何。真对不上（图/表/扫描页没有文字层）时**只翻页 + 如实说，绝不假高亮**。④ **拉取别用 `?ticket=`**：票据 60 秒，pdf.js 按需分片会中途过期 → 改走 `authFetch` 取 `ArrayBuffer` 一次性喂 `getDocument({data})`，顺带不用管 `/files` 要不要支持 Range。⑤ **同一个 canvas 上并发 `page.render()` 会直接抛错**（"Cannot use the same canvas during multiple render() operations"）——所有渲染必须走 `PdfPane` 里那条**串行渲染链**，每页另有 `rendering` 标记挡重复请求；缩放变化要**先 `task.cancel()`** 再重画，否则旧尺寸会盖掉新尺寸。⑥ 命中坐标只存一份（**缩放 1 的视口坐标**），显示时统一乘当前缩放——窗口一变只改系数，不用重算命中。⑦ 命中方式用**DOM 热区**（`data-para`）而不是拿点击坐标反推行号——缩放、滚动都不会算歪。⑧ pdf.js 的**标准字体数据**由 `vite.config.js` 里的插件从 `node_modules` 发到 `dist/pdfjs/standard_fonts/`（762 KB 第三方二进制，**不进 git**）；不配的话没嵌字体的页面会退化成替代字体。⑨ 单测换掉 `src/pdfLoader.js` 就行——定位与命中全建立在文字层上，跟真不真画 canvas 无关。
 25. **时间口径（2026-10-08 修的 bug，新代码必须守）**：**库里一律存 UTC（naive），接口一律输出带时区的 UTC**，两件事各有唯一入口（`app/timeutil.py`）——写库用 `utc_now()`，序列化用 `iso_utc()`，**别再手写 `datetime.now()` 或裸 `isoformat()`**。
     - **修的是什么 bug**：原来库里两种口径并存——`tasks.created_at` 是 SQLite 的 `func.now()`（**UTC**），而 `started_at` / `finished_at` 是 Python 的 `datetime.now()`（**本机本地时间**）；接口又一律不带时区输出，前端 `new Date(iso)` 按**本地**解析 → 列表页的"上传时间"整体差一个时区（实测：刚上传 20 分钟的文献显示「8 小时前」，库里 `created_at='2026-09-30 19:40:10'`＝本地 03:40）。
     - **自洽判据（体检用）**：任务一创建就开始跑，所以 `started_at - created_at` 应该是**几秒**；实测迁移前是 8 小时、迁移后 **+0.5 秒**。

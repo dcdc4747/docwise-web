@@ -94,7 +94,7 @@ docwise-web/
 > - **尚硅谷新版 Git 快速入门（约 3 小时，零废话）**：
 >   https://www.bilibili.com/video/BV1wm4y1z7Dg/
 
-> 📝 **配套练习：做完上面再看这份动手作业**——[Git 实战作业（一步步跟着做）](./Git%20实战作业.md)
+> 📝 **配套练习：做完上面再看这份动手作业**——[Git 实战作业（一步步跟着做）](../records/git-workshop.md)
 
 > ✅ **第二步学完，你能做到**：独立完成一次完整 PR 流程（clone → 建分支 → 改 → commit → push → 网页发 PR → pull）。这个一定要自己动手走一遍。
 
@@ -165,6 +165,6 @@ docwise-web/
 
 ---
 
-> 遇到卡点：先看 [README](../README.md) 与 [代码架构图](代码架构图.md)；涉及公共接口、数据库结构的大改动，先在 PR 或 issue 里说明再动手。
+> 遇到卡点：先看 [README](../README.md) 与 [代码架构图](../ARCHITECTURE.md)；涉及公共接口、数据库结构的大改动，先在 PR 或 issue 里说明再动手。
 >
 > **红线提醒**：绝不提交 `.env`、API key、密码；大文件（样本、录屏）不走仓库，放共享网盘。

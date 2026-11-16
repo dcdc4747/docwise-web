@@ -1,6 +1,6 @@
 """素材卡（契约 §2.4 / N12–N14）的测试。
 
-⭐ 这一包盯的就是 **M2 的验收判据**（`docs/任务划分与分工_v1_20261014.md`）：
+⭐ 这一包盯的就是 **M2 的验收判据**（`docs/records/task-plan-v1.md`）：
 
 1. ⭐⭐ **建一张卡 → 删掉源任务 → `GET /api/materials` 里那张卡仍显示
    `source_name` / `page` / `text_quote`**，且 `task_id` 变 null、**卡不级联删**；

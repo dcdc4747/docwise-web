@@ -1,0 +1,53 @@
+name: 问题报告
+description: 有东西跑不起来、行为不对、或与文档不符
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        请先确认：`uv sync --project engine` 与 `uv sync`（backend）都执行过；报错信息里有"引擎"时先看 `docs/ARCHITECTURE.md` 的分层。
+        **不要贴密钥、论文原文或 `backend/data/` 里的内容。**
+  - type: textarea
+    id: what
+    attributes:
+      label: 发生了什么
+      description: 实际看到的现象；有报错就贴报错原文（把密钥与路径里的用户名去掉）
+    validations:
+      required: true
+  - type: textarea
+    id: expect
+    attributes:
+      label: 你期望的结果
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      placeholder: |
+        1. 上传一份 PDF（页数 / 语言 / 是否扫描件）
+        2. 选了哪个档位
+        3. 打开哪个页面
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: 版本
+      description: `git rev-parse --short HEAD` 的输出
+    validations:
+      required: false
+  - type: dropdown
+    id: area
+    attributes:
+      label: 影响范围
+      options:
+        - 翻译 / 引擎
+        - 阅读 / 段落精读
+        - 问答 / 导读 / 术语
+        - 写作 / 导出
+        - 知识库 / 素材 / 回收站
+        - 账号 / 部署
+        - 文档
+    validations:
+      required: true
