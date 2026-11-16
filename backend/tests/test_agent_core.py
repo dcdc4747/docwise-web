@@ -963,14 +963,15 @@ def test_run_scene_carries_write_ops() -> None:
         )
     )
 
-    assert result["ops"], f"返回里没有 ops：{list(result)}"
-    op = result["ops"][0]
-    assert op["mode"] == "insert_after"
-    assert op["anchor"] == "手性可以分成时间与空间两部分。"
-    assert "时序演化" in op["text"]
+    # 2026-11-17 起：写操作由**服务端**落库（以前只回给前端，模型说"已改"而稿子没动）。
+    # 因此返回的 ops 会被清空，改用 draft_changed + 库里的正文来断言。
+    assert result["draft_changed"] is True
+    assert result["ops"] == []
 
     with SessionLocal() as session:
-        session.delete(session.get(Draft, draft_id))
+        draft = session.get(Draft, draft_id)
+        assert "时序演化" in draft.body_md
+        session.delete(draft)
         session.commit()
 
 

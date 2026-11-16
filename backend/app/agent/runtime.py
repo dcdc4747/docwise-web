@@ -258,6 +258,44 @@ def _steps_of(messages) -> list[dict]:
     return steps
 
 
+# ============================================================ 谎报执行结果的护栏
+# 实测：模型只调了 read_draft，却在 answer 里写"已把标题改为…"，而 ops 为空、
+# 草稿一个字没动。用户会以为改好了。规矩：**没有成功的写类工具结果、也没有 ops，
+# 就不许出现"已改/已完成"的说法**；命中就给答案加一条纠正，并打标记供前端展示。
+_WRITE_TOOLS = {
+    "apply_style",
+    "create_material",
+    "create_collection",
+    "memory_write",
+    "assign_task",
+}
+_CLAIM_RE = re.compile(
+    r"已(?:经)?[^。；\n]{0,14}(?:改|更新|写入|保存|创建|删除|设为|改成|调整为|插入|应用)"
+)
+_UNBACKED_NOTE = (
+    "⚠️ 这一回合只读取了内容，**没有执行任何写入**。"
+    "下面若出现“已改好 / 已完成”之类的说法，请以草稿实际内容为准。\n\n"
+)
+
+
+def _unbacked_claim(
+    answer: str, steps: list[dict], ops: list[dict], wrote: bool = False
+) -> bool:
+    """答案自称做了写入，但既没有 ops、也没落库、也没有成功的写类工具结果。"""
+    if not answer or ops or wrote:
+        return False
+    if not _CLAIM_RE.search(answer):
+        return False
+    for step in steps or []:
+        if (
+            step.get("kind") == "tool_result"
+            and step.get("ok")
+            and step.get("name") in _WRITE_TOOLS
+        ):
+            return False
+    return True
+
+
 async def run_scene(
     scene: Scene,
     question: str,
@@ -311,7 +349,13 @@ async def run_scene(
         for item in (getattr(output, "ops", []) or [])
     ]
 
+    # 非流式以前只把 ops 返回给前端、**从不落库**：模型说"已改"，草稿却没动。
+    # 与流式对齐，服务端先写；写成功就不再是"谎报"。
+    ops, ops_persisted = _persist_ops_to_draft(ctx, ops)
     steps = _steps_of(result.all_messages())
+    claim_unbacked = _unbacked_claim(answer, steps, ops, ops_persisted)
+    if claim_unbacked:
+        answer = _UNBACKED_NOTE + answer
     # 出处校验：只留**工具真的返回过**的块号（模型编的一律剔掉）
     # 块号形状是 `p<页>_b<块>`（如 p0_b3）；工具结果可能是 dict 的 repr，用正则取。
     seen: set[str] = set()
@@ -323,6 +367,8 @@ async def run_scene(
     usage = result.usage
     return {
         "answer": answer,
+        "claim_without_write": claim_unbacked,
+        "draft_changed": ops_persisted,
         "sources": verified,
         "dropped_sources": [sid for sid in sources if sid not in verified],
         "revisions": revisions,
@@ -546,13 +592,20 @@ async def stream_scene(
                     # 从消息历史里取**完整**工具结果来校验出处
                     seen = _verified_block_ids(result.all_messages())
                     usage = result.usage
+                    answer_now = getattr(output, "answer", "") or ""
+                    claim_unbacked = _unbacked_claim(
+                        answer_now, steps, ops, draft_touched
+                    )
+                    if claim_unbacked:
+                        answer_now = _UNBACKED_NOTE + answer_now
                     yield {
                         "type": "final",
                         "model": cfg.model,
                         "revisions": revisions,
                         "ops": ops,
                         "notes": verify_notes,
-                        "answer": getattr(output, "answer", "") or "",
+                        "answer": answer_now,
+                        "claim_without_write": claim_unbacked,
                         "sources": [sid for sid in sources if sid in seen],
                         "dropped_sources": [sid for sid in sources if sid not in seen],
                         "steps": steps,

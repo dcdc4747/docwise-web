@@ -185,6 +185,11 @@ async def chat(
         "answer": result["answer"],
         "sources": result["sources"],
         "dropped_sources": result["dropped_sources"],
+        # 与 /chat/stream 的 final 对齐：前端要据此判断"是否真写了稿"
+        "revisions": result.get("revisions") or [],
+        "ops": result.get("ops") or [],
+        "claim_without_write": bool(result.get("claim_without_write")),
+        "draft_changed": bool(result.get("draft_changed")),
         "steps": result["steps"],
         "usage": result["usage"],
         "scene": scene.id,
