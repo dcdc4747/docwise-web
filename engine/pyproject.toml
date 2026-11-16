@@ -31,6 +31,8 @@ dependencies = [
     "psutil>=7.0",
     "pydantic>=2.10",
     "pymupdf>=1.25,<1.25.3",
+    # Word 导出（run_bibliography / export.docx 走 python-docx）；缺了会 503
+    "python-docx>=1.1",
     "python-levenshtein>=0.27",
     "rapidocr-onnxruntime>=1.4",
     "requests>=2.32",
