@@ -66,14 +66,19 @@ class OpenSourceEngine(TranslationEngine):
         if not python or not script or not service:
             from .paths import missing_parts
 
+            # 文案要同时说清两件事，否则在"没装引擎"的机器（CI、新克隆）上只报后半句，
+            # 用户不知道该配变量还是该装环境：
+            #   ① 哪些配置项没给；② 内置引擎缺了什么、怎么装。
             missing = missing_parts()
             hint = (
-                f"仓库内置引擎还没装好（缺 {'、'.join(missing)}）："
-                "在仓库根执行 `uv sync --project engine` 后重试"
-                if missing
-                else "未配置 DOCWISE_ENGINE_PYTHON / DOCWISE_ENGINE_SCRIPT / "
-                "DOCWISE_ENGINE_SERVICE，且仓库内 engine/ 不可用"
+                "未配置 DOCWISE_ENGINE_PYTHON / DOCWISE_ENGINE_SCRIPT / "
+                "DOCWISE_ENGINE_SERVICE，且仓库内置引擎不可用"
             )
+            if missing:
+                hint += (
+                    f"（缺 {'、'.join(missing)}）："
+                    "在仓库根执行 `uv sync --project engine` 后重试"
+                )
             return self._failed(request, hint)
 
         # 结果目录：默认 data/outputs/{task_id}（由调度器传），删任务时整体清理
