@@ -692,7 +692,12 @@ ight: 0（右对齐）+ z-index 8，
 .dw .page + .page { margin-top: 20px; }
 .dw .page h3 { margin: 0 0 4px; font-size: 15px; }
 .dw .page .authors { font-size: 11px; color: var(--muted); margin-bottom: 16px; }
-.dw .page .cols { column-count: 2; column-gap: 30px; font-size: 11.5px; line-height: 1.7; color: #39404c; text-align: justify; }
+/* ⚠️ 这里原来是 column-count: 2（模仿 PDF 双栏），结果**段落被跨栏切断**：
+   左栏结尾 "…gives an o n algorithm for any inverse-"、右栏接着 "both theory and practice"，
+   原文与它的译文被分到两栏，对照关系直接失效。段落精读要的是"一段原文 + 一段译文"
+   连续读，所以改单栏并限宽。 */
+.dw .page .cols { column-count: 1; max-width: 720px; margin: 0 auto; font-size: 11.5px; line-height: 1.7; color: #39404c; text-align: justify; }
+.dw .page .cols p { break-inside: avoid; }
 .dw .page .cols p { margin: 0 0 8px; }
 .dw .page .cols .en { display: block; font-size: 10.5px; color: #8a9099; margin-bottom: 3px; }
 .dw .page .fig {
@@ -944,6 +949,7 @@ ight: 0（右对齐）+ z-index 8，
   border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink);
 }
 .dw .search-input:focus { outline: none; border-color: var(--accent-line); }
+.dw .search-hint { font-size: 11.5px; color: var(--muted); white-space: nowrap; }
 
 /* ⑨ 原版 PDF 模式：iframe 填满左栏；没有产物时用一张居中说明卡（沿用 .card 语言） */
 .dw .doc-pane.pdf-mode { display: flex; flex-direction: column; }

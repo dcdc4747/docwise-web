@@ -77,6 +77,7 @@
       />
       <button class="btn sm" @click="runSearch">查找</button>
       <button class="btn ghost sm" @click="toggleSearch">关闭</button>
+      <span v-if="searchFeedback" class="search-hint">{{ searchFeedback }}</span>
     </div>
     <template v-else-if="noteLineText">{{ noteLineText }}</template>
   </div>
@@ -726,6 +727,7 @@ import {
   runDownload,
   runSearch,
   scannedNotice,
+  searchFeedback,
   searchOpen,
   searchTerm,
   selChip,

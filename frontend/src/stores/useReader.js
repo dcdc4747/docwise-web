@@ -739,9 +739,13 @@ async function applyResumePosition() {
 
 export const searchOpen = ref(false)
 export const searchTerm = ref('')
+// 搜索栏打开时 `.note-line` 被输入框占用，`setNote` 的提示用户看不见——
+// 所以命中/未命中要单独给一句话，显示在搜索栏里。
+export const searchFeedback = ref('')
 
 export function toggleSearch() {
   searchOpen.value = !searchOpen.value
+  searchFeedback.value = ''
   if (!searchOpen.value) searchTerm.value = ''
 }
 
@@ -750,9 +754,15 @@ export function runSearch() {
   if (!needle) return
   const hit = findBlockByText(needle, blocks.value)
   if (!hit) {
+    searchFeedback.value = `没找到「${needle}」`
     setNote(`没找到含「${needle}」的段落——换个词，或换「原版 PDF」模式看图表里的字。`)
     return
   }
+  const lower = needle.toLowerCase()
+  const total = (blocks.value || []).filter((b) =>
+    `${b?.text || ''}\n${b?.translated || ''}`.toLowerCase().includes(lower),
+  ).length
+  searchFeedback.value = `已跳到${labelOf(hit.block_id) || '那一段'}${total > 1 ? `（共 ${total} 段命中）` : ''}`
   setNote(`已跳到含「${needle}」的那一段：${labelOf(hit.block_id) || '位置待定'}`)
   traceTo(hit.block_id)
 }
