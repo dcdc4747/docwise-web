@@ -777,6 +777,15 @@ async def create_task_upload(
     filename = Path(file.filename or "upload.pdf").name
     if file.content_type != "application/pdf" and not filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="仅支持 PDF 文件")
+    # 扩展名与 Content-Type 都能伪造（把 txt 改名叫 .pdf 就是 202 入队，再等引擎报
+    # "Failed to open stream"）。这里校验文件头：真 PDF 一定以 `%PDF-` 开头。
+    head = await file.read(5)
+    await file.seek(0)
+    if not head.startswith(b"%PDF-"):
+        raise HTTPException(
+            status_code=400,
+            detail="这不是有效的 PDF：文件内容不是 PDF（可能只是改了扩展名）",
+        )
     try:
         tier_value = Tier(tier).value
     except ValueError:
