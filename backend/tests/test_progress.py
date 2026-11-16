@@ -62,6 +62,17 @@ def test_parse_hours_and_long_eta() -> None:
     assert parsed.eta_seconds == 7384  # 2h3m4s
 
 
+def test_parse_slow_rate_uses_seconds_per_item() -> None:
+    # 慢下来时 tqdm 会把单位从 it/s 切成 s/it；只认 it/s 会从这里开始解析不出进度
+    bar = "100%|\u2588\u2588\u2588\u2588\u2588\u2588| 16/16 [01:31<00:00,  6.74s/it]"
+    parsed = progress_lib.parse_engine_progress(bar)
+    assert parsed is not None
+    assert parsed.done == 16
+    assert parsed.total == 16
+    assert parsed.percent == 1.0
+    assert parsed.rate == 6.74
+
+
 def test_parse_returns_none_when_nothing_recognizable() -> None:
     noise = (
         "MuPDF error: syntax error: unknown keyword: '1.1652899999999998e'\r\n\r\n"
