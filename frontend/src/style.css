@@ -1531,15 +1531,20 @@ svg.ic-inl {
    两段都落 EOF 会白造一次冲突。
    ============================================================================ */
 
+/* 六区锚点（全端检查 A4，2026-11-17）：grid 两列 —— 左一条常驻分区导航、右一列内容。
+   ⚠️ 用 grid 把两条并排，**不另包一层 div**：包裹层会把六个 <section> 整段缩进，
+   review 的 diff 里就真看不出改了什么。 */
 .dw .me-view {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-4);
-  max-width: var(--measure);
+  display: grid;
+  grid-template-columns: 148px minmax(0, 1fr);
+  align-items: start;
+  gap: var(--sp-4) var(--sp-5);
+  max-width: calc(var(--measure) + 148px + var(--sp-5));
   padding: var(--sp-4);
 }
 
 .dw .me-top {
+  grid-column: 1 / -1;
   display: flex;
   align-items: center;
   gap: var(--sp-3);
@@ -1569,8 +1574,35 @@ svg.ic-inl {
   font-size: var(--fs-meta);
 }
 
-/* 六个区块：一块一张卡 */
+.dw .me-nav {
+  grid-column: 1;
+  grid-row: 2 / span 6;
+  position: sticky;
+  top: var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-right: var(--sp-2);
+  border-right: 1px solid var(--line);
+}
+.dw .me-nav-item {
+  font: inherit;
+  font-size: var(--fs-ui);
+  text-align: left;
+  padding: var(--sp-1) var(--sp-2);
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.dw .me-nav-item:hover { background: var(--surface-3); color: var(--ink); }
+.dw .me-nav-item.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+
+/* 六个区块：一块一张卡（右侧内容列；滚到区块时别贴着顶端，留一点呼吸） */
 .dw .me-sec {
+  grid-column: 2;
+  scroll-margin-top: var(--sp-3);
   display: flex;
   flex-direction: column;
   gap: var(--sp-2);
@@ -1772,6 +1804,25 @@ svg.ic-inl {
 .dw .me-delete:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* ≤1099px：导航改成横向一条，内容回单列。**不藏起来**——藏了等于手机上没锚点。
+   ⚠️ 这条必须放在上面那些 `.me-` 规则**之后**：同优先级下后写的赢，
+   放在前面会被 `.me-sec { grid-column: 2 }` 反过来盖掉（写完就踩过一次）。 */
+@media (max-width: 1099px) {
+  .dw .me-view { grid-template-columns: minmax(0, 1fr); }
+  .dw .me-nav {
+    grid-column: 1;
+    grid-row: auto;
+    position: static;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: var(--sp-1);
+    padding: 0 0 var(--sp-2);
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .dw .me-sec { grid-column: 1; }
 }
 
 /* ============================================================

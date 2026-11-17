@@ -22,6 +22,7 @@
     <!-- 1024–1099 档：右栏改抽屉，这里是它唯一的开关（其余宽度下 CSS 把它藏起来）。
          图标随开合变（收起时「拉出来」、展开时「推回去」），文案也跟着变，别让人猜。 -->
     <button
+      ref="assistToggleEl"
       class="btn ghost sm btn-ic assist-toggle"
       :class="{ on: assistDrawerOpen }"
       :aria-expanded="assistDrawerOpen ? 'true' : 'false'"
@@ -603,6 +604,7 @@ import {
 } from '../stores/useAgent'
 // 埋点 1（译文改动）：入口只在"有译文"的块上给，存下之后打「已人工修改」标记
 import { computed, nextTick, onMounted, onUnmounted, ref, watch, watchEffect } from 'vue'
+import { returnFocus } from '../focusReturn'
 
 // 问答页签的两种模式：`agent` = 会调工具的助手（默认），`direct` = 只读这一篇的老问答
 const agentScope = computed(() => ({ task_id: currentTask.value && currentTask.value.id }))
@@ -622,6 +624,8 @@ watchEffect(() => {
 
 const splitterDragging = ref(false)
 const assistWidth = ref(readAssistWidth())
+/** 抽屉开关那颗按钮：`Esc` 关抽屉之后把焦点还给它（全端检查 G3）。 */
+const assistToggleEl = ref(null)
 
 function readAssistWidth() {
   const saved = Number(localStorage.getItem(ASSIST_W_KEY) || 0)
@@ -882,6 +886,9 @@ function flushExposureByBeacon() {
 function onKeydown(event) {
   if (event.key === 'Escape' && assistDrawerOpen.value) {
     closeAssistDrawer()
+    // 焦点还回开关（否则键盘用户按 Tab 会从页首重数）；按钮在别的宽度下被 CSS 藏着，
+    // 对藏着的元素调 focus() 浏览器自己会忽略 —— 不需要在这里猜"该不该还"
+    returnFocus(assistToggleEl.value)
   }
 }
 

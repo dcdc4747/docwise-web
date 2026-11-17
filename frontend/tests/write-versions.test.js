@@ -13,8 +13,22 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const VERSIONS = [
-  { id: 9, source: 'user', note: null, created_at: '2026-10-19T02:00:00Z', chars: 120 },
-  { id: 8, source: 'restore', note: null, created_at: '2026-10-19T01:40:00Z', chars: 96 },
+  {
+    id: 9,
+    source: 'user',
+    note: null,
+    created_at: '2026-10-19T02:00:00Z',
+    chars: 120,
+    title: '开题报告',
+  },
+  {
+    id: 8,
+    source: 'restore',
+    note: null,
+    created_at: '2026-10-19T01:40:00Z',
+    chars: 96,
+    title: '开题报告（改名之前）',
+  },
 ]
 
 const DRAFT = {
@@ -36,6 +50,7 @@ vi.mock('../src/auth', () => {
         id: 9,
         body_md: '第九版正文',
         body_html: '<p>第九版正文</p>',
+        title: '开题报告',
         source: 'user',
         created_at: '2026-10-19T02:00:00Z',
       })
@@ -81,7 +96,7 @@ describe('写作页 · 版本历史', () => {
     wrapper.unmount()
   })
 
-  it('列表只显示来源/时间/字数（正文不预加载）', async () => {
+  it('列表只显示来源/时间/字数/当时的标题（正文不预加载）', async () => {
     const wrapper = mountWrite()
     await flushPromises()
     await openVersions(wrapper)
@@ -90,6 +105,9 @@ describe('写作页 · 版本历史', () => {
     expect(text).toContain('手动保存')
     expect(text).toContain('回滚前留档')
     expect(text).toContain('120 字')
+    // ⭐ W7：回滚会把标题也带回去，列表必须让人先看见"回的是哪个名字"
+    expect(text).toContain('当时标题：开题报告')
+    expect(text).toContain('开题报告（改名之前）')
     expect(text).not.toContain('第九版正文')
     wrapper.unmount()
   })
@@ -103,6 +121,8 @@ describe('写作页 · 版本历史', () => {
     await viewBtn.trigger('click')
     await flushPromises()
     expect(wrapper.find('.wr-verpreview').text()).toContain('第九版正文')
+    // 详情里也带当时的标题（后端 `_serialize_version` 一直有，这里开始用上了）
+    expect(wrapper.find('.wr-verpreview').text()).toContain('当时标题：开题报告')
 
     const restoreBtn = wrapper.findAll('.wr-versions button').find((b) => b.text() === '回滚')
     expect(restoreBtn).toBeTruthy()

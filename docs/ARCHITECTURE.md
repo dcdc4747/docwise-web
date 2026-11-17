@@ -375,9 +375,9 @@ WriteView.applyOps
   │  标 dirty（**不偷偷存库**）+ 20 秒整批撤销
   ▼
 DraftVersion（新增）
-  │  保存正文时自动记一版（内容没变不重复记；保留最近 50 版）
+  │  保存时自动记一版（**正文或标题**真变了才记；保留最近 50 版）
   │  GET /versions · GET /versions/{id} · POST /versions/{id}/restore
-  │  restore 前先把当前正文存一版（回滚不丢中间稿）
+  │  restore 写回**正文 + 版式 + 标题**；回滚前先把当前稿存一版（不丢中间稿）
   ▼
 导出：GET /api/drafts/{id}/export.md · .docx（docx 走引擎 venv，失败 503 人话）
 ```
@@ -491,7 +491,7 @@ stores/useWrite.js             草稿（body_md + bodyHtml 双状态）、保存
 | 草稿双存 | `models.py` / `routers/drafts.py` | `drafts.body_html`、`draft_versions.body_html`；PATCH 同时收两份 |
 | 补列迁移 | `main.py::_ensure_schema` | `create_all` 只建表不改表 → 老库 `ALTER TABLE drafts ADD COLUMN body_html TEXT` |
 | 导出 | `routers/draft_export.py` + `services/draft_export.py` | `GET /api/drafts/{id}/export.md|.docx`；docx 走引擎 venv，缺 `python-docx` 时 503 + 人话 |
-| 版本 | `routers/drafts.py` | 列表不带正文（只给 chars）、详情回显、回滚**前先存一版**（source=restore） |
+| 版本 | `routers/drafts.py` | 列表不带正文（给 chars + 当时的 `title`）、详情回显、回滚写回正文/版式/**标题**，回滚**前先存一版**（source=restore） |
 
 ### Agent 层（当前真实能力）
 

@@ -22,6 +22,23 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '../src/App.vue'
 
 /**
+ * 等到某个条件成立（最多 `tries` 轮，每轮让 Vue 与宏任务都走一步）。
+ *
+ * 为什么需要：`#/read/12`、`#/me` 这类地址变化走的是**真的 `hashchange`（宏任务）**，
+ * 而 `flushPromises()` 只把微任务排空、赶不上它 —— 于是"屏已经切了、左栏选中态还差一拍"。
+ * 2026-11-17 实测：干净 main 上 `app.smoke` 连跑 4 次红 3 次，跟改了什么无关。
+ * ⚠️ 这里**不吞失败**：等不到就照样往下走，让调用方的 `expect` 去报 ——
+ * 否则报错会变成"超时"，反而看不出是哪条口径不对。
+ */
+async function untilSettled(predicate, tries = 60) {
+  for (let i = 0; i < tries; i += 1) {
+    await flushPromises()
+    if (predicate()) return
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  }
+}
+
+/**
  * pdf.js 在 happy-dom 里画不了 canvas（没有 2d 上下文），所以把加载层换掉，
  * 换成"能拿到文字层"的假文档——**定位与命中这一层才是要测的东西**，
  * 而它们全都建立在文字层坐标上，跟真不真画没关系。
@@ -1294,6 +1311,8 @@ describe('App.vue 页面渲染', () => {
     // 进阅读区：地址变成 #/read/:id，但仍在「读懂」这个模块里，选中态不该跳走
     await openReader(wrapper, '开始阅读')
     expect(wrapper.find('.screen-reader').exists()).toBe(true)
+    // 选中态跟着 `hashchange` 走（宏任务），得等它一拍，别抢在路由前面断言
+    await untilSettled(() => readItem().classes().includes('on'))
     expect(readItem().classes()).toContain('on')
   })
 
@@ -1505,7 +1524,8 @@ describe('App.vue 页面渲染', () => {
     expect(account.text()).toContain('tester')
     // 首字头像：收起态就靠它（`.rail-lbl` 会被既有的 `.rail-min .rail-lbl` 藏掉）
     expect(account.find('.rail-av').text()).toBe('t')
-    // 还没进个人中心 → 不该亮
+    // 还没进个人中心 → 不该亮（`activeNav` 是模块级状态，等它按本次地址落定再断言）
+    await untilSettled(() => !account.classes().includes('on'))
     expect(account.classes()).not.toContain('on')
   })
 

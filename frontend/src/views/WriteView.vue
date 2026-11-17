@@ -439,6 +439,8 @@
                     {{ formatStamp(item.created_at) }} · {{ item.chars }} 字
                   </span>
                 </div>
+                <!-- ⭐ 当时叫什么（W7）：回滚会把标题也带回去，事先得让人看见回的是哪个名字 -->
+                <div class="wr-muted">当时标题：{{ item.title || '（没有标题）' }}</div>
                 <div class="wr-verops">
                   <button class="btn ghost sm" @click="previewVersion(item)">查看</button>
                   <button class="btn sm" @click="applyVersion(item)">回滚</button>
@@ -454,6 +456,7 @@
                 <span class="spacer" />
                 <button class="btn ghost sm" @click="versionPreview = null">收起</button>
               </div>
+              <div class="wr-muted">当时标题：{{ versionPreview.title || '（没有标题）' }}</div>
               <pre class="wr-verbody">{{ versionPreviewText }}</pre>
             </div>
           </div>
@@ -648,6 +651,7 @@ import EmptyState from '../components/EmptyState.vue'
 import FormatChangeNote from '../components/FormatChangeNote.vue'
 import HonestNote from '../components/HonestNote.vue'
 import { authFetch } from '../auth'
+import { rememberFocus, returnFocus } from '../focusReturn'
 import { navigate } from '../router'
 import {
   bibEntries,
@@ -1186,6 +1190,23 @@ async function openCheckDrawer() {
   toggleCheck()
   if (checkOpen.value) await loadCheckHistory()
 }
+
+/**
+ * 校对抽屉关掉之后把焦点还给「校对检查」那颗按钮（全端检查 G3）。
+ *
+ * 为什么：`Esc` 关抽屉后浏览器把焦点丢回 `body`，键盘用户再按 `Tab` 会从页首重数。
+ * 记的是**打开那一刻**的焦点（`pre` 时机），不是关闭时的 —— 关闭时焦点可能已经
+ * 落在抽屉里那个被卸载的按钮上。
+ */
+let checkOpener = null
+watch(checkOpen, (isOpen) => {
+  if (isOpen) {
+    checkOpener = rememberFocus()
+    return
+  }
+  returnFocus(checkOpener)
+  checkOpener = null
+})
 
 /** 跑一次检查；成功后刷新历史（否则新报告要等下次开抽屉才出现）。 */
 async function runCheckNow() {
@@ -1804,7 +1825,8 @@ async function applyVersion(item) {
     return
   }
   versionPreview.value = null
-  showToast(`已回滚到 ${formatStamp(item.created_at)} 那一版`)
+  // 标题也一起回来（W7）：后端 restore 会写回快照里的标题，说明白比让人自己发现好
+  showToast(`已回滚到 ${formatStamp(item.created_at)} 那一版（正文与标题都回到当时）`)
 }
 
 // ============================================================ 引用区动作

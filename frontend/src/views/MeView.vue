@@ -8,8 +8,23 @@
       </div>
     </header>
 
+    <!-- 六区锚点（全端检查 A4，2026-11-17）：整页五百多行，找「偏好」要从头滚到尾 -->
+    <nav class="me-nav" aria-label="个人中心分区">
+      <button
+        v-for="sec in SECTIONS"
+        :key="sec.id"
+        type="button"
+        class="me-nav-item"
+        :class="{ on: activeSec === sec.id }"
+        :aria-current="activeSec === sec.id ? 'true' : undefined"
+        @click="jumpTo(sec.id)"
+      >
+        {{ sec.label }}
+      </button>
+    </nav>
+
     <!-- ============================ ① 身份 ============================ -->
-    <section class="me-sec">
+    <section id="me-sec-identity" class="me-sec">
       <h2 class="me-sec-t">身份</h2>
       <HonestNote v-if="errors.me" :text="errors.me" />
       <div class="me-field">
@@ -34,7 +49,7 @@
     </section>
 
     <!-- ========================= ② 账号安全 ========================= -->
-    <section class="me-sec">
+    <section id="me-sec-security" class="me-sec">
       <h2 class="me-sec-t">账号安全</h2>
       <div class="me-field">
         <label class="me-label" for="me-old">原密码</label>
@@ -101,7 +116,7 @@
     </section>
 
     <!-- ========================= ③ 我的数据 ========================= -->
-    <section class="me-sec">
+    <section id="me-sec-data" class="me-sec">
       <h2 class="me-sec-t">我的数据</h2>
       <HonestNote v-if="errors.storage" :text="errors.storage" />
       <template v-else-if="storage">
@@ -134,7 +149,7 @@
     </section>
 
     <!-- ======================= ④ AI 使用台账 ======================= -->
-    <section class="me-sec">
+    <section id="me-sec-ledger" class="me-sec">
       <h2 class="me-sec-t">AI 使用台账</h2>
       <HonestNote v-if="errors.ledger" :text="errors.ledger" />
       <table v-else-if="ledger.length" class="me-table me-ledger">
@@ -176,7 +191,7 @@
     </section>
 
     <!-- ========================== ⑤ 偏好 ========================== -->
-    <section class="me-sec">
+    <section id="me-sec-prefs" class="me-sec">
       <h2 class="me-sec-t">偏好</h2>
       <div class="me-field">
         <label class="me-label" for="me-view-def">默认读法</label>
@@ -207,7 +222,7 @@
     </section>
 
     <!-- ==================== ⑥ 管理 · 危险区 ==================== -->
-    <section class="me-sec">
+    <section id="me-sec-danger" class="me-sec">
       <h2 class="me-sec-t">管理 · 危险区</h2>
       <div v-if="isAdmin" class="me-field">
         <span class="me-label">管理后台</span>
@@ -262,12 +277,66 @@
  * ④ **口径照全站红线**：`actor` 那一列是"数据流向"的机器证据 —— 说"服务自持 + 文献存本地"，
  *    **不说"数据不出本机"**（外文翻译 / 扫描件逐段翻译 / 导读 / 问答四处仍调云端模型 API）。
  */
-import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 
 import { apiJson, authFetch, clearToken } from '../auth'
 import { actorText, stageText } from '../ledgerText'
 import HonestNote from '../components/HonestNote.vue'
 import { loadPrefs, prefsError, readLocalPrefs, savePrefs } from '../stores/usePrefs'
+
+// ---------------------------------------------------------------- 六区锚点（全端检查 A4）
+/**
+ * 六个区块的 id 与标题**只在这张表里写一遍**：导航文案、目标 id 都从它来，
+ * 别再在模板里手抄一份（抄歪了就是"点一条滚到别的块"）。
+ */
+const SECTIONS = [
+  { id: 'me-sec-identity', label: '身份' },
+  { id: 'me-sec-security', label: '账号安全' },
+  { id: 'me-sec-data', label: '我的数据' },
+  { id: 'me-sec-ledger', label: 'AI 使用台账' },
+  { id: 'me-sec-prefs', label: '偏好' },
+  { id: 'me-sec-danger', label: '管理 · 危险区' },
+]
+const activeSec = ref(SECTIONS[0].id)
+
+/** 点一条：先立刻高亮（不等滚动事件的回声），再滚过去。 */
+function jumpTo(id) {
+  activeSec.value = id
+  const el = document.getElementById(id)
+  // happy-dom / 老浏览器没有 scrollIntoView 时不报错，锚点仍会高亮
+  if (el && typeof el.scrollIntoView === 'function') {
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+}
+
+/**
+ * 滚到哪一块，左边就亮哪一条。
+ *
+ * `rootMargin` 把命中带压到视口靠上的一段：不加的话一屏里同时有 2–3 块可见，
+ * 高亮会在几条之间来回跳。没有 `IntersectionObserver` 时**不假装**——
+ * 锚点照样能点、能滚，只是不再自动跟随。
+ */
+let anchorObserver = null
+onMounted(() => {
+  if (typeof IntersectionObserver !== 'function') return
+  anchorObserver = new IntersectionObserver(
+    (entries) => {
+      const hit = entries
+        .filter((item) => item.isIntersecting)
+        .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0]
+      if (hit) activeSec.value = hit.target.id
+    },
+    { rootMargin: '-15% 0px -70% 0px' },
+  )
+  for (const sec of SECTIONS) {
+    const el = document.getElementById(sec.id)
+    if (el) anchorObserver.observe(el)
+  }
+})
+onUnmounted(() => {
+  anchorObserver?.disconnect?.()
+  anchorObserver = null
+})
 
 // ---------------------------------------------------------------- 取数
 const me = ref(null)

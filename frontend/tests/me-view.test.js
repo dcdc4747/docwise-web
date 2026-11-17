@@ -114,6 +114,35 @@ describe('MeView 个人中心', () => {
     expect(titles).toEqual(['身份', '账号安全', '我的数据', 'AI 使用台账', '偏好', '管理 · 危险区'])
   })
 
+  it('⭐ 六区锚点：六条与六个区块一一对上，点一条就亮那一条（全端检查 A4）', async () => {
+    const { wrapper } = await mountMe()
+
+    expect(wrapper.findAll('.me-nav-item').map((item) => item.text())).toEqual([
+      '身份',
+      '账号安全',
+      '我的数据',
+      'AI 使用台账',
+      '偏好',
+      '管理 · 危险区',
+    ])
+    // 目标 id 必须真在页面上：抄错一个，那一项点了就是"什么都不发生"
+    expect(wrapper.findAll('.me-sec').map((item) => item.attributes('id'))).toEqual([
+      'me-sec-identity',
+      'me-sec-security',
+      'me-sec-data',
+      'me-sec-ledger',
+      'me-sec-prefs',
+      'me-sec-danger',
+    ])
+
+    // 默认亮第一条；点第五条就换过去（不是"点了没反应"）
+    expect(wrapper.findAll('.me-nav-item')[0].classes()).toContain('on')
+    await wrapper.findAll('.me-nav-item')[4].trigger('click')
+    expect(wrapper.findAll('.me-nav-item')[4].classes()).toContain('on')
+    expect(wrapper.findAll('.me-nav-item')[0].classes()).not.toContain('on')
+    expect(wrapper.findAll('.me-nav-item')[4].attributes('aria-current')).toBe('true')
+  })
+
   it('① 身份：显示名能改，点保存真的 PATCH 出去，并给出结果', async () => {
     const { wrapper, calls } = await mountMe()
 

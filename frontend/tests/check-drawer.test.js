@@ -190,17 +190,22 @@ describe('校对检查抽屉（M4 / 形态 §3.3）', () => {
     wrapper.unmount()
   })
 
-  it('⭐ Esc 关、点遮罩关（形态 §3.3 的两条关法）', async () => {
+  it('⭐ Esc 关、点遮罩关（形态 §3.3 的两条关法），关完之后焦点回到那颗按钮', async () => {
     const wrapper = mountWrite()
     await flushPromises()
-    await wrapper.find('.wr-check-toggle').trigger('click')
+    const toggle = wrapper.find('.wr-check-toggle')
+    // 键盘用户是"焦点在按钮上按下"，这里先把焦点放上去——G3 要还回去的就是它
+    toggle.element.focus()
+    await toggle.trigger('click')
     expect(wrapper.find('.wr-check').exists()).toBe(true)
 
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
     await flushPromises()
     expect(wrapper.find('.wr-check').exists()).toBe(false)
+    // ⭐ G3：焦点回到「校对检查」，不是丢回 body（丢了再按 Tab 就从页首重数）
+    expect(document.activeElement).toBe(toggle.element)
 
-    await wrapper.find('.wr-check-toggle').trigger('click')
+    await toggle.trigger('click')
     await wrapper.find('.wr-checkmask').trigger('click')
     expect(wrapper.find('.wr-check').exists()).toBe(false)
     wrapper.unmount()
