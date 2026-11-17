@@ -14,7 +14,7 @@
     "真实性来源：本清单的 anchors 是由 backend/scripts/check_contract.py --print 打出来的真实路由表逐条核对的，",
     "  不是从文档抄的 —— 手抄文档正是第一版把 25 个端点写成 23 个的原因。"
   ],
-  "declared_endpoint_count": 85,
+  "declared_endpoint_count": 86,
   "anchors": [
     {
       "method": "GET",
@@ -295,6 +295,11 @@
       "method": "GET",
       "path": "/api/tags",
       "note": "N6 标签列表，?kind? ∈ {topic, method, status}；认不出的 kind 回空表"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/tags/{param}",
+      "note": "删自己的标签并清掉任务挂点；别人的标签 404。文献本身不删"
     },
     {
       "method": "PUT",

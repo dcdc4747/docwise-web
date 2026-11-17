@@ -696,8 +696,7 @@ function handleUnauthorized() {
                于是有论文的人永远看不到上传入口——这才是"点读懂却是清单"的根因。 -->
           <section v-if="view === 'readHome'">
             <div class="topbar">
-              <span class="brand">docwise</span>
-              <span class="brand-sub">学术文献理解智能体</span>
+              <span class="brand">{{ view === 'readHome' ? '开始阅读' : '我的论文' }}</span>
               <span class="spacer" />
               <span v-if="authNotice" class="tiny" style="color: var(--danger)">{{ authNotice }}</span>
               <div class="menu-wrap">
@@ -717,8 +716,7 @@ function handleUnauthorized() {
           <!-- ==================== 「历史记录」（#/library） ==================== -->
           <section v-else-if="view === 'library'">
             <div class="topbar">
-              <span class="brand">docwise</span>
-              <span class="brand-sub">学术文献理解智能体</span>
+              <span class="brand">{{ view === 'readHome' ? '开始阅读' : '我的论文' }}</span>
               <span class="spacer" />
               <span v-if="authNotice" class="tiny" style="color: var(--danger)">{{ authNotice }}</span>
               <button v-if="libraryEmpty" class="btn ghost sm" @click="loadTasksAndSync">我的论文</button>

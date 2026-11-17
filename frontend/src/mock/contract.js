@@ -60,6 +60,7 @@ export const MOCK_ROUTES = [
   { n: 'N5', method: 'PUT', path: '/api/tasks/{task_id}/collections' },
   { n: 'N6', method: 'GET', path: '/api/tags' },
   { n: 'N7', method: 'PUT', path: '/api/tasks/{task_id}/tags' },
+  { n: 'N8b', method: 'DELETE', path: '/api/tags/{id}' },
   { n: 'N9', method: 'GET', path: '/api/smart-collections' },
   { n: 'N10', method: 'POST', path: '/api/smart-collections' },
   { n: 'N11', method: 'DELETE', path: '/api/smart-collections/{id}' },

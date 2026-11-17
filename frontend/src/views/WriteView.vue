@@ -40,9 +40,11 @@
       <span class="spacer" />
 
       <span v-if="saveText" class="wr-save" :class="'st-' + saveState">{{ saveText }}</span>
+      <!-- 保存按钮只在"确实需要保存"时出现：干净状态下只留一个状态文案，
+           避免"已同步 + 保存（禁用）"两个信号并存，用户不知道该信哪个。 -->
       <button
+        v-if="currentDraft && (saveState === 'dirty' || saveState === 'error')"
         class="btn ghost sm"
-        :disabled="!currentDraft || (saveState !== 'dirty' && saveState !== 'error')"
         @click="saveWithFeedback"
       >
         保存
@@ -1282,7 +1284,7 @@ const saveText = computed(() => {
   if (saveState.value === 'dirty') return '未保存'
   if (saveState.value === 'error') return `保存失败：${saveError.value}`
   if (saveState.value === 'saved') return savedAt.value ? `已保存 ${savedAt.value}` : '已保存'
-  return '已同步'
+  return '已保存'
 })
 
 // ============================================================ 取数

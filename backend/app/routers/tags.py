@@ -120,3 +120,23 @@ def set_task_tags(
     return {
         "tags": [{"id": row.id, "name": row.name, "kind": row.kind} for row in saved]
     }
+
+
+@router.delete("/{tag_id}", status_code=204)
+def delete_tag(
+    tag_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_user)],
+) -> None:
+    """删掉用户自己的标签，并清掉它在所有任务上的挂点。
+
+    契约原来只写了 GET /api/tags 与 PUT /api/tasks/{id}/tags（按名 upsert），
+    结果"建了就删不掉"——标签页只能看，用户点了没反应。删除是最小缺口：
+    不涉及重命名/合并，按 id 删即可；关联行必须一起删，否则回收站里会留孤儿。
+    """
+    row = db.scalar(select(Tag).where(Tag.id == tag_id, Tag.user_id == user.id))
+    if row is None:
+        raise HTTPException(status_code=404, detail="标签不存在")
+    db.execute(delete(TaskTag).where(TaskTag.tag_id == tag_id))
+    db.delete(row)
+    db.commit()

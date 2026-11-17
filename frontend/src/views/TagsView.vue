@@ -25,18 +25,25 @@
           <span class="kn-num">{{ item.count ?? 0 }} 篇</span>
         </button>
         <span v-if="kindLabel(item.kind)" class="chip kn-kind">{{ kindLabel(item.kind) }}</span>
+        <button
+          type="button"
+          class="btn ghost sm"
+          :title="`删除标签「${item.name}」（文献不会被删）`"
+          @click="removeTag(item)"
+        >删除</button>
       </li>
     </ul>
 
     <div v-else-if="!loading" class="kn-empty">
       还没有标签。标签是在文献上加的（阅读页 / 详情里），加过之后这里就会出现；
-      你点一个标签，就能筛出贴了它的那些文献。
+      你点一个标签，就能筛出贴了它的那些文献。删除标签只移除标记，不会删文献。
     </div>
 
     <!-- 诚实说明：这一版**只有"看 + 筛"**，还没有"在这页新建标签 / 批量贴"。
          下一张卡再做（接口 N7 已经在，`PUT /api/tasks/{id}/tags` 是全量替换）。 -->
     <p class="kn-note kn-hint">
-      <strong>贴标签</strong>在「历史记录」的卡片上直接做（点「＋ 标签」；再点一下标签就等于摘掉它）。改名 / 删除标签暂时没有——契约里只有 N7（按文献全量替换），没有「改标签名」这类端点。
+      <strong>贴标签</strong>在「历史记录」的卡片上直接做（点「＋ 标签」；再点一下标签就等于摘掉它）。
+      这一页可以删标签（只移除标记，文献仍在）；改名仍不支持——标签按「名字 + 类型」唯一，改名等于合并。
     </p>
   </section>
 </template>
@@ -48,6 +55,7 @@
  */
 import { computed, onMounted, ref } from 'vue'
 
+import { apiJson } from '../auth'
 import { navigate } from '../router'
 import { loadTasksAndSync } from '../stores/useLibrary'
 import { loadKnowledge, tags } from '../stores/useKnowledge'
@@ -76,5 +84,17 @@ onMounted(load)
 async function openTag(item) {
   await loadTasksAndSync({ tag: [item.name] })
   navigate('library')
+}
+
+/** 删标签：只清标记，不动文献；接口会一并清掉任务上的挂点。 */
+async function removeTag(item) {
+  if (!window.confirm(`删除标签「${item.name}」？文献不会被删，只是不再带这个标记。`)) return
+  error.value = ''
+  try {
+    await apiJson(`/api/tags/${item.id}`, { method: 'DELETE' })
+    await load()
+  } catch (err) {
+    error.value = `没删掉（${err?.message || '网络或服务异常'}）`
+  }
 }
 </script>

@@ -174,6 +174,12 @@ export const taskCards = computed(() =>
       else if (task.status === 'cancelled') {
         meta = [tier, '已取消', duration, created].filter(Boolean).join(' · ')
       }
+      // 卡片标题：上传文件名带 32 位存储前缀与下划线，直接印出来既难辨认又会在
+      // ".pdf" 中间断行。去掉前缀/扩展名、把下划线换成空格，原值仍放 title 里可查。
+      const displayName = (task.filename || '未命名')
+        .replace(/^[0-9a-f]{32}_/i, '')
+        .replace(/_/g, ' ')
+        .trim()
       const retryable = task.status === 'failed' || task.status === 'cancelled'
       const primary = retryable
         ? '重新翻译'
@@ -182,7 +188,7 @@ export const taskCards = computed(() =>
             ? '继续读'
             : '开始阅读'
           : '查看进度'
-      return { task, meta, primary, retryable, chip: statusChipMap[task.status] || '' }
+      return { task, meta, primary, retryable, displayName, chip: statusChipMap[task.status] || '' }
     }),
 )
 

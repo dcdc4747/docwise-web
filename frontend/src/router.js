@@ -143,6 +143,9 @@ export function navigate(name, params = {}, { replace = false } = {}) {
     window.location.hash = target
   }
   window.dispatchEvent(new HashChangeEvent('hashchange'))
+  // 切页后回到顶部：实测从「处理过程」切到「个人中心」时，滚动位置被沿用，
+  // 新页面打开就是腰身——用户以为页面加载坏了。
+  window.scrollTo({ top: 0, left: 0, behavior: 'instant' })
 }
 
 /**

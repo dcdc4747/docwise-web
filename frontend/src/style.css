@@ -623,7 +623,10 @@ body {
    ⚠️ 病因是"最小内容宽度"，所以 `min-width: 0` / `overflow: hidden` 都**治不了**
    （实测：加了格子仍是 573px）——**只有能断行的那条** `overflow-wrap: anywhere`
    把轨道收回 284px。桌面档下文件名本来就短，这条对它们没有可见影响。 */
-.dw .paper-card .fname { font-weight: 600; overflow-wrap: anywhere; }
+.dw .paper-card .fname { font-weight: 600; overflow-wrap: anywhere; line-height: 1.35; }
+.dw .paper-card .row { min-height: 38px; align-items: flex-start; }
+/* 状态徽章一旦允许折行，"已完成"会被挤成"已完/成"，整张卡高度也被带歪 */
+.dw .paper-card .chip { flex: none; white-space: nowrap; }
 .dw .paper-card .meta { font-size: 12px; color: var(--muted); }
 .dw .paper-card .lastpos { font-size: 12px; color: var(--accent); }
 .dw .paper-card .actions { display: flex; gap: 8px; margin-top: auto; }
@@ -2502,14 +2505,14 @@ svg.ic-inl {
 .dw .proc-list {
   display: flex;
   flex-direction: column;
-  gap: var(--sp-2);
+  gap: var(--sp-1);
   margin: var(--sp-3) 0 0;
   padding: 0;
   list-style: none;
 }
 .dw .proc-item {
   min-width: 0;
-  padding: var(--sp-3);
+  padding: var(--sp-2);
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--r-md);
@@ -2529,7 +2532,7 @@ svg.ic-inl {
 .dw .proc-flow.is-api { background: var(--accent-soft); color: var(--accent); }
 .dw .proc-tool { color: var(--muted); font-size: var(--fs-micro); }
 .dw .proc-sum {
-  margin: var(--sp-2) 0 0;
+  margin: var(--sp-1) 0 0;
   font-size: var(--fs-meta);
   line-height: 1.7;
   overflow-wrap: anywhere;
@@ -3033,6 +3036,16 @@ svg.ic-inl {
 /* ---- 集合 / 标签 两屏共用骨架 ---- */
 .dw .kn { max-width: 880px; padding: var(--sp-5) var(--sp-6) var(--sp-7); }
 .dw .kn-top { display: flex; align-items: flex-start; gap: var(--sp-4); }
+.dw .kn-tabs { display: flex; gap: var(--sp-2); margin: var(--sp-3) 0; border-bottom: 1px solid var(--line); }
+.dw .kn-tabs button {
+  border: 0; background: none; color: var(--muted); cursor: pointer;
+  padding: var(--sp-2) var(--sp-3); font: inherit; font-size: var(--fs-meta);
+  border-bottom: 2px solid transparent;
+}
+.dw .kn-tabs button.on { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+/* 筛选区"更多"用 CSS 折叠而非 v-if：DOM 保留，测试与键盘用户都能访问 */
+.dw .lib-fl-more { display: none; }
+.dw .lib-fl-more.is-open { display: flex; }
 .dw .kn-t { margin: 0; font-size: var(--fs-h1); }
 .dw .kn-sub { margin: var(--sp-2) 0 0; color: var(--muted); line-height: var(--lh-body); max-width: 46em; }
 .dw .kn-ops { margin-left: auto; display: flex; align-items: center; gap: var(--sp-2); }

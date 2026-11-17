@@ -17,8 +17,16 @@
       </div>
     </header>
 
+
+    <!-- 两屏：集合是容器，智能集合是规则；同屏并列时整页 15 个操作，密度过高 -->
+    <div class="kn-tabs">
+      <button type="button" :class="{ on: tab === 'tree' }" @click="tab = 'tree'">集合</button>
+      <button type="button" :class="{ on: tab === 'smart' }" @click="tab = 'smart'">智能集合</button>
+    </div>
+
     <p v-if="error" class="kn-note kn-note-err">{{ error }}</p>
 
+    <template v-if="tab === 'tree'">
     <!-- 新建 / 改名：就地一个输入行，不做弹窗（少一层，键盘也能用） -->
     <form v-if="editing" class="kn-editor" @submit.prevent="submitEditor">
       <input
@@ -125,6 +133,8 @@
       还没有集合。点右上角「＋ 新建集合」，然后用「历史记录」卡片上的「归集」把文献放进来。
     </div>
 
+    </template>
+    <template v-if="tab === 'smart'">
     <!-- ==================== 智能集合（契约 N9–N11） ====================
          与"集合"的区别：集合是**手建的容器**，智能集合是**一条规则**
          （"状态 = 待读"），文献自己进进出出，不用手动搬。
@@ -170,6 +180,7 @@
       <p v-if="smartError" class="kn-note kn-note-err">{{ smartError }}</p>
     </section>
 
+    </template>
     <p v-if="toast" class="kn-note">{{ toast }}</p>
   </section>
 </template>
@@ -193,6 +204,7 @@ import { loadTasksAndSync } from '../stores/useLibrary'
 import { collections, loadKnowledge, smartCollections } from '../stores/useKnowledge'
 
 const loading = ref(false)
+const tab = ref('tree')
 const busy = ref(false)
 const error = ref('')
 const toast = ref('')

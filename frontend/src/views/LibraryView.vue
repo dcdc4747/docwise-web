@@ -131,7 +131,7 @@
     <div v-else class="grid3">
       <div v-for="card in taskCards" :key="card.task.id" class="card paper-card">
         <div class="row">
-          <span class="fname">{{ card.task.filename }}</span>
+          <span class="fname" :title="card.task.filename">{{ card.displayName }}</span>
           <span class="chip" :class="card.chip">{{ statusTextMap[card.task.status] || card.task.status }}</span>
           <span v-if="card.task.native" class="chip">中文文献</span>
         </div>

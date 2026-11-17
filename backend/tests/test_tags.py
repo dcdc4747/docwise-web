@@ -161,3 +161,24 @@ def test_task_without_tags_returns_empty_list() -> None:
     listed = client.get("/api/tasks").json()
     row = next(item for item in listed if item["id"] == task_id)
     assert row["tags"] == []
+
+
+def test_delete_tag_removes_markers_but_keeps_task() -> None:
+    """删标签只清标记，任务本身必须还在（否则用户会以为删了论文）。"""
+    task_id = _task()
+    payload = {"tags": [{"name": "待清理", "kind": "topic"}]}
+    client.put(f"/api/tasks/{task_id}/tags", json=payload)
+    tags = client.get("/api/tags").json()["items"]
+    row = next(item for item in tags if item["name"] == "待清理")
+
+    resp = client.delete(f"/api/tags/{row['id']}")
+    assert resp.status_code == 204
+    live = client.get("/api/tags").json()["items"]
+    assert all(item["id"] != row["id"] for item in live)
+    listed = client.get("/api/tasks").json()
+    assert next(item for item in listed if item["id"] == task_id)["tags"] == []
+    assert client.get(f"/api/tasks/{task_id}").status_code == 200
+
+
+def test_delete_other_users_tag_is_404() -> None:
+    assert client.delete("/api/tags/999999").status_code == 404

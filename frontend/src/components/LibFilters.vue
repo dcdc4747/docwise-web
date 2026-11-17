@@ -20,15 +20,21 @@
           >
             {{ option.label }}
           </button>
+          <button
+            type="button"
+            class="lib-chip"
+            :aria-pressed="expanded"
+            @click="expanded = !expanded"
+          >{{ expanded ? '收起筛选 ▴' : '更多筛选 ▾' }}</button>
         </div>
       </div>
 
       <!-- ② 集合（可嵌套的树由页面摆，这里只出"筛哪一档"） -->
-      <div v-if="collectionsValue.length" class="lib-fl-row">
+      <div v-if="collectionsValue.length" class="lib-fl-row lib-fl-more" :class="{ 'is-open': expanded }">
         <span class="lib-fl-key">集合</span>
         <div class="lib-fl-chips">
           <button
-            v-for="item in collectionsValue"
+            v-for="item in collectionsValue.filter((it) => it.count !== 0)"
             :key="`c${item.id}`"
             type="button"
             class="lib-chip"
@@ -43,7 +49,7 @@
 
       <!-- ③ 标签：契约 §2.2 的字段是 **`tag[]`（数组）** —— 所以这里是**多选**：
            点一个加一个、再点同一个就取消。请求由页面发（`?tag[]=A&tag[]=B`）。 -->
-      <div v-if="tagsValue.length" class="lib-fl-row">
+      <div v-if="tagsValue.length" class="lib-fl-row lib-fl-more" :class="{ 'is-open': expanded }">
         <span class="lib-fl-key">标签</span>
         <div class="lib-fl-chips">
           <button
@@ -62,11 +68,11 @@
 
       <!-- ④ 智能集合：⚠️ 规则是数据、也是它的全部意义 —— 芯片上必须能把规则说出来，
            否则它和一条写死的按钮长得一模一样。键盘用户靠 aria-label 也能听到同一句话。 -->
-      <div v-if="smartValue.length" class="lib-fl-row">
+      <div v-if="smartValue.length" class="lib-fl-row lib-fl-more" :class="{ 'is-open': expanded }">
         <span class="lib-fl-key">智能集合</span>
         <div class="lib-fl-chips">
           <button
-            v-for="item in smartValue"
+            v-for="item in smartValue.filter((it) => it.count !== 0)"
             :key="`s${item.id}`"
             type="button"
             class="lib-chip"
@@ -129,6 +135,9 @@
  * 页面把组件摆好之后就不能再"必须接真接口才看得见"了。
  */
 import { computed, ref } from 'vue'
+
+// 首屏只出状态一行；集合/标签/智能集合收起来，避免筛选取代内容成为主体
+const expanded = ref(false)
 
 import EmptyState from './EmptyState.vue'
 import HonestNote from './HonestNote.vue'

@@ -299,6 +299,12 @@
                 </p>
               </div>
             </div>
+            <button
+              type="button"
+              class="agent-detail-toggle"
+              :aria-expanded="expandedStats.has(turn.id) ? 'true' : 'false'"
+              @click="toggleStats(turn.id)"
+            >{{ expandedStats.has(turn.id) ? '收起详情' : '详情' }}</button>
             <div v-if="turn.notes && turn.notes.length" class="agent-notes">
               <!-- 指标：带数字/百分比的先亮出来（可信度看这个） -->
               <span
@@ -320,6 +326,7 @@
               <span v-if="toolSteps(turn).length">{{ toolSteps(turn).length }} 步</span>
             </div>
 
+            <template v-if="expandedStats.has(turn.id)">
             <div v-if="turn.sources.length || turn.dropped.length" class="agent-src">
               <span v-if="turn.sources.length">出处 {{ turn.sources.length }} 处</span>
               <span v-if="turn.dropped.length" class="agent-src-drop">
@@ -329,6 +336,7 @@
             <div v-if="turn.usage && turn.usage.tool_calls" class="agent-usage">
               本轮调用 {{ turn.usage.tool_calls }} 次工具 · 模型请求 {{ turn.usage.requests }} 次
             </div>
+            </template>
           </template>
         </template>
       </div>
@@ -408,6 +416,7 @@
  * 页面只给上下文，不碰内部状态（状态在 `stores/useAgent`）。
  */
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+const expandedStats = ref(new Set())
 
 import AiBadge from './AiBadge.vue'
 import MatrixTable from './MatrixTable.vue'
@@ -1174,6 +1183,13 @@ onMounted(async () => {
   if (props.scene && props.scene !== sceneId.value) setScene(props.scene)
 })
 
+
+function toggleStats(id) {
+  const next = new Set(expandedStats.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  expandedStats.value = next
+}
 </script>
 
 <!--
