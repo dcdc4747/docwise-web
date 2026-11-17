@@ -1316,6 +1316,64 @@ describe('App.vue 页面渲染', () => {
     expect(readItem().classes()).toContain('on')
   })
 
+  it('⭐ 左栏：点「待读」「未归类」亮的是自己，不是「全部文献」（三者共用 #/，靠筛选分）', async () => {
+    const { task, detail } = completedFixture()
+    globalThis.fetch = stubFetch({ tasks: [task], detail })
+    wrapper = mountApp()
+    await flushPromises()
+
+    const railByLabel = (label) => wrapper.findAll('button.rail-item').find((b) => b.text() === label)
+
+    // 「待读」= 库页 + reading_status=todo：地址还是 `#/`，只能按筛选反推高亮
+    await railByLabel('待读').trigger('click')
+    await flushPromises()
+    await untilSettled(() => railByLabel('待读').classes().includes('on'))
+    expect(railByLabel('待读').classes()).toContain('on')
+    expect(railByLabel('全部文献').classes()).not.toContain('on')
+
+    // 「未归类」= 库页 + unfiled=1：同理
+    await railByLabel('未归类').trigger('click')
+    await flushPromises()
+    await untilSettled(() => railByLabel('未归类').classes().includes('on'))
+    expect(railByLabel('未归类').classes()).toContain('on')
+    expect(railByLabel('待读').classes()).not.toContain('on')
+
+    // 回「全部文献」= 清筛选：亮回全部文献（另外两条都得灭）
+    await railByLabel('全部文献').trigger('click')
+    await flushPromises()
+    await untilSettled(() => railByLabel('全部文献').classes().includes('on'))
+    expect(railByLabel('全部文献').classes()).toContain('on')
+    expect(railByLabel('待读').classes()).not.toContain('on')
+    expect(railByLabel('未归类').classes()).not.toContain('on')
+  })
+
+  it('⭐ 左栏：点「素材」亮素材、点「校对」亮校对（这两条的路由名与左栏 key 不同名）', async () => {
+    wrapper = mountApp()
+    await flushPromises()
+
+    const railByLabel = (label) => wrapper.findAll('button.rail-item').find((b) => b.text() === label)
+
+    // 素材：路由名 `materials`、左栏 key `lib-materials` —— 不登记映射就一条都不亮
+    await railByLabel('素材').trigger('click')
+    await flushPromises()
+    await untilSettled(() => railByLabel('素材').classes().includes('on'))
+    expect(railByLabel('素材').classes()).toContain('on')
+    expect(wrapper.find('.screen-materials').exists()).toBe(true)
+
+    // 校对：它是写作页 + 检查抽屉，路由仍是 #/write —— 亮写作是错的
+    await railByLabel('校对').trigger('click')
+    await flushPromises()
+    await untilSettled(() => railByLabel('校对').classes().includes('on'))
+    expect(railByLabel('校对').classes()).toContain('on')
+    expect(railByLabel('写作').classes()).not.toContain('on')
+    expect(wrapper.find('.wr-check').exists()).toBe(true)
+
+    // 收尾：把抽屉关掉，别把 `checkOpen` 留给后面的用例（store 是模块级的，不随测试重置）
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    await flushPromises()
+    expect(wrapper.find('.wr-check').exists()).toBe(false)
+  })
+
   it('左栏：点「写作」进写作页（M3 已接上），地址落到 #/write 且「写作」高亮', async () => {
     const { task, detail } = completedFixture()
     globalThis.fetch = stubFetch({ tasks: [task], detail })

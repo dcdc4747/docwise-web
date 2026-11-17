@@ -9,6 +9,7 @@
  * ② **一块挂了只让那块说原因**（不许整页白屏、不许拿假数据顶）；
  * ③ ⭐ 取不到的字段**不编**（`last_login_at` 就是"有地基没盖房"的那一处）；
  * ④ ⭐ **危险区三件套**（说清不可恢复 + 引导先导出 + 二次确认）一个都不能少；
+ * ⑤ ⭐ **退出登录只有一个入口**，在「管理」区所有内容之后，点了只发事件、清理归外壳；
  * ⑤ ⭐ **档位只有快 / 中两档**（精档已从界面撤下，写着"最准"属不实宣称）；
  * ⑥ 渲染出来的文本**不含源码痕迹、不含圈码与 emoji**。
  */
@@ -107,11 +108,11 @@ afterEach(() => {
 })
 
 describe('MeView 个人中心', () => {
-  it('六个区块都在：身份 / 账号安全 / 我的数据 / AI 使用台账 / 偏好 / 管理 · 危险区', async () => {
+  it('六个区块都在：身份 / 账号安全 / 我的数据 / AI 使用台账 / 偏好 / 管理', async () => {
     const { wrapper } = await mountMe()
 
     const titles = wrapper.findAll('.me-sec-t').map((item) => item.text())
-    expect(titles).toEqual(['身份', '账号安全', '我的数据', 'AI 使用台账', '偏好', '管理 · 危险区'])
+    expect(titles).toEqual(['身份', '账号安全', '我的数据', 'AI 使用台账', '偏好', '管理'])
   })
 
   it('⭐ 六区锚点：六条与六个区块一一对上，点一条就亮那一条（全端检查 A4）', async () => {
@@ -123,7 +124,7 @@ describe('MeView 个人中心', () => {
       '我的数据',
       'AI 使用台账',
       '偏好',
-      '管理 · 危险区',
+      '管理',
     ])
     // 目标 id 必须真在页面上：抄错一个，那一项点了就是"什么都不发生"
     expect(wrapper.findAll('.me-sec').map((item) => item.attributes('id'))).toEqual([
@@ -132,7 +133,7 @@ describe('MeView 个人中心', () => {
       'me-sec-data',
       'me-sec-ledger',
       'me-sec-prefs',
-      'me-sec-danger',
+      'me-sec-manage',
     ])
 
     // 默认亮第一条；点第五条就换过去（不是"点了没反应"）
@@ -306,15 +307,6 @@ describe('MeView 个人中心', () => {
     expect(del.element.disabled).toBe(false)
   })
 
-  it('⑥ 管理入口只给管理员看；普通账号看到的是"不显示"的说明', async () => {
-    const admin = await mountMe()
-    expect(admin.wrapper.find('a.me-admin-link').attributes('href')).toBe('#/admin')
-
-    const user = await mountMe({}, { user: { ...ME, role: 'user' } })
-    expect(user.wrapper.find('a.me-admin-link').exists()).toBe(false)
-    expect(user.wrapper.text()).toContain('不是管理员')
-  })
-
   it('⑥ 删除账号：确认齐了才打 DELETE，删完清掉本机令牌', async () => {
     localStorage.setItem('docwise_token', 'token-before')
     const { wrapper, calls } = await mountMe()
@@ -327,6 +319,34 @@ describe('MeView 个人中心', () => {
     expect(calls).toContain('DELETE /api/me')
     expect(localStorage.getItem('docwise_token')).toBeNull()
     expect(wrapper.text()).toContain('账号已删除')
+  })
+
+  it('⑥ 管理入口只给管理员看；普通账号看到的是"不显示"的说明', async () => {
+    const admin = await mountMe()
+    expect(admin.wrapper.find('a.me-admin-link').attributes('href')).toBe('#/admin')
+
+    const user = await mountMe({}, { user: { ...ME, role: 'user' } })
+    expect(user.wrapper.find('a.me-admin-link').exists()).toBe(false)
+    expect(user.wrapper.text()).toContain('不是管理员')
+  })
+
+  it('⭐ ⑥ 退出登录：按钮在「管理」区最下方，点了只发事件、清理交给外壳', async () => {
+    localStorage.setItem('docwise_token', 'token-before')
+    const { wrapper } = await mountMe()
+
+    const btn = wrapper.find('button.me-logout')
+    expect(btn.exists()).toBe(true)
+    expect(btn.text()).toContain('退出登录')
+    // 位置：就在「管理」那一块里，且是该块最后一个可点控件
+    const manage = wrapper.find('#me-sec-manage')
+    expect(manage.find('button.me-logout').exists()).toBe(true)
+    expect(manage.findAll('button, a').at(-1).classes()).toContain('me-logout')
+
+    await btn.trigger('click')
+
+    expect(wrapper.emitted('logout')).toHaveLength(1)
+    // ⭐ 本页**不自己清令牌**：清理归外壳（两处各清一半会留下"看着退了、点两下又进来"的脏状态）
+    expect(localStorage.getItem('docwise_token')).toBe('token-before')
   })
 
   it('渲染出来的文本不含源码痕迹、不含圈码与 emoji', async () => {
