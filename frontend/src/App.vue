@@ -42,6 +42,7 @@ import { buildHash, currentRoute, navigate, onRouteChange } from './router'
 import { initAsk, lastQuestion } from './stores/useAsk'
 import { loadPrefs } from './stores/usePrefs'
 import {
+  activeTaskQuery,
   fileInput,
   initLibrary,
   libraryEmpty,
@@ -63,7 +64,7 @@ import {
   stopProgress,
 } from './stores/useReader'
 import { clearTasks, tasks } from './stores/useTasks'
-import { checkOpen, openCheck, resetWrite } from './stores/useWrite'
+import { checkOpen, closeCheck, openCheck, resetWrite } from './stores/useWrite'
 import {
   activeNav,
   closeMenus,
@@ -218,7 +219,10 @@ async function syncFromRoute() {
   // "地址变了"的唯一入口（主动切页 / 后退 / 刷新都汇到这里），一处就够了。
   // ⭐ 2026-10-17 起「读懂」和「全部文献」是**两个不同的页面**：
   //    读懂工作台 / 阅读页 → 亮「读懂」；历史记录 → 亮下段的「全部文献」。
-  activeNav.value = NAV_OF_ROUTE[route.name] || route.name
+  // ⭐ 2026-11-17：「待读」「未归类」与「全部文献」**共用 `#/`（同一条路由、只是筛选不同）**，
+  //    只按 `route.name` 算会把三项都算成「全部文献」——用户点了「待读」，亮的却是「全部文献」。
+  //    所以库页这一档改为按**当前筛选**反推（筛选的唯一真源是 `activeTaskQuery`）。
+  activeNav.value = navKeyOfRoute(route)
 
   // ⭐ 读懂工作台（`#/read`）：上传 / 示例 / 继续读 / 最近三篇。
   // 它要"最近三篇"，所以顺手把列表拉一次（已有列表就不重复拉）。
@@ -392,6 +396,9 @@ const RAIL_TARGETS = {
 /**
  * 地址名 → 左栏高亮项。**两处不是同名**：读懂工作台与阅读页都算「读懂」，
  * 历史记录算下段的「全部文献」。
+ *
+ * ⚠️ `library` 这一项只是**兜底**：库页里「全部文献 / 待读 / 未归类」共用同一条路由，
+ * 单独看地址分不出来，实际高亮由 `libraryNavKey(activeTaskQuery)` 反推。
  */
 const NAV_OF_ROUTE = {
   readHome: 'read',
@@ -400,6 +407,40 @@ const NAV_OF_ROUTE = {
   collections: 'lib-collections',
   tags: 'lib-tags',
   trash: 'lib-trash',
+  // ⚠️ 素材这条之前**漏了**（2026-11-17 用户报「点素材不亮」）：路由名是 `materials`，
+  // 左栏项的 key 是 `lib-materials`，不映射就会把高亮设成 `materials` —— 左栏里没有这个 key，
+  // 结果一条都不亮。以后新增左栏项，**路由名与 key 不同名就必须在这里登记**。
+  materials: 'lib-materials',
+}
+
+/**
+ * 库页当前的筛选 → 左栏该亮哪一条。
+ *
+ * 为什么要有：`lib-all` / `lib-todo` / `lib-unfiled` 三个入口**共用 `#/`**，
+ * 只差一个查询条件（N8 的 `reading_status` / `unfiled`）。只按路由算的话，
+ * 点「待读」会亮在「全部文献」上（2026-11-17 用户报的 bug）。
+ *
+ * 认不出的筛选（用户在筛选条里自选的组合）一律回落到「全部文献」——
+ * 库里没有对应的入口，硬塞给「待读」会说谎。
+ */
+function libraryNavKey(query) {
+  if (query && query.reading_status === 'todo') return 'lib-todo'
+  if (query && query.unfiled) return 'lib-unfiled'
+  return 'lib-all'
+}
+
+/**
+ * 路由 + 当前状态 → 左栏该亮哪一条。
+ *
+ * 三处**不能只看路由名**（都是 2026-11-17 用户报的"点 X 亮 Y"）：
+ * - 库页：「全部文献 / 待读 / 未归类」共用 `#/`，只能看筛选（`libraryNavKey`）；
+ * - 写作页：「校对」不是独立路由，它是**写作页 + 检查抽屉打开**，看 `checkOpen`；
+ * - 素材：路由名是 `materials`、左栏 key 是 `lib-materials`，靠 `NAV_OF_ROUTE` 对上。
+ */
+function navKeyOfRoute(route) {
+  if (route.name === 'library') return libraryNavKey(activeTaskQuery.value)
+  if (route.name === 'write') return checkOpen.value ? 'check' : 'write'
+  return NAV_OF_ROUTE[route.name] || route.name
 }
 
 /** 点左栏一项：**先动状态，地址跟着状态走**（与 `backToLibrary` 同一个规矩）。 */
@@ -421,6 +462,8 @@ function onRailSelect(key) {
   const go = target.go || { name: 'readHome' }
   // ⭐「校对」= 进写作页**并当场拉开检查抽屉**（形态 §3.3：校对是写作页里的抽屉，不是新页面）
   if (target.opens === 'check') openCheck()
+  // ⭐ 点「写作」= 退出校对模式：抽屉不收，左栏就还得亮「校对」（两者共用一屏，靠抽屉分）
+  else if (key === 'write') closeCheck()
   // ⭐ 整页只有这几张（读懂工作台 / 历史记录 / 写作 / 素材库 / 集合 / 标签 / 个人中心 / 处理过程 / 记忆）
   const PAGES = {
     readHome: 'readHome',
@@ -435,7 +478,9 @@ function onRailSelect(key) {
     memory: 'memory',
   }
   view.value = PAGES[go.name] || 'readHome'
-  activeNav.value = NAV_OF_ROUTE[go.name] || go.name
+  // ⭐ 点了哪一项就亮哪一项（**不能按目标路由反推**）：库页里「全部文献 / 待读 / 未归类」
+  //    共用 `#/`，按路由反推会把这三项都算成「全部文献」；「校对」同理（它落在写作页，亮写作是错的）。
+  activeNav.value = key
   // ⭐ 带筛选条件的入口（「待读」= 智能集合"状态 = 待读"；「全部文献」= 清掉筛选）：
   // **不止跳过去，还要真的筛**——N8 的四个参数已经在后端了（契约 §2.2）。
   if (target.filter) loadTasksAndSync(target.filter)
@@ -583,6 +628,32 @@ onUnmounted(() => {
 
 watch(view, () => {
   if (view.value === 'library') syncActiveDetail()
+})
+
+/**
+ * 库页里改了筛选（筛选条换状态 / 点「清空」）→ 左栏高亮跟着变。
+ *
+ * 只认库页这一屏：别的屏的选中态由地址决定，这里插手会把「读懂」「写作」的高亮搅乱。
+ * 判据同样走 `libraryNavKey`：筛选认不出（用户在筛选条里自选组合）就回落到「全部文献」。
+ */
+watch(
+  activeTaskQuery,
+  (query) => {
+    if (currentRoute().name !== 'library') return
+    activeNav.value = libraryNavKey(query)
+  },
+  { deep: true },
+)
+
+/**
+ * 写作页里开关「校对」抽屉 → 左栏在「写作」与「校对」之间跟着切。
+ *
+ * 两者共用 `#/write`（校对是抽屉、不是独立页面），地址分不出来，只能看 `checkOpen`。
+ * 只在写作页生效：别的屏上这个值没有意义，插手会把别处的高亮搅乱。
+ */
+watch(checkOpen, (isOpen) => {
+  if (currentRoute().name !== 'write') return
+  activeNav.value = isOpen ? 'check' : 'write'
 })
 
 async function restoreSession() {
@@ -747,7 +818,8 @@ function handleUnauthorized() {
                与写作页同理：**必须排在阅读区前面判断**（`view` 是唯一真源），
                否则"在读一篇 + 点 #/me"会被 `currentTask` 那条分支吃掉、屏停不动。 -->
           <section v-else-if="view === 'me'" class="screen-me">
-            <MeView />
+            <!-- 退出登录收口在外壳（`onLogout` 要清令牌/任务/草稿/进度），个人中心只发事件 -->
+            <MeView @logout="onLogout" />
           </section>
 
           <!-- ==================== M5 处理过程（#/process 整页） ====================

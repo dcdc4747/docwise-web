@@ -221,11 +221,15 @@ def patch_draft(
     """
     row = _load_owned_draft(db, user, draft_id)
     patch = body.model_dump(exclude_unset=True)
+    title_changed = False
     if "title" in patch and patch["title"] is not None:
-        row.title = patch["title"].strip()
+        next_title = patch["title"].strip()
+        # ⭐ **标题也算"稿子变了"**（W7，2026-11-17 起）：只在正文变了时记版本的话，
+        #    用户改完名就再也回不到旧标题了 —— 版本快照本来是整篇的。
+        title_changed = next_title != (row.title or "")
+        row.title = next_title
     body_changed = False
     if "body_md" in patch and patch["body_md"] is not None:
-        # ⭐ 版本只在**正文内容真的变了**时才记（只改标题 / 连点保存不长版本）
         body_changed = patch["body_md"] != (row.body_md or "")
         row.body_md = patch["body_md"]
     if "body_html" in patch:
@@ -233,7 +237,8 @@ def patch_draft(
         row.body_html = patch["body_html"]
     if "template_id" in patch:
         row.template_id = patch["template_id"]
-    if body_changed:
+    # 版本只在**稿子真的变了**（正文或标题）时才记；连点保存、同值改名都不长版本
+    if body_changed or title_changed:
         _record_version(db, row, source="user")
     db.commit()
     db.refresh(row)
@@ -344,13 +349,18 @@ _VERSIONS_MAX_LIMIT = 100
 
 
 def _serialize_version_summary(row: DraftVersion) -> dict:
-    """列表项（**不带正文**）：`{id, source, note, created_at, chars}`。"""
+    """列表项（**不带正文**）：`{id, source, note, created_at, chars, title}`。
+
+    ⚠️ `title` 是快照里的那个标题，不是 `drafts` 的现值：改名之后用户要认得出
+    "这一版当时叫什么"（W7），否则回滚前根本分不清自己在回哪一篇的哪一版。
+    """
     return {
         "id": row.id,
         "source": row.source,
         "note": row.note,
         "created_at": iso_utc(row.created_at),
         "chars": len(row.body_md or ""),
+        "title": row.title or "",
     }
 
 
@@ -394,8 +404,10 @@ def _record_version(
 ) -> DraftVersion | None:
     """给草稿记一版快照（并把表裁到最近 `_VERSIONS_KEEP` 版）。
 
-    `dedupe=True`（`PATCH` 保存走这条）：**与上一条版本正文相同就不记** ——
-    幂等规则，挡的是"同一份正文连点保存"攒出一串空壳版本。
+    `dedupe=True`（`PATCH` 保存走这条）：**正文与标题都跟上一条相同就不记** ——
+    幂等规则，挡的是"同一份稿子连点保存"攒出一串空壳版本。
+    ⚠️ 比的是**两样**（2026-11-17 起）：只比正文的话，"只改了标题"这种保存会被吞掉，
+    用户就没法从版本里找回到改名之前（W7）。反过来只比标题也不行——同标题改正文是常态。
     `dedupe=False`（回滚前的快照走这条）：**必须留痕**，哪怕与上一条内容相同；
     这条快照是"撤销这次回滚"的唯一凭据，省掉它就等于把中间稿弄丢了。
 
@@ -409,7 +421,11 @@ def _record_version(
             .order_by(DraftVersion.id.desc())
             .limit(1)
         )
-        if last is not None and (last.body_md or "") == body:
+        if (
+            last is not None
+            and (last.body_md or "") == body
+            and (last.title or "") == (draft.title or "")
+        ):
             return None
 
     row = DraftVersion(
@@ -494,14 +510,17 @@ def restore_version(
     ⭐ **先把当前正文存成一版 `source="restore"`，再写回**：回滚是把稿子往回拨，
     如果不在拨之前留痕，"回滚"本身就成了不可撤销的操作 —— 那等于用一次误点
     换掉用户最新的稿子。
-    ⚠️ 只写回**正文**（`body_md`）；`title` 进快照只是为了记录当时的标题，
-    回滚不擅自改标题。
+    ⭐ **正文、版式、标题一起回到那一版**（标题自 2026-11-17 起，W7）：版本是整篇快照，
+    只回正文会让界面上"稿名是新的、内容是旧的"，用户根本说不清现在到底是哪一版。
+    ⚠️ 标题为空的老快照不覆盖当前标题（`drafts.title` 非空），免得把库里撞红。
     """
     draft, row = _load_owned_version(db, user, draft_id, version_id)
     _record_version(db, draft, source="restore", dedupe=False)
     draft.body_md = row.body_md
     # 样式也要一起回来（只回 md 会让"回滚后字号全变默认"这种更迷惑）
     draft.body_html = row.body_html
+    if (row.title or "").strip():
+        draft.title = row.title
     db.commit()
     db.refresh(draft)
     return _serialize_draft(draft, _citations_of(db, draft.id))

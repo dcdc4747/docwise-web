@@ -6,7 +6,7 @@
  * 把"填密钥、改地址、换厂商"塞进那个按钮，看起来就像把设置页糊在对话框上。
  * 这里照主流 agent 工具的做法：设置是独立入口、有分区，输入框旁边只有模型。
  */
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 
 import {
   agentConfig,
@@ -16,6 +16,7 @@ import {
   openSettings,
   saveAgentConfig,
 } from '../stores/useAgent'
+import { rememberFocus, returnFocus } from '../focusReturn'
 
 const open = agentSettingsOpen
 const config = agentConfig
@@ -76,6 +77,30 @@ watch(
   },
   { immediate: true },
 )
+
+// ---------------------------------------------------------------- 焦点回收 + Esc 关闭（全端检查 G3）
+/**
+ * `Esc` 关弹窗；关掉之后把焦点还给打开它的那颗按钮。
+ *
+ * 为什么补这两条：弹窗是 `position: fixed` 盖住整页 —— 键盘用户没有 `Esc` 就只能
+ * 一路 Tab 摸回 ×；而 × 关掉之后焦点还会丢回 `body`，再按 Tab 又从页首重数。
+ * 记焦点必须在**打开那一刻**（`pre` 时机）：关闭时焦点可能已经落在要卸载的节点上。
+ */
+let settingsOpener = null
+watch(open, (isOpen) => {
+  if (isOpen) {
+    settingsOpener = rememberFocus()
+    return
+  }
+  returnFocus(settingsOpener)
+  settingsOpener = null
+})
+
+function onKeydown(event) {
+  if (event.key === 'Escape' && open.value) openSettings(false)
+}
+onMounted(() => window.addEventListener('keydown', onKeydown))
+onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
 function pickProvider(id) {
   customModel.value = false

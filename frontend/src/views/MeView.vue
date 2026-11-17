@@ -8,8 +8,23 @@
       </div>
     </header>
 
+    <!-- 六区锚点（全端检查 A4，2026-11-17）：整页五百多行，找「偏好」要从头滚到尾 -->
+    <nav class="me-nav" aria-label="个人中心分区">
+      <button
+        v-for="sec in SECTIONS"
+        :key="sec.id"
+        type="button"
+        class="me-nav-item"
+        :class="{ on: activeSec === sec.id }"
+        :aria-current="activeSec === sec.id ? 'true' : undefined"
+        @click="jumpTo(sec.id)"
+      >
+        {{ sec.label }}
+      </button>
+    </nav>
+
     <!-- ============================ ① 身份 ============================ -->
-    <section class="me-sec">
+    <section id="me-sec-identity" class="me-sec">
       <h2 class="me-sec-t">身份</h2>
       <HonestNote v-if="errors.me" :text="errors.me" />
       <div class="me-field">
@@ -34,7 +49,7 @@
     </section>
 
     <!-- ========================= ② 账号安全 ========================= -->
-    <section class="me-sec">
+    <section id="me-sec-security" class="me-sec">
       <h2 class="me-sec-t">账号安全</h2>
       <div class="me-field">
         <label class="me-label" for="me-old">原密码</label>
@@ -101,7 +116,7 @@
     </section>
 
     <!-- ========================= ③ 我的数据 ========================= -->
-    <section class="me-sec">
+    <section id="me-sec-data" class="me-sec">
       <h2 class="me-sec-t">我的数据</h2>
       <HonestNote v-if="errors.storage" :text="errors.storage" />
       <template v-else-if="storage">
@@ -134,7 +149,7 @@
     </section>
 
     <!-- ======================= ④ AI 使用台账 ======================= -->
-    <section class="me-sec">
+    <section id="me-sec-ledger" class="me-sec">
       <h2 class="me-sec-t">AI 使用台账</h2>
       <HonestNote v-if="errors.ledger" :text="errors.ledger" />
       <table v-else-if="ledger.length" class="me-table me-ledger">
@@ -176,7 +191,7 @@
     </section>
 
     <!-- ========================== ⑤ 偏好 ========================== -->
-    <section class="me-sec">
+    <section id="me-sec-prefs" class="me-sec">
       <h2 class="me-sec-t">偏好</h2>
       <div class="me-field">
         <label class="me-label" for="me-view-def">默认读法</label>
@@ -206,9 +221,9 @@
       <HonestNote v-if="prefsError" class="me-prefs-sync" :text="prefsError" />
     </section>
 
-    <!-- ==================== ⑥ 管理 · 危险区 ==================== -->
-    <section class="me-sec">
-      <h2 class="me-sec-t">管理 · 危险区</h2>
+    <!-- ============================ ⑥ 管理 ============================ -->
+    <section id="me-sec-manage" class="me-sec">
+      <h2 class="me-sec-t">管理</h2>
       <div v-if="isAdmin" class="me-field">
         <span class="me-label">管理后台</span>
         <a class="btn me-admin-link" href="#/admin">打开管理后台（仅管理员可见）</a>
@@ -242,6 +257,13 @@
         </div>
         <span v-if="deleteHint" class="me-hint">{{ deleteHint }}</span>
       </div>
+
+      <!-- 退出登录：整页唯一一个"把人送出去"的按钮，放在这一区**所有内容之后** -->
+      <div class="me-field me-logout-row">
+        <span class="me-label">账号</span>
+        <button type="button" class="btn me-logout" @click="logoutNow">退出登录</button>
+        <span class="me-hint">退出后立刻回到登录页；论文、草稿与台账都在服务端，下次登录还在。</span>
+      </div>
     </section>
   </div>
 </template>
@@ -250,7 +272,7 @@
 /**
  * 个人中心（整页，issue #112 / 任务卡：卡④）。
  *
- * 六个区块：**身份 · 账号安全 · 我的数据 · AI 使用台账 · 偏好 · 管理/危险区**。
+ * 六个区块：**身份 · 账号安全 · 我的数据 · AI 使用台账 · 偏好 · 管理**。
  * ⚠️ 本页**自己不加路由**（`#/me` 由外壳负责人挂），也不改 `App.vue` / 别人的 `style.css` 段。
  *
  * 四条纪律（都是这个项目里已经吃过亏的地方）：
@@ -259,15 +281,87 @@
  * ② ⭐ **不编时间、不编数**：`last_login_at` 现在还没带出来（契约 N30）就写"暂未记录"，
  *    **不拿 `created_at` 冒充"上次登录"**；
  * ③ ⭐ **危险区三件套一个都不能少**：说清不可恢复 + 引导先导出 + 二次确认（勾选 **且** 手打用户名）；
- * ④ **口径照全站红线**：`actor` 那一列是"数据流向"的机器证据 —— 说"服务自持 + 文献存本地"，
+ * ④ ⭐ **退出登录只有一个入口**，放在「管理」区**所有内容之后**：点完立刻回未登录态，
+ *    清理动作交给外壳的 `onLogout`（清令牌、清任务、清草稿），本页不自己造一套；
+ * ⑤ **口径照全站红线**：`actor` 那一列是"数据流向"的机器证据 —— 说"服务自持 + 文献存本地"，
  *    **不说"数据不出本机"**（外文翻译 / 扫描件逐段翻译 / 导读 / 问答四处仍调云端模型 API）。
+ *
+ * ⚠️ 2026-11-17：这一区的**标题**只叫「管理」（原来的"管理 · 危险区"里那半截去掉了），
+ *    但**里面的东西一件没动**：管理后台入口 + 危险区三件套照旧，退出登录加在它们下面。
  */
-import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 
 import { apiJson, authFetch, clearToken } from '../auth'
 import { actorText, stageText } from '../ledgerText'
 import HonestNote from '../components/HonestNote.vue'
 import { loadPrefs, prefsError, readLocalPrefs, savePrefs } from '../stores/usePrefs'
+
+/** 退出登录由外壳收口（`App.vue` 的 `onLogout`）：本页只负责"按一下"。 */
+const emit = defineEmits(['logout'])
+
+// ---------------------------------------------------------------- 六区锚点（全端检查 A4）
+/**
+ * 六个区块的 id 与标题**只在这张表里写一遍**：导航文案、目标 id 都从它来，
+ * 别再在模板里手抄一份（抄歪了就是"点一条滚到别的块"）。
+ */
+const SECTIONS = [
+  { id: 'me-sec-identity', label: '身份' },
+  { id: 'me-sec-security', label: '账号安全' },
+  { id: 'me-sec-data', label: '我的数据' },
+  { id: 'me-sec-ledger', label: 'AI 使用台账' },
+  { id: 'me-sec-prefs', label: '偏好' },
+  { id: 'me-sec-manage', label: '管理' },
+]
+const activeSec = ref(SECTIONS[0].id)
+
+/**
+ * 点一条：先立刻高亮（不等滚动事件的回声），再滚过去。
+ *
+ * ⚠️ `jumpLockUntil` 是必须的：平滑滚动会连续触发观察器，滚动结束那一下常常把
+ * 高亮抢到"视口最上面那一块"去（实测：点「管理」滚到底，高亮跳到「AI 使用台账」）。
+ * 点击把这条锁到 900ms —— 正好盖住一次平滑滚动，之后用户自己滚，跟随照旧生效。
+ */
+let jumpLockUntil = 0
+function jumpTo(id) {
+  activeSec.value = id
+  jumpLockUntil = Date.now() + 900
+  const el = document.getElementById(id)
+  // happy-dom / 老浏览器没有 scrollIntoView 时不报错，锚点仍会高亮
+  if (el && typeof el.scrollIntoView === 'function') {
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+}
+
+/**
+ * 滚到哪一块，左边就亮哪一条。
+ *
+ * `rootMargin` 把命中带压到视口靠上的一段：不加的话一屏里同时有 2–3 块可见，
+ * 高亮会在几条之间来回跳。没有 `IntersectionObserver` 时**不假装**——
+ * 锚点照样能点、能滚，只是不再自动跟随。
+ */
+let anchorObserver = null
+onMounted(() => {
+  if (typeof IntersectionObserver !== 'function') return
+  anchorObserver = new IntersectionObserver(
+    (entries) => {
+      // 刚点过锚点：滚动回响还在路上，这期间一律以点击的那一条为准（见 jumpTo）
+      if (Date.now() < jumpLockUntil) return
+      const hit = entries
+        .filter((item) => item.isIntersecting)
+        .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0]
+      if (hit) activeSec.value = hit.target.id
+    },
+    { rootMargin: '-15% 0px -70% 0px' },
+  )
+  for (const sec of SECTIONS) {
+    const el = document.getElementById(sec.id)
+    if (el) anchorObserver.observe(el)
+  }
+})
+onUnmounted(() => {
+  anchorObserver?.disconnect?.()
+  anchorObserver = null
+})
 
 // ---------------------------------------------------------------- 取数
 const me = ref(null)
@@ -498,7 +592,7 @@ async function syncPrefs() {
   prefsSyncing = false
 }
 
-// ---------------------------------------------------------------- ⑥ 危险区
+// ---------------------------------------------------------------- ⑥ 管理 · 危险区
 const confirm = reactive({ ack: false, name: '' })
 const deleting = ref(false)
 const deleteHint = ref('')
@@ -523,6 +617,17 @@ async function deleteAccount() {
   } finally {
     deleting.value = false
   }
+}
+
+// ---------------------------------------------------------------- ⑥ 管理 · 退出登录
+/**
+ * 退出登录：**只发事件**，不在这里自己造一套清理。
+ *
+ * 为什么：令牌、任务列表、当前文献、草稿、进度推送都归外壳（`App.vue` 的 `onLogout`）管；
+ * 两处各清一半最容易留下"看着已退出、点两下又进来了"的脏状态。
+ */
+function logoutNow() {
+  emit('logout')
 }
 
 // ---------------------------------------------------------------- 格式化

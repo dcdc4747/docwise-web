@@ -223,6 +223,15 @@ task_id (可为 null), block_id, deleted_at, created_at
 **`Draft` 对象**：`{id, title, body_md, template_id, updated_at, citations: Citation[]}`
 **`Citation` 对象**：`{id, draft_id, material_id, order, csl_json, anchor}`
 
+> **版本历史（3 条路由，清单里有、不另占 N 号）**：`GET /api/drafts/{id}/versions`（轻量列表，
+> 每条 `{id, source, note, created_at, chars, title}`，**不带正文**）· `GET /api/drafts/{id}/versions/{version_id}`
+> （详情，含 `body_md / body_html / title`，**只读回显、不自动应用**）· `POST .../restore`
+> （回滚，**回滚前先把当前稿存一版 `source="restore"`**）。
+> ⭐ **2026-11-17 起（W7）**：① **标题是稿子的一部分** —— `PATCH` 里改了标题也会记一版，
+> 幂等规则由此变成"正文与标题**都**跟上一条相同时才不记"；② `restore` 会把**正文、版式、标题一起**
+> 带回那一版（只回正文会出现"稿名是新的、内容是旧的"，用户说不清现在是哪一版）。
+> `title` 一律是**当时的快照**，不是 `drafts` 的现值。保留最近 50 版。
+
 **`Bibliography` 对象**：`{style, locale, entries: string[], item_texts: {id: 文本}, count, skipped: string[], styles: string[]}`。
 ⭐ 形状**由引擎返回、后端原样透传**（只**追加** `styles` 这份可用 key 清单）；**没有引文时回同形状的空表**
 （不白跑引擎，但样式 key **仍然先校验**）。

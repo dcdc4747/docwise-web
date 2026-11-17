@@ -22,6 +22,23 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '../src/App.vue'
 
 /**
+ * 等到某个条件成立（最多 `tries` 轮，每轮让 Vue 与宏任务都走一步）。
+ *
+ * 为什么需要：`#/read/12`、`#/me` 这类地址变化走的是**真的 `hashchange`（宏任务）**，
+ * 而 `flushPromises()` 只把微任务排空、赶不上它 —— 于是"屏已经切了、左栏选中态还差一拍"。
+ * 2026-11-17 实测：干净 main 上 `app.smoke` 连跑 4 次红 3 次，跟改了什么无关。
+ * ⚠️ 这里**不吞失败**：等不到就照样往下走，让调用方的 `expect` 去报 ——
+ * 否则报错会变成"超时"，反而看不出是哪条口径不对。
+ */
+async function untilSettled(predicate, tries = 60) {
+  for (let i = 0; i < tries; i += 1) {
+    await flushPromises()
+    if (predicate()) return
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  }
+}
+
+/**
  * pdf.js 在 happy-dom 里画不了 canvas（没有 2d 上下文），所以把加载层换掉，
  * 换成"能拿到文字层"的假文档——**定位与命中这一层才是要测的东西**，
  * 而它们全都建立在文字层坐标上，跟真不真画没关系。
@@ -1294,7 +1311,67 @@ describe('App.vue 页面渲染', () => {
     // 进阅读区：地址变成 #/read/:id，但仍在「读懂」这个模块里，选中态不该跳走
     await openReader(wrapper, '开始阅读')
     expect(wrapper.find('.screen-reader').exists()).toBe(true)
+    // 选中态跟着 `hashchange` 走（宏任务），得等它一拍，别抢在路由前面断言
+    await untilSettled(() => readItem().classes().includes('on'))
     expect(readItem().classes()).toContain('on')
+  })
+
+  it('⭐ 左栏：点「待读」「未归类」亮的是自己，不是「全部文献」（三者共用 #/，靠筛选分）', async () => {
+    const { task, detail } = completedFixture()
+    globalThis.fetch = stubFetch({ tasks: [task], detail })
+    wrapper = mountApp()
+    await flushPromises()
+
+    const railByLabel = (label) => wrapper.findAll('button.rail-item').find((b) => b.text() === label)
+
+    // 「待读」= 库页 + reading_status=todo：地址还是 `#/`，只能按筛选反推高亮
+    await railByLabel('待读').trigger('click')
+    await flushPromises()
+    await untilSettled(() => railByLabel('待读').classes().includes('on'))
+    expect(railByLabel('待读').classes()).toContain('on')
+    expect(railByLabel('全部文献').classes()).not.toContain('on')
+
+    // 「未归类」= 库页 + unfiled=1：同理
+    await railByLabel('未归类').trigger('click')
+    await flushPromises()
+    await untilSettled(() => railByLabel('未归类').classes().includes('on'))
+    expect(railByLabel('未归类').classes()).toContain('on')
+    expect(railByLabel('待读').classes()).not.toContain('on')
+
+    // 回「全部文献」= 清筛选：亮回全部文献（另外两条都得灭）
+    await railByLabel('全部文献').trigger('click')
+    await flushPromises()
+    await untilSettled(() => railByLabel('全部文献').classes().includes('on'))
+    expect(railByLabel('全部文献').classes()).toContain('on')
+    expect(railByLabel('待读').classes()).not.toContain('on')
+    expect(railByLabel('未归类').classes()).not.toContain('on')
+  })
+
+  it('⭐ 左栏：点「素材」亮素材、点「校对」亮校对（这两条的路由名与左栏 key 不同名）', async () => {
+    wrapper = mountApp()
+    await flushPromises()
+
+    const railByLabel = (label) => wrapper.findAll('button.rail-item').find((b) => b.text() === label)
+
+    // 素材：路由名 `materials`、左栏 key `lib-materials` —— 不登记映射就一条都不亮
+    await railByLabel('素材').trigger('click')
+    await flushPromises()
+    await untilSettled(() => railByLabel('素材').classes().includes('on'))
+    expect(railByLabel('素材').classes()).toContain('on')
+    expect(wrapper.find('.screen-materials').exists()).toBe(true)
+
+    // 校对：它是写作页 + 检查抽屉，路由仍是 #/write —— 亮写作是错的
+    await railByLabel('校对').trigger('click')
+    await flushPromises()
+    await untilSettled(() => railByLabel('校对').classes().includes('on'))
+    expect(railByLabel('校对').classes()).toContain('on')
+    expect(railByLabel('写作').classes()).not.toContain('on')
+    expect(wrapper.find('.wr-check').exists()).toBe(true)
+
+    // 收尾：把抽屉关掉，别把 `checkOpen` 留给后面的用例（store 是模块级的，不随测试重置）
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    await flushPromises()
+    expect(wrapper.find('.wr-check').exists()).toBe(false)
   })
 
   it('左栏：点「写作」进写作页（M3 已接上），地址落到 #/write 且「写作」高亮', async () => {
@@ -1505,7 +1582,8 @@ describe('App.vue 页面渲染', () => {
     expect(account.text()).toContain('tester')
     // 首字头像：收起态就靠它（`.rail-lbl` 会被既有的 `.rail-min .rail-lbl` 藏掉）
     expect(account.find('.rail-av').text()).toBe('t')
-    // 还没进个人中心 → 不该亮
+    // 还没进个人中心 → 不该亮（`activeNav` 是模块级状态，等它按本次地址落定再断言）
+    await untilSettled(() => !account.classes().includes('on'))
     expect(account.classes()).not.toContain('on')
   })
 

@@ -3,8 +3,9 @@
 钉五件事（每条都对应一个会真出事的口径）：
 
 1. `PATCH` 保存正文后**自动记一版**，且版本里就是存下去的那份正文；
-2. **内容没变不重复记** —— 同一秒里连点保存会攒出一串空壳版本，把 50 版额度吃光；
-3. `restore` 能回滚，且**中间稿被存成 `source="restore"` 的一版**（回滚本身可撤销）；
+2. **稿子真没变就不重复记** —— 同一秒里连点保存会攒出一串空壳版本，把 50 版额度吃光；
+   但**改名也算变了**（W7）：只在正文变了时记，用户改完名就再也回不到旧标题了；
+3. `restore` 能回滚**正文与标题**；中间稿存成 `source="restore"` 的一版（回滚可撤销）；
 4. **归属**：别人的草稿在列表 / 详情 / restore 三个端点都 404；
 5. **上限 50 版**是硬规则：第 52 版进来时最旧的两版必须真的被删。
 
@@ -80,7 +81,7 @@ def test_patch_records_the_saved_body() -> None:
 # ============================================================ ② 幂等
 
 def test_unchanged_body_is_not_recorded_again() -> None:
-    """同一份正文连点保存、或只改标题，都不许长版本。"""
+    """同一份稿子连点保存不长版本；但**改名要长**（W7：改完名还得回得去旧标题）。"""
     draft_id = _make_draft()
     with TestClient(app) as client:
         for _ in range(3):
@@ -88,12 +89,22 @@ def test_unchanged_body_is_not_recorded_again() -> None:
                 f"/api/drafts/{draft_id}", json={"body_md": "同一份正文"}
             )
             assert res.status_code == 200
-        # 只改标题：正文没变 → 也不该记
+        # 三下同样的保存：只有第一下真变了 → 只该有一版
+        assert len(client.get(f"/api/drafts/{draft_id}/versions").json()["items"]) == 1
+
+        # 改名：稿子确实变了（标题也是稿子的一部分）→ 记一版
+        renamed = client.patch(f"/api/drafts/{draft_id}", json={"title": "改个名字"})
+        assert renamed.status_code == 200
+        # 再改成一个**一样的**名字：没变化 → 不再长版本
         client.patch(f"/api/drafts/{draft_id}", json={"title": "改个名字"})
         listed = client.get(f"/api/drafts/{draft_id}/versions")
 
-    assert len(listed.json()["items"]) == 1
-    assert len(_versions_of(draft_id)) == 1
+    items = listed.json()["items"]
+    assert len(items) == 2
+    assert len(_versions_of(draft_id)) == 2
+    # 列表里的标题是**当时的快照**，不是 `drafts` 的现值
+    assert items[0]["title"] == "改个名字"
+    assert items[1]["title"] == "我的草稿"
 
 
 # ============================================================ ③ 回滚 + 留痕
@@ -123,7 +134,7 @@ def test_restore_rolls_back_and_snapshots_the_intermediate_body() -> None:
     # 形状照 `_serialize_draft`（前端直接复用同一份渲染）
     assert restored.json()["body_md"] == "AI 动手之前"
     assert restored.json()["citations"] == []
-    # 只写回正文，不擅自改标题
+    # 这一篇从头到尾没改过名，回滚后标题仍是它（改名的情形见下一条用例）
     assert restored.json()["title"] == "我的草稿"
 
     items = listed.json()["items"]
@@ -133,6 +144,35 @@ def test_restore_rolls_back_and_snapshots_the_intermediate_body() -> None:
     # ⭐ 中间稿真的被存下来了（"回滚把中间稿弄丢"就出在这里）
     assert items[0]["chars"] == len("AI 改写之后")
     assert _versions_of(draft_id)[-1][2] == "AI 改写之后"
+
+
+def test_restore_brings_the_title_back_too() -> None:
+    """W7：改过名之后回滚，**标题也回到那一版**。
+
+    只回正文的话，界面上会出现"稿名是新的、内容是旧的"——用户根本说不清
+    现在到底是哪一版，也回不到自己改名前那个名字。
+    """
+    draft_id = _make_draft(title="原来的名字")
+    with TestClient(app) as client:
+        client.patch(f"/api/drafts/{draft_id}", json={"body_md": "第一版正文"})
+        before = client.get(f"/api/drafts/{draft_id}/versions").json()["items"][0]
+        # 改名 + 再改正文：最新一版与 `before` 已经有名字和内容两处不同
+        client.patch(f"/api/drafts/{draft_id}", json={"title": "改过的名字"})
+        client.patch(f"/api/drafts/{draft_id}", json={"body_md": "第二版正文"})
+        now = client.get(f"/api/drafts/{draft_id}")
+        restored = client.post(
+            f"/api/drafts/{draft_id}/versions/{before['id']}/restore"
+        )
+        listed = client.get(f"/api/drafts/{draft_id}/versions").json()["items"]
+
+    assert now.json()["title"] == "改过的名字"
+    assert restored.status_code == 200
+    assert restored.json()["title"] == "原来的名字"
+    assert restored.json()["body_md"] == "第一版正文"
+
+    # ⭐ 回滚前那份"改过的名字 + 第二版正文"也被留档了（回滚本身可撤销）
+    assert listed[0]["source"] == "restore"
+    assert listed[0]["title"] == "改过的名字"
 
 
 # ============================================================ ④ 归属
